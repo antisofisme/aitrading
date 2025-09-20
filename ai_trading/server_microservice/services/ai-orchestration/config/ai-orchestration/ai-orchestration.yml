@@ -1,0 +1,4 @@
+service:
+  description: Ai-Orchestration microservice
+  name: ai-orchestration
+  version: 1.0.0

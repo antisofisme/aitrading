@@ -1,0 +1,4 @@
+service:
+  description: Trading-Engine microservice
+  name: trading-engine
+  version: 1.0.0

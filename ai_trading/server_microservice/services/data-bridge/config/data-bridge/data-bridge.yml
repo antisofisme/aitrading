@@ -1,0 +1,23 @@
+cors:
+  allow_credentials: true
+  allow_headers:
+  - '*'
+  allow_methods:
+  - '*'
+  enabled: true
+  origins:
+  - '*'
+data_sources:
+  mt5:
+    enabled: true
+environment: development
+monitoring:
+  health_check_interval_seconds: 30
+service:
+  debug: true
+  host: 0.0.0.0
+  name: data-bridge
+  port: 8001
+websocket:
+  enabled: true
+  max_connections: 200

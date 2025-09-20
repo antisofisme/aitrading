@@ -1,0 +1,179 @@
+service:
+  name: data-bridge
+  description: Data Bridge microservice - Real-time market data ingestion and MT5 bridge
+  version: 1.0.0
+  environment: ${MICROSERVICE_ENVIRONMENT:development}
+  port: ${DATA_BRIDGE_PORT:8001}
+  debug: ${DATA_BRIDGE_DEBUG:false}
+  host: ${DATA_BRIDGE_HOST:0.0.0.0}
+  
+cors:
+  enabled: ${CORS_ENABLED:true}
+  origins:
+    - "${CORS_ORIGINS:*}"
+    
+rate_limiting:
+  enabled: ${RATE_LIMITING_ENABLED:true}
+  requests_per_minute: ${RATE_LIMITING_REQUESTS_PER_MINUTE:5000}  # Higher limit for data streams
+
+authentication:
+  enabled: ${AUTH_ENABLED:false}
+  jwt_secret: ${JWT_SECRET_KEY:}
+  jwt_algorithm: ${JWT_ALGORITHM:HS256}
+  token_expire_minutes: ${JWT_TOKEN_EXPIRE_MINUTES:60}
+  api_key_authentication: ${API_KEY_AUTH_ENABLED:true}
+
+data_sources:
+  mt5:
+    enabled: ${MT5_ENABLED:true}
+    connection_timeout: ${MT5_CONNECTION_TIMEOUT:30}
+    max_retries: ${MT5_MAX_RETRIES:3}
+  
+  dukascopy:
+    enabled: ${DUKASCOPY_ENABLED:true}
+    base_url: ${DUKASCOPY_BASE_URL:https://www.dukascopy.com/swiss/english/marketwatch/historical/}
+    api_key: ${DUKASCOPY_API_KEY:}
+    
+  tradingview:
+    enabled: ${TRADINGVIEW_ENABLED:true}
+    base_url: ${TRADINGVIEW_BASE_URL:https://www.tradingview.com/}
+    api_key: ${TRADINGVIEW_API_KEY:}
+    
+  mql5:
+    enabled: ${MQL5_ENABLED:true}
+    base_url: ${MQL5_BASE_URL:https://www.mql5.com/}
+    api_key: ${MQL5_API_KEY:}
+
+mt5_bridge:
+  timeout_seconds: ${MT5_BRIDGE_TIMEOUT_SECONDS:30}
+  retry_attempts: ${MT5_BRIDGE_RETRY_ATTEMPTS:5}
+  keep_alive_interval: ${MT5_BRIDGE_KEEP_ALIVE_INTERVAL:60}
+  max_concurrent_connections: ${MT5_BRIDGE_MAX_CONCURRENT_CONNECTIONS:10}
+  
+  # MT5 Connection Credentials (externalized)
+  connection:
+    login: ${MT5_LOGIN:}
+    password: ${MT5_PASSWORD:}
+    server: ${MT5_SERVER:MetaQuotes-Demo}
+    path: ${MT5_PATH:}
+  
+trading:
+  symbols: ${TRADING_SYMBOLS:EURUSD,GBPUSD,USDJPY,AUDUSD,USDCAD,USDCHF,NZDUSD,EURJPY,GBPJPY,AUDJPY}
+  timeframes: ${TRADING_TIMEFRAMES:M1,M5,M15,M30,H1,H4,D1}
+  max_history_bars: ${TRADING_MAX_HISTORY_BARS:10000}
+
+websocket:
+  enabled: ${WEBSOCKET_ENABLED:true}
+  max_connections: ${WEBSOCKET_MAX_CONNECTIONS:1000}
+  heartbeat_interval: ${WEBSOCKET_HEARTBEAT_INTERVAL:30}
+  message_size_limit: ${WEBSOCKET_MESSAGE_SIZE_LIMIT:1048576}  # 1MB
+  message_compression: ${WEBSOCKET_MESSAGE_COMPRESSION:true}
+
+real_time_data:
+  tick_streaming: ${RT_TICK_STREAMING:true}
+  price_updates: ${RT_PRICE_UPDATES:true}
+  account_monitoring: ${RT_ACCOUNT_MONITORING:true}
+  position_tracking: ${RT_POSITION_TRACKING:true}
+
+caching:
+  enabled: ${CACHING_ENABLED:true}
+  ttl_seconds: ${CACHING_TTL_SECONDS:300}  # 5 minutes for market data
+  
+performance:
+  batch_size: ${PERFORMANCE_BATCH_SIZE:100}
+  concurrent_connections: ${PERFORMANCE_CONCURRENT_CONNECTIONS:50}
+  request_timeout: ${PERFORMANCE_REQUEST_TIMEOUT:30}
+  data_compression: ${PERFORMANCE_DATA_COMPRESSION:true}
+  batch_processing: ${PERFORMANCE_BATCH_PROCESSING:true}
+  cache_market_data: ${PERFORMANCE_CACHE_MARKET_DATA:true}
+  cache_ttl_seconds: ${PERFORMANCE_CACHE_TTL_SECONDS:60}
+
+monitoring:
+  health_check_interval_seconds: ${HEALTH_CHECK_INTERVAL:30}
+  metrics_enabled: ${METRICS_ENABLED:true}
+  performance_tracking: ${PERFORMANCE_TRACKING_ENABLED:true}
+  connection_health_check: ${MONITORING_CONNECTION_HEALTH_CHECK:true}
+  latency_monitoring: ${MONITORING_LATENCY_MONITORING:true}
+  error_tracking: ${MONITORING_ERROR_TRACKING:true}
+  performance_metrics: ${MONITORING_PERFORMANCE_METRICS:true}
+
+database:
+  host: ${DATABASE_HOST:localhost}
+  port: ${DATABASE_PORT:5432}
+  name: ${DATABASE_NAME:data_bridge_db}
+  user: ${DATABASE_USER:postgres}
+  password: ${DATABASE_PASSWORD:}
+  
+cache:
+  host: ${REDIS_HOST:localhost}
+  port: ${REDIS_PORT:6379}
+  db: ${REDIS_DB:3}
+  password: ${REDIS_PASSWORD:}
+
+# Message Brokers Configuration (Dual Architecture)
+message_brokers:
+  # Redpanda for high-frequency trading data (ticks, orders, positions)
+  redpanda:
+    enabled: ${REDPANDA_ENABLED:true}
+    bootstrap_servers: ${REDPANDA_BOOTSTRAP_SERVERS:localhost:19092}
+    topics:
+      tick_data: ${REDPANDA_TICK_TOPIC:mt5-tick-data}
+      market_data: ${REDPANDA_MARKET_TOPIC:market-data-stream}
+      order_updates: ${REDPANDA_ORDER_TOPIC:order-updates}
+    producer_config:
+      batch_size: ${REDPANDA_BATCH_SIZE:100}
+      compression_type: ${REDPANDA_COMPRESSION:lz4}
+      retries: ${REDPANDA_RETRIES:3}
+    consumer_config:
+      group_id: ${REDPANDA_GROUP_ID:data-bridge-consumer}
+      auto_offset_reset: ${REDPANDA_AUTO_OFFSET:latest}
+      
+  # NATS for low-frequency system events (service status, alerts, config)
+  nats:
+    enabled: ${NATS_ENABLED:true}
+    servers: ${NATS_SERVERS:nats://localhost:4222}
+    subjects:
+      service_events: ${NATS_SERVICE_EVENTS:trading.services.*}
+      system_alerts: ${NATS_ALERTS:trading.alerts.*}
+      configuration: ${NATS_CONFIG:trading.config.*}
+    jetstream:
+      enabled: ${NATS_JETSTREAM_ENABLED:true}
+      stream_name: ${NATS_STREAM:TRADING_EVENTS}
+      storage: ${NATS_STORAGE:file}
+      max_age: ${NATS_MAX_AGE:168h}  # 7 days
+  
+logging:
+  level: ${LOG_LEVEL:INFO}
+  format: ${LOG_FORMAT:json}
+  enable_data_logging: ${ENABLE_DATA_LOGGING:true}
+  enable_websocket_logging: ${ENABLE_WEBSOCKET_LOGGING:true}
+
+security:
+  enable_authentication: ${ENABLE_AUTHENTICATION:false}
+  api_key_header: ${API_KEY_HEADER:X-API-Key}
+  allowed_ips: ${ALLOWED_IPS:}
+  data_bridge_api_key: ${DATA_BRIDGE_API_KEY:}
+  service_secrets:
+    api-gateway: ${API_GATEWAY_SERVICE_SECRET:}
+    trading-engine: ${TRADING_ENGINE_SERVICE_SECRET:}
+    ai-orchestration: ${AI_ORCHESTRATION_SERVICE_SECRET:}
+    ml-processing: ${ML_PROCESSING_SERVICE_SECRET:}
+    database-service: ${DATABASE_SERVICE_SECRET:}
+
+# Environment-specific configurations
+environments:
+  development:
+    debug: true
+    log_level: debug
+    tick_streaming: false
+    max_concurrent_connections: 5
+  production:
+    debug: false
+    log_level: info
+    tick_streaming: true
+    max_concurrent_connections: 10
+  testing:
+    debug: true
+    log_level: debug
+    tick_streaming: false
+    max_concurrent_connections: 2

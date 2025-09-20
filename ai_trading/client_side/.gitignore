@@ -1,0 +1,40 @@
+# Runtime Files
+*.log
+*.log.*
+logs/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Environment
+mt5_env/
+venv/
+.env
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Temporary
+tmp/
+temp/
+*.tmp
+*.bak
+*.backup
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# ZIP log files (user generated)
+*.zip

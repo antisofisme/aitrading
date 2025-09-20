@@ -1,0 +1,61 @@
+# AI Provider Service Dependencies
+# LLM model routing: OpenAI, DeepSeek, Google AI, Anthropic
+# Model abstraction: LiteLLM unified interface
+# Observability: Langfuse tracking
+
+# Core framework
+fastapi>=0.104.1
+uvicorn[standard]>=0.24.0
+starlette>=0.27.0
+
+# Configuration & validation
+pydantic>=2.7.4
+pydantic-settings>=2.0.0
+python-dotenv>=1.0.0
+PyYAML>=6.0.0
+
+# LLM Model Providers
+openai>=1.12.0
+google-generativeai>=0.3.0
+anthropic>=0.7.0
+
+# LLM Abstraction & Routing (CORE SERVICE)
+litellm>=1.35.0
+
+# DeepSeek integration (via OpenAI-compatible API)
+# Note: DeepSeek uses OpenAI-compatible endpoints
+
+# Vector databases & embeddings
+weaviate-client>=4.0.0
+chromadb>=0.4.0
+sentence-transformers>=2.2.0
+huggingface-hub>=0.18.0
+
+# HTTP clients
+httpx>=0.24.0
+requests>=2.30.0
+aiohttp>=3.9.0
+
+# Database & Caching
+asyncpg>=0.29.0
+redis>=5.0.0
+aioredis>=2.0.1
+
+# AI Observability
+langfuse>=2.0.0
+
+# Logging
+structlog>=25.4.0
+python-json-logger>=3.3.0
+
+# File operations
+aiofiles>=23.0.0
+
+# Text processing & tokenization
+tiktoken>=0.5.0
+tokenizers>=0.14.0
+
+# Utilities
+python-dateutil>=2.8.0
+jinja2>=3.1.0
+numpy>=1.24.0

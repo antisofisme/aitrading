@@ -1,0 +1,550 @@
+# AI Trading Platform - Main Docker Compose
+# Domain-based microservice architecture
+
+version: '3.8'
+
+services:
+  # API Gateway Service
+  api-gateway:
+    build:
+      context: ./services/api-gateway
+      dockerfile: Dockerfile
+    container_name: service-api-gateway
+    ports:
+      - "${API_GATEWAY_PORT:-8000}:8000"
+    environment:
+      - ENVIRONMENT=${ENVIRONMENT:-development}
+      - CORS_ENABLED=${CORS_ENABLED:-true}
+      - CORS_ORIGINS=${CORS_ORIGINS:-*}
+      - AUTH_ENABLED=${AUTH_ENABLED:-false}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - DEBUG=${DEBUG:-true}
+    networks:
+      - ai-trading-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    depends_on:
+      database-service:
+        condition: service_healthy
+
+  # Data Bridge Service (Real-time market data & MT5 integration)
+  data-bridge:
+    build:
+      context: ./services/
+      dockerfile: data-bridge/Dockerfile
+    container_name: service-data-bridge
+    ports:
+      - "${DATA_BRIDGE_PORT:-8001}:8001"
+    environment:
+      - ENVIRONMENT=${ENVIRONMENT:-development}
+      - WEBSOCKET_ENABLED=${WEBSOCKET_ENABLED:-true}
+      - MT5_LOGIN=${MT5_LOGIN:-}
+      - MT5_PASSWORD=${MT5_PASSWORD:-}
+      - MT5_SERVER=${MT5_SERVER:-MetaQuotes-Demo}
+      - CORS_ENABLED=${CORS_ENABLED:-true}
+      - CORS_ORIGINS=${CORS_ORIGINS:-*}
+      - RATE_LIMITING_ENABLED=${RATE_LIMITING_ENABLED:-true}
+      - RATE_LIMITING_REQUESTS_PER_MINUTE=${RATE_LIMITING_REQUESTS_PER_MINUTE:-5000}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - DEBUG=${DEBUG:-true}
+      - NATS_URL=nats://nats:4222
+    networks:
+      - ai-trading-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    depends_on:
+      database-service:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+
+  # Trading Engine Service
+  trading-engine:
+    build:
+      context: ./services/trading-engine
+      dockerfile: Dockerfile
+    container_name: service-trading-engine
+    ports:
+      - "${TRADING_ENGINE_PORT:-8007}:8007"
+    environment:
+      - ENVIRONMENT=${ENVIRONMENT:-development}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - MT5_BRIDGE_URL=http://data-bridge:8001
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - DEBUG=${DEBUG:-true}
+      - CORS_ENABLED=${CORS_ENABLED:-true}
+      - CORS_ORIGINS=${CORS_ORIGINS:-*}
+      - NATS_URL=nats://nats:4222
+    networks:
+      - ai-trading-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8007/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    depends_on:
+      data-bridge:
+        condition: service_healthy
+      ai-orchestration:
+        condition: service_healthy
+      database-service:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+
+  # Database Service
+  database-service:
+    build:
+      context: ./services/
+      dockerfile: database-service/Dockerfile
+    container_name: service-database-service
+    ports:
+      - "${DATABASE_SERVICE_PORT:-8008}:8008"
+    environment:
+      - ENVIRONMENT=${ENVIRONMENT:-development}
+      - POSTGRES_USER=${POSTGRES_USER:-neliti_user}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-neliti_password_2024}
+      - POSTGRES_DB=${POSTGRES_DB:-neliti_main}
+      - CLICKHOUSE_USER=${CLICKHOUSE_USER:-default}
+      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD:-}
+      - CLICKHOUSE_DB=${CLICKHOUSE_DB:-trading_data}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - DEBUG=${DEBUG:-true}
+      - CORS_ENABLED=${CORS_ENABLED:-true}
+      - CORS_ORIGINS=${CORS_ORIGINS:-*}
+    networks:
+      - ai-trading-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8008/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    depends_on:
+      postgresql:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      dragonflydb:
+        condition: service_healthy
+      weaviate:
+        condition: service_healthy
+      arangodb:
+        condition: service_healthy
+
+  # AI Orchestration Service
+  ai-orchestration:
+    build:
+      context: ./services/ai-orchestration
+      dockerfile: Dockerfile
+    container_name: service-ai-orchestration
+    ports:
+      - "${AI_ORCHESTRATION_PORT:-8003}:8003"
+    environment:
+      - ENVIRONMENT=${ENVIRONMENT:-development}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - HANDIT_AI_API_KEY=${HANDIT_AI_API_KEY}
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
+      - GOOGLE_AI_API_KEY=${GOOGLE_AI_API_KEY}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - DEBUG=${DEBUG:-true}
+      - CORS_ENABLED=${CORS_ENABLED:-true}
+      - CORS_ORIGINS=${CORS_ORIGINS:-*}
+    volumes:
+      - ai_cache:/app/cache
+    networks:
+      - ai-trading-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8003/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    depends_on:
+      ai-provider:
+        condition: service_healthy
+      ml-processing:
+        condition: service_healthy
+      deep-learning:
+        condition: service_healthy
+
+  # AI Provider Service
+  ai-provider:
+    build:
+      context: ./services/ai-provider
+      dockerfile: Dockerfile
+    container_name: service-ai-provider
+    ports:
+      - "${AI_PROVIDER_PORT:-8005}:8005"
+    env_file:
+      - ./services/ai-provider/.env.ai-provider
+    environment:
+      - ENVIRONMENT=${ENVIRONMENT:-development}
+      - MICROSERVICE_ENVIRONMENT=${MICROSERVICE_ENVIRONMENT:-development}
+      - AI_PROVIDER_PORT=${AI_PROVIDER_PORT:-8005}
+      - AI_PROVIDER_DEBUG=${DEBUG:-true}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - CORS_ENABLED=${CORS_ENABLED:-true}
+      - CORS_ORIGINS=${CORS_ORIGINS:-*}
+    volumes:
+      - ai_cache:/app/cache
+    networks:
+      - ai-trading-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8005/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # ML Processing Service
+  ml-processing:
+    build:
+      context: ./services/ml-processing
+      dockerfile: Dockerfile
+    container_name: service-ml-processing
+    ports:
+      - "${ML_PROCESSING_PORT:-8006}:8006"
+    environment:
+      - ENVIRONMENT=${ENVIRONMENT:-development}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - DEBUG=${DEBUG:-true}
+      - CORS_ENABLED=${CORS_ENABLED:-true}
+      - CORS_ORIGINS=${CORS_ORIGINS:-*}
+    volumes:
+      - ml_models:/app/models
+    networks:
+      - ai-trading-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8006/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Deep Learning Service
+  deep-learning:
+    build:
+      context: ./services/deep-learning
+      dockerfile: Dockerfile
+    container_name: service-deep-learning
+    ports:
+      - "${DEEP_LEARNING_PORT:-8004}:8004"
+    environment:
+      - ENVIRONMENT=${ENVIRONMENT:-development}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - DEBUG=${DEBUG:-true}
+      - CORS_ENABLED=${CORS_ENABLED:-true}
+      - CORS_ORIGINS=${CORS_ORIGINS:-*}
+      # GPU disabled for WSL compatibility
+      # - NVIDIA_VISIBLE_DEVICES=all
+      # - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    volumes:
+      - ml_models:/app/models
+    networks:
+      - ai-trading-network
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+    # runtime: nvidia
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8004/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # User Service (Enterprise user management & workflows)
+  user-service:
+    build:
+      context: ./services/user-service
+      dockerfile: Dockerfile
+    container_name: service-user-service
+    ports:
+      - "${USER_SERVICE_PORT:-8009}:8009"
+    environment:
+      - ENVIRONMENT=${ENVIRONMENT:-development}
+      - POSTGRES_USER=${POSTGRES_USER:-neliti_user}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-neliti_password_2024}
+      - POSTGRES_DB=${POSTGRES_DB:-neliti_main}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - DEBUG=${DEBUG:-true}
+      - CORS_ENABLED=${CORS_ENABLED:-true}
+      - CORS_ORIGINS=${CORS_ORIGINS:-*}
+    networks:
+      - ai-trading-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8009/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    depends_on:
+      postgresql:
+        condition: service_healthy
+      dragonflydb:
+        condition: service_healthy
+
+  # Performance Analytics Service
+  performance-analytics:
+    build:
+      context: ./services/performance-analytics
+      dockerfile: Dockerfile
+    container_name: service-performance-analytics
+    ports:
+      - "${PERFORMANCE_ANALYTICS_PORT:-8010}:8010"
+    environment:
+      - ENVIRONMENT=${ENVIRONMENT:-development}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - DEBUG=${DEBUG:-true}
+      - CORS_ENABLED=${CORS_ENABLED:-true}
+      - CORS_ORIGINS=${CORS_ORIGINS:-*}
+    networks:
+      - ai-trading-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8010/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    depends_on:
+      database-service:
+        condition: service_healthy
+
+  # Strategy Optimization Service  
+  strategy-optimization:
+    build:
+      context: ./services/strategy-optimization
+      dockerfile: Dockerfile
+    container_name: service-strategy-optimization
+    ports:
+      - "${STRATEGY_OPTIMIZATION_PORT:-8011}:8011"
+    environment:
+      - ENVIRONMENT=${ENVIRONMENT:-development}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - DEBUG=${DEBUG:-true}
+      - CORS_ENABLED=${CORS_ENABLED:-true}
+      - CORS_ORIGINS=${CORS_ORIGINS:-*}
+    networks:
+      - ai-trading-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8011/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    depends_on:
+      database-service:
+        condition: service_healthy
+      ai-provider:
+        condition: service_healthy
+
+  # ==================================================================
+  # MESSAGE BROKER & EVENT STREAMING
+  # ==================================================================
+  
+  # NATS - Lightweight Message Broker for Event Streaming
+  nats:
+    image: nats:2.10-alpine
+    container_name: message-broker-nats
+    restart: unless-stopped
+    ports:
+      - "${NATS_PORT:-4222}:4222"    # Client connections
+      - "${NATS_HTTP_PORT:-8222}:8222" # HTTP monitoring
+    command: ["-js", "-m", "8222"]
+    volumes:
+      - nats_data:/data
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8222/varz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks:
+      - ai-trading-network
+
+  # ==================================================================
+  # DATABASE INFRASTRUCTURE STACK
+  # ==================================================================
+  
+  # PostgreSQL - Primary OLTP Database
+  postgresql:
+    image: postgres:16-alpine
+    container_name: database-postgresql
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_DB=neliti_main
+      - POSTGRES_USER=neliti_user
+      - POSTGRES_PASSWORD=neliti_password_2024
+      - POSTGRES_INITDB_ARGS=--encoding=UTF-8 --lc-collate=C --lc-ctype=C
+    volumes:
+      - postgresql_data:/var/lib/postgresql/data
+    command: >
+      postgres 
+      -c max_connections=200
+      -c shared_buffers=256MB
+      -c effective_cache_size=1GB
+      -c work_mem=4MB
+      -c maintenance_work_mem=64MB
+      -c random_page_cost=1.1
+      -c temp_file_limit=2GB
+      -c log_min_duration_statement=1000
+      -c log_connections=on
+      -c log_disconnections=on
+      -c log_lock_waits=on
+      -c log_statement=mod
+      -c log_line_prefix='%t [%p]: [%l-1] user=%u,db=%d,app=%a,client=%h '
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U neliti_user -d neliti_main"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ai-trading-network
+
+  # ClickHouse - OLAP Database for Analytics
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.3-alpine
+    container_name: database-clickhouse
+    restart: unless-stopped
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    environment:
+      - CLICKHOUSE_DB=trading_data
+      - CLICKHOUSE_USER=${CLICKHOUSE_USER:-default}
+      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD:-}
+      - CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1
+      - CLICKHOUSE_HTTP_PORT=8123
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - clickhouse_logs:/var/log/clickhouse-server
+    ulimits:
+      nproc: 65535
+      nofile:
+        soft: 262144
+        hard: 262144
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8123/ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks:
+      - ai-trading-network
+
+  # DragonflyDB - High-Performance Cache
+  dragonflydb:
+    image: docker.dragonflydb.io/dragonflydb/dragonfly:v1.15.1
+    container_name: database-dragonflydb
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: >
+      dragonfly
+      --requirepass=dragonfly_password_2024
+      --maxmemory=2gb
+      --cache_mode=true
+      --proactor_threads=2
+      --cluster_mode=emulated
+      --default_lua_flags=allow-undeclared-keys
+      --tcp_keepalive=300
+    volumes:
+      - dragonflydb_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "--no-auth-warning", "-a", "dragonfly_password_2024", "ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks:
+      - ai-trading-network
+
+  # Weaviate - Vector Database for AI/ML
+  weaviate:
+    image: semitechnologies/weaviate:1.24.6
+    container_name: database-weaviate
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - QUERY_DEFAULTS_LIMIT=25
+      - AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=false
+      - AUTHENTICATION_APIKEY_ENABLED=true
+      - AUTHENTICATION_APIKEY_ALLOWED_KEYS=weaviate_api_key_2024
+      - AUTHENTICATION_APIKEY_USERS=neliti_user
+      - PERSISTENCE_DATA_PATH=/var/lib/weaviate
+      - DEFAULT_VECTORIZER_MODULE=text2vec-openai
+      - ENABLE_MODULES=text2vec-openai,generative-openai,qna-openai
+      - CLUSTER_HOSTNAME=node1
+    volumes:
+      - weaviate_data:/var/lib/weaviate
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/v1/.well-known/ready"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - ai-trading-network
+
+  # ArangoDB - Multi-Model Database
+  arangodb:
+    image: arangodb/arangodb:3.11.8
+    container_name: database-arangodb
+    restart: unless-stopped
+    ports:
+      - "8529:8529"
+    environment:
+      - ARANGO_ROOT_PASSWORD=arangodb_password_2024
+      - ARANGO_NO_AUTH=false
+    volumes:
+      - arangodb_data:/var/lib/arangodb3
+      - arangodb_apps:/var/lib/arangodb3-apps
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8529/_api/version"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - ai-trading-network
+
+networks:
+  ai-trading-network:
+    driver: bridge
+
+volumes:
+  # Application volumes
+  ml_models:
+  ai_cache:
+  
+  # Message broker volumes
+  nats_data:
+    name: neliti_nats_data
+  
+  # Database volumes
+  postgresql_data:
+    name: neliti_postgresql_data
+  clickhouse_data:
+    name: neliti_clickhouse_data
+  clickhouse_logs:
+    name: neliti_clickhouse_logs
+  dragonflydb_data:
+    name: neliti_dragonflydb_data
+  weaviate_data:
+    name: neliti_weaviate_data
+  arangodb_data:
+    name: neliti_arangodb_data
+  arangodb_apps:
+    name: neliti_arangodb_apps

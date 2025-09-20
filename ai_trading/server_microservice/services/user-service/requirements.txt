@@ -1,0 +1,38 @@
+# User Service - User Management Only
+# Authentication, sessions, user profiles, user data
+
+# Core Framework
+fastapi>=0.104.1
+uvicorn[standard]>=0.24.0
+pydantic>=2.7.4
+python-dotenv>=1.0.0
+structlog>=25.4.0
+
+# User Authentication & Security
+PyJWT>=2.8.0
+bcrypt>=4.0.1
+passlib[bcrypt]>=1.7.4
+python-jose>=3.5.0
+cryptography>=41.0.0
+pyotp>=2.9.0
+qrcode[pil]>=7.4.2
+
+# Database for user data (async PostgreSQL only)
+sqlalchemy>=2.0.0
+asyncpg>=0.29.0
+
+# Session management 
+redis>=5.0.1
+aioredis>=2.0.1
+
+# HTTP & validation
+httpx>=0.24.0
+python-multipart>=0.0.6
+email-validator>=2.1.0
+pydantic-settings>=2.0.0
+bleach>=6.1.0
+
+# Utilities
+PyYAML>=6.0.0
+python-json-logger>=3.3.0
+aiofiles>=23.0.0

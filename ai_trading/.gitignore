@@ -1,0 +1,79 @@
+# Exclude old versions from Git tracking
+neliti_code_v1/
+neliti_code_v2/
+
+# Node modules
+node_modules/
+frontend/node_modules/
+
+# Build artifacts
+*.tar.gz
+deployment.tar.gz
+dist/
+build/
+
+# Environment files
+.env
+.env.local
+.env.development
+.env.test
+.env.production
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+test-*.txt
+deployment-trigger.txt
+
+# Development scripts
+manual-deploy-test.sh
+direct-deploy.sh
+check-deployment.sh
+
+# Docker
+.dockerignore
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Next.js
+.next/
+out/
+.vercel/
+!.vercel/project.json
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts

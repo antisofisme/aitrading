@@ -1,0 +1,10 @@
+{
+  "messages": [
+    {
+      "role": "user", 
+      "content": "Hello, respond with: OpenAI working!"
+    }
+  ],
+  "model": "gpt-3.5-turbo",
+  "temperature": 0.1
+}

@@ -1,0 +1,43 @@
+# Data Bridge Service - Complete Dependencies
+# Consolidated from all tiers for production deployment
+
+# Core Framework (Tier 1)
+fastapi>=0.104.1
+uvicorn[standard]>=0.24.0
+pydantic>=2.7.4
+python-dotenv>=1.0.0
+structlog>=25.4.0
+websockets>=12.0
+aioredis>=2.0.1
+
+# Service Dependencies (Tier 2)
+kafka-python>=2.0.2
+asyncio-mqtt>=0.16.0
+paho-mqtt>=1.6.1
+
+# Message Brokers (Dual Architecture)
+nats-py>=2.6.0
+asyncio-nats-client>=0.11.4
+pandas>=2.1.0
+numpy>=1.24.0
+psutil>=5.9.0
+aiofiles>=23.2.1
+
+# Additional Service Components
+starlette>=0.27.0
+aiohttp>=3.9.0
+aiohttp-socks>=0.8.0
+orjson>=3.9.0
+pydantic-settings>=2.0.0
+PyYAML>=6.0.0
+redis>=5.0.0
+httpx>=0.24.0
+requests>=2.30.0
+python-json-logger>=3.3.0
+python-dateutil>=2.8.0
+pytz>=2023.3
+
+# Web Scraping Dependencies
+beautifulsoup4>=4.12.0
+selenium>=4.15.0
+holidays>=0.34

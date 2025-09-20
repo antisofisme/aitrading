@@ -1,0 +1,57 @@
+# Deep Learning Service - Consolidated Full Requirements
+# All dependencies for complete deep learning capabilities
+
+# Core framework
+fastapi>=0.104.1
+uvicorn[standard]>=0.24.0
+pydantic>=2.7.4
+python-dotenv>=1.0.0
+structlog>=25.4.0
+aiofiles>=23.2.1
+
+# Database connections
+asyncpg>=0.29.0
+redis>=5.0.1
+
+# Core data processing
+numpy>=1.24.0
+pandas>=2.1.0
+pillow>=10.0.0
+scikit-learn>=1.3.0
+scipy>=1.11.0
+
+# Core deep learning
+torch>=2.1.0
+torchvision>=0.16.0
+torchtext>=0.16.0
+
+# Transformers and NLP
+transformers>=4.35.0
+tokenizers>=0.15.0
+sentence-transformers>=2.2.0
+datasets>=2.14.0
+
+# Advanced training
+accelerate>=0.24.0
+pytorch-lightning>=2.1.0
+wandb>=0.16.0
+
+# Model optimization
+onnx>=1.15.0
+optimum>=1.14.0
+
+# Advanced frameworks
+tensorflow>=2.13.0
+jax[cpu]>=0.4.20
+flax>=0.7.0
+
+# Distributed training
+deepspeed>=0.12.0
+fairscale>=0.4.13
+
+# Specialized models
+diffusers>=0.24.0
+timm>=0.9.0
+
+# GPU optimization
+triton>=2.1.0

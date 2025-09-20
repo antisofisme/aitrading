@@ -1,0 +1,4 @@
+service:
+  description: Ai-Provider microservice
+  name: ai-provider
+  version: 1.0.0

@@ -1,0 +1,127 @@
+service:
+  name: ai-provider
+  description: AI Provider microservice - LiteLLM model routing and provider management
+  version: 1.0.0
+  environment: ${MICROSERVICE_ENVIRONMENT:development}
+  port: ${AI_PROVIDER_PORT:8005}
+  debug: ${AI_PROVIDER_DEBUG:false}
+  host: ${AI_PROVIDER_HOST:0.0.0.0}
+  
+cors:
+  enabled: ${CORS_ENABLED:true}
+  origins:
+    - "${CORS_ORIGINS:*}"
+    
+rate_limiting:
+  enabled: ${RATE_LIMITING_ENABLED:true}
+  requests_per_minute: ${RATE_LIMITING_REQUESTS_PER_MINUTE:3000}
+
+litellm:
+  enabled: ${LITELLM_ENABLED:true}
+  model_routing: ${LITELLM_MODEL_ROUTING:true}
+  cost_optimization: ${LITELLM_COST_OPTIMIZATION:true}
+  fallback_models: ${LITELLM_FALLBACK_MODELS:true}
+  base_url: ${LITELLM_BASE_URL:}
+  
+providers:
+  openai:
+    enabled: ${OPENAI_ENABLED:true}
+    api_key: ${OPENAI_API_KEY:}
+    base_url: ${OPENAI_BASE_URL:https://api.openai.com/v1}
+    models:
+      - gpt-4
+      - gpt-3.5-turbo
+    rate_limit_rpm: ${OPENAI_RATE_LIMIT_RPM:500}
+    
+  anthropic:
+    enabled: ${ANTHROPIC_ENABLED:true}
+    api_key: ${ANTHROPIC_API_KEY:}
+    base_url: ${ANTHROPIC_BASE_URL:https://api.anthropic.com}
+    models:
+      - claude-3-sonnet
+      - claude-3-haiku
+    rate_limit_rpm: ${ANTHROPIC_RATE_LIMIT_RPM:300}
+    
+  google:
+    enabled: ${GOOGLE_ENABLED:true}
+    api_key: ${GOOGLE_API_KEY:}
+    base_url: ${GOOGLE_BASE_URL:https://generativelanguage.googleapis.com}
+    models:
+      - gemini-pro
+      - gemini-pro-vision
+    rate_limit_rpm: ${GOOGLE_RATE_LIMIT_RPM:200}
+    
+  deepseek:
+    enabled: ${DEEPSEEK_ENABLED:true}
+    api_key: ${DEEPSEEK_API_KEY:}
+    base_url: ${DEEPSEEK_BASE_URL:https://api.deepseek.com/v1}
+    models:
+      - deepseek-chat
+      - deepseek-coder
+    rate_limit_rpm: ${DEEPSEEK_RATE_LIMIT_RPM:300}
+    
+  local:
+    enabled: ${LOCAL_ENABLED:false}
+    base_url: ${LOCAL_BASE_URL:http://localhost:8080}
+    models:
+      - llama-2-7b
+    rate_limit_rpm: ${LOCAL_RATE_LIMIT_RPM:100}
+
+cost_management:
+  tracking_enabled: ${COST_TRACKING_ENABLED:true}
+  budget_alerts: ${COST_BUDGET_ALERTS:true}
+  cost_per_request_limit: ${COST_PER_REQUEST_LIMIT:0.10}
+  daily_budget_limit: ${DAILY_BUDGET_LIMIT:100.0}
+  monthly_budget_limit: ${MONTHLY_BUDGET_LIMIT:3000.0}
+  
+performance:
+  request_timeout_seconds: ${REQUEST_TIMEOUT_SECONDS:120}
+  retry_attempts: ${RETRY_ATTEMPTS:3}
+  concurrent_requests: ${CONCURRENT_REQUESTS:50}
+  cache_responses: ${CACHE_RESPONSES:true}
+  cache_ttl_seconds: ${CACHE_TTL_SECONDS:300}
+
+monitoring:
+  health_check_interval_seconds: ${HEALTH_CHECK_INTERVAL:30}
+  metrics_enabled: ${METRICS_ENABLED:true}
+  performance_tracking: ${PERFORMANCE_TRACKING_ENABLED:true}
+  log_requests: ${LOG_REQUESTS_ENABLED:true}
+  
+security:
+  enable_authentication: ${ENABLE_AUTHENTICATION:false}
+  api_key_header: ${API_KEY_HEADER:X-API-Key}
+  allowed_ips: ${ALLOWED_IPS:}
+  
+database:
+  host: ${DATABASE_HOST:localhost}
+  port: ${DATABASE_PORT:5432}
+  name: ${DATABASE_NAME:ai_provider_db}
+  user: ${DATABASE_USER:postgres}
+  password: ${DATABASE_PASSWORD:}
+  
+cache:
+  host: ${REDIS_HOST:localhost}
+  port: ${REDIS_PORT:6379}
+  db: ${REDIS_DB:1}
+  password: ${REDIS_PASSWORD:}
+  
+logging:
+  level: ${LOG_LEVEL:INFO}
+  format: ${LOG_FORMAT:json}
+  enable_request_logging: ${ENABLE_REQUEST_LOGGING:true}
+  enable_performance_logging: ${ENABLE_PERFORMANCE_LOGGING:true}
+
+# Environment-specific configurations
+environments:
+  development:
+    debug: true
+    log_level: debug
+    cost_per_request_limit: 1.0
+  production:
+    debug: false
+    log_level: info
+    cost_per_request_limit: 0.05
+  testing:
+    debug: true
+    log_level: debug
+    cost_per_request_limit: 0.50
