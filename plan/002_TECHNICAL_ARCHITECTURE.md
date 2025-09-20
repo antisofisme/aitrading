@@ -148,7 +148,7 @@ Performance Analytics (Port 8002) → ai-performance-analytics (8002)
 
 ### **TIER 3: New Development (Build New)**
 ```yaml
-Configuration Service (Port 8012) - CENTRALIZED CONFIG + FLOW REGISTRY
+Configuration Service (Port 8013) - CENTRALIZED CONFIG + FLOW REGISTRY - MOVED FROM 8012
   Purpose: Centralized configuration management, credential storage, and flow registry
   Technology: Node.js/TypeScript, Express.js, PostgreSQL
   Security: JWT auth, basic credential encryption, simple audit logs
@@ -167,71 +167,119 @@ Configuration Service (Port 8012) - CENTRALIZED CONFIG + FLOW REGISTRY
     - **Integration with LangGraph workflows, AI Brain Flow Validator, and Chain Mapping**
     - Integration with all existing microservices
 
-Feature Engineering Service (Port 8011)
+Probabilistic Learning Service (Port 8011)
+  Purpose: Real-time adaptive learning, multi-layer probability confirmation, uncertainty quantification
+  Technology: Python, scikit-learn, TensorFlow, Bayesian frameworks
+  Dependencies: AI Orchestration, ML Processing, Deep Learning, Configuration Service
+  Timeline: 12 days
+  Features:
+    - Multi-layer probability confirmation system
+    - Real-time adaptive learning and model updates
+    - Uncertainty quantification and confidence scoring
+    - Ensemble probability aggregation
+    - Dynamic risk management based on confidence levels
+
+Feature Engineering Service (Port 8012) - MOVED FROM 8011
   Purpose: Advanced technical indicators, market microstructure
   Technology: Python, TA-Lib, pandas, numpy
   Dependencies: Database Service, Data Bridge, Configuration Service
   Timeline: 8 days
 
-ML Supervised Service (Port 8013)
-  Purpose: XGBoost, LightGBM, Random Forest models
+ML Supervised Service (Port 8014) - MOVED FROM 8013
+  Purpose: XGBoost, LightGBM, Random Forest models with probability enhancement
   Technology: Python, scikit-learn, XGBoost, LightGBM
-  Dependencies: Feature Engineering Service, Configuration Service
-  Timeline: 10 days
+  Dependencies: Feature Engineering Service, Probabilistic Learning Service, Configuration Service
+  Timeline: 12 days (enhanced with probability features)
+  Enhancements:
+    - Ensemble probability aggregation
+    - Confidence scoring for predictions
+    - Model reliability tracking
+    - Bayesian uncertainty quantification
 
-ML Deep Learning Service (Port 8014)
-  Purpose: LSTM, Transformer, CNN models
+ML Deep Learning Service (Port 8015) - MOVED FROM 8014
+  Purpose: LSTM, Transformer, CNN models with meta-model validation
   Technology: Python, PyTorch, TensorFlow
-  Dependencies: Feature Engineering Service, Configuration Service
-  Timeline: 12 days
+  Dependencies: Feature Engineering Service, Probabilistic Learning Service, Configuration Service
+  Timeline: 14 days (enhanced with meta-validation)
+  Enhancements:
+    - Meta-model probability validation
+    - Neural network uncertainty estimation
+    - Anomaly detection for predictions
+    - Market regime compatibility assessment
 
-Pattern Validator Service (Port 8015)
-  Purpose: AI pattern verification, confidence scoring
-  Technology: Python, ensemble methods
-  Dependencies: ML Services, Configuration Service
-  Timeline: 6 days
+Pattern Validator Service (Port 8016) - MOVED FROM 8015
+  Purpose: AI pattern verification, confidence scoring, probabilistic validation
+  Technology: Python, ensemble methods, Bayesian frameworks
+  Dependencies: ML Services, Probabilistic Learning Service, Configuration Service
+  Timeline: 8 days (enhanced with probabilistic validation)
+  Enhancements:
+    - Multi-layer probability confirmation
+    - Pattern confidence scoring with uncertainty
+    - Dynamic validation thresholds
+    - Historical pattern reliability tracking
 
-Telegram Service (Port 8016)
-  Purpose: Real-time notifications, command interface
+Telegram Service (Port 8017) - MOVED FROM 8016
+  Purpose: Real-time notifications, command interface with confidence reporting
   Technology: Python, python-telegram-bot
-  Dependencies: Trading Engine, Performance Analytics, Configuration Service
-  Timeline: 5 days
+  Dependencies: Trading Engine, Performance Analytics, Probabilistic Learning Service, Configuration Service
+  Timeline: 6 days (enhanced with probabilistic reporting)
+  Enhancements:
+    - Confidence-based alert levels
+    - Uncertainty reporting in notifications
+    - Adaptive notification thresholds
+    - Probabilistic performance summaries
 
-Backtesting Engine (Port 8017)
-  Purpose: Strategy validation, historical testing
+Backtesting Engine (Port 8018) - MOVED FROM 8017
+  Purpose: Strategy validation, historical testing with probability validation
   Technology: Python, vectorbt, backtrader
-  Dependencies: Database Service, ML Services, Configuration Service
-  Timeline: 8 days
+  Dependencies: Database Service, ML Services, Probabilistic Learning Service, Configuration Service
+  Timeline: 10 days (enhanced with probabilistic backtesting)
+  Enhancements:
+    - Probability-aware backtesting scenarios
+    - Confidence interval analysis
+    - Uncertainty-adjusted performance metrics
+    - Dynamic risk sizing validation
 ```
 
-## 📊 **Enhanced Data Flow Architecture**
+## 📊 **Enhanced Data Flow Architecture with Probabilistic Layer**
 
-### **Event-Driven Real-time Trading Pipeline**
+### **Event-Driven Real-time Trading Pipeline with Multi-Layer Probability Confirmation**
 ```
 MT5/Data Sources → Data Bridge (8001) ─┐
                                        ├── Kafka Topic: market-data-events
                                        └── Real-time Event Stream
                                               ↓
-┌─ Configuration Service (8012) ←── Config + Flow Events: all-services
-├─ Feature Engineering (8011) ←── Event Consumer: market-data
+┌─ Configuration Service (8013) ←── Config + Flow Events: all-services
+├─ Feature Engineering (8012) ←── Event Consumer: market-data
 ├─ Circuit Breaker Layer ←─────── Event Consumer: market-data
-└─ Compliance Monitor (8018) ←─── Event Consumer: all-events
+└─ Compliance Monitor (8019) ←─── Event Consumer: all-events
                 ↓                                ↓
-┌─ ML Supervised (8013) ←──── Kafka Topic: feature-events
-├─ ML Deep Learning (8014) ←─ Kafka Topic: feature-events
-└─ Pattern Validator (8015) ←─ Event Consumer: ml-predictions
+    ┌──────── PROBABILISTIC ENHANCEMENT LAYER ────────┐
+    │                                                  │
+    ├─ ML Supervised (8014) ←──── Kafka Topic: feature-events
+    ├─ ML Deep Learning (8015) ←─ Kafka Topic: feature-events
+    │                 ↓
+    └─ Probabilistic Learning (8011) ←─ Event Consumer: ml-predictions
+                       │    ↓
+                       │  Multi-Layer Probability Confirmation:
+                       │  ├─ Layer 1: Indicator Probability Scoring
+                       │  ├─ Layer 2: Ensemble Probability Aggregation
+                       │  └─ Layer 3: Meta-Model Probability Validation
+                       ↓
+┌─ Pattern Validator (8016) ←─ Event Consumer: probabilistic-predictions
+└─ Confidence Validation ←─── Event Consumer: uncertainty-metrics
                 ↓
-┌─ AI Trading Engine (8007) ←── Kafka Topic: prediction-events
-├─ Risk Manager (with Circuit Breaker)
-└─ Regulatory Compliance Check ←── Event: trading-decision
+┌─ AI Trading Engine (8007) ←── Kafka Topic: validated-prediction-events
+├─ Dynamic Risk Manager (Confidence-Based Position Sizing)
+└─ Regulatory Compliance Check ←── Event: probabilistic-trading-decision
                 ↓
-┌─ Order Execution ←─────────── Event: trading-approved
-├─ Audit Trail (8018) ←──────── Event Consumer: all-trading-events
-└─ Performance Analytics (8002) ← Event Consumer: execution-events
+┌─ Order Execution (Uncertainty-Adjusted) ←─────────── Event: confidence-approved
+├─ Audit Trail (8020) ←──────── Event Consumer: all-probabilistic-events
+└─ Performance Analytics (8002) ← Event Consumer: confidence-execution-events
                 ↓
-┌─ Telegram Service (8016) ←─── Event Consumer: notifications
-├─ Database Service (8008) ←─── Event Sourcing Store
-└─ Regulatory Reporting (8020) ← Event Consumer: compliance-events
+┌─ Telegram Service (8017) ←─── Event Consumer: confidence-notifications
+├─ Database Service (8008) ←─── Probabilistic Event Sourcing Store
+└─ Regulatory Reporting (8021) ← Event Consumer: compliance-probability-events
 ```
 
 ### **Serverless Event Processing**
@@ -254,26 +302,41 @@ PostgreSQL (via Database Service 8008):
   - User accounts and authentication
   - Trading strategies and configurations
   - System logs and audit trails
+  - **Probabilistic model configurations and metadata**
+  - **Confidence threshold settings per user**
+  - **Uncertainty tolerance preferences**
 
 ClickHouse (via Database Service 8008):
   - High-frequency trading data
   - Time-series market data
   - Performance metrics and analytics
+  - **Multi-layer probability scores and confidence metrics**
+  - **Uncertainty quantification time series**
+  - **Model performance and calibration tracking**
 
 DragonflyDB (via Database Service 8008):
   - Real-time caching layer
   - Session data and temporary states
   - ML model predictions cache
+  - **Probability computation cache**
+  - **Confidence score cache with TTL**
+  - **Real-time uncertainty metrics**
 
 Weaviate (via Database Service 8008):
   - AI/ML embeddings and vectors
   - Pattern recognition data
   - Similarity searches
+  - **Probabilistic pattern embeddings**
+  - **Uncertainty vector representations**
+  - **Confidence-based similarity matching**
 
 ArangoDB (via Database Service 8008):
   - Complex relationships and graphs
   - Trading network analysis
   - Multi-dimensional data
+  - **Probabilistic dependency graphs**
+  - **Confidence propagation networks**
+  - **Uncertainty correlation analysis**
 ```
 
 ## 🐳 **Docker Architecture**
