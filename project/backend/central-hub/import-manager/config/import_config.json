@@ -1,0 +1,68 @@
+{
+  "default_batch_size": 1000,
+  "default_timeout": 300,
+  "max_concurrent_imports": 5,
+  "validation_enabled": true,
+  "error_on_validation_failure": false,
+  "supported_formats": [
+    "json",
+    "csv",
+    "xml",
+    "txt"
+  ],
+  "memory_coordination": {
+    "enabled": true,
+    "update_interval": 30
+  },
+  "file_processing": {
+    "max_file_size_mb": 100,
+    "chunk_size_bytes": 8192,
+    "encoding": "utf-8"
+  },
+  "stream_processing": {
+    "buffer_size": 10000,
+    "flush_interval": 5,
+    "reconnect_attempts": 3
+  },
+  "database_imports": {
+    "connection_timeout": 30,
+    "query_timeout": 300,
+    "batch_commit_size": 1000
+  },
+  "api_imports": {
+    "request_timeout": 60,
+    "max_retries": 3,
+    "retry_delay": 1,
+    "rate_limit_requests_per_minute": 100
+  },
+  "validation_rules": {
+    "json": {
+      "max_nesting_depth": 10,
+      "allow_duplicate_keys": false
+    },
+    "csv": {
+      "min_columns": 1,
+      "max_columns": 1000,
+      "require_header": false
+    },
+    "xml": {
+      "max_element_depth": 20,
+      "validate_schema": false
+    }
+  },
+  "error_handling": {
+    "log_errors": true,
+    "save_failed_records": true,
+    "error_threshold_percent": 10
+  },
+  "performance": {
+    "enable_metrics": true,
+    "metrics_retention_days": 30,
+    "performance_logging": true
+  },
+  "central_hub_integration": {
+    "enabled": true,
+    "notification_endpoint": "/api/v1/imports/notifications",
+    "status_update_interval": 10
+  }
+}

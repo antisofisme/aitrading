@@ -1,0 +1,38 @@
+{
+  "name": "@aitrading/error-dna",
+  "version": "1.0.0",
+  "description": "ErrorDNA - Intelligent Error Management System for AI Trading Platform",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "lint": "eslint src/",
+    "lint:fix": "eslint src/ --fix"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "winston": "^3.10.0",
+    "lodash": "^4.17.21",
+    "node-cron": "^3.0.2",
+    "axios": "^1.5.0",
+    "uuid": "^9.0.0",
+    "fs-extra": "^11.1.1"
+  },
+  "devDependencies": {
+    "jest": "^29.6.2",
+    "nodemon": "^3.0.1",
+    "eslint": "^8.47.0",
+    "supertest": "^6.3.3"
+  },
+  "keywords": [
+    "error-management",
+    "ai-trading",
+    "error-detection",
+    "pattern-recognition",
+    "error-recovery"
+  ],
+  "author": "AI Trading Platform Team",
+  "license": "MIT"
+}

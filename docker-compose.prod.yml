@@ -1,0 +1,508 @@
+# Phase 1 Production Environment - AI Trading Platform
+# Zero-Trust Architecture with SSL and Advanced Security
+
+version: '3.8'
+
+services:
+  # Nginx - SSL Termination and Load Balancing
+  nginx:
+    build:
+      context: .
+      dockerfile: docker/nginx/nginx.Dockerfile
+    container_name: aitrading-nginx-prod
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - DOMAIN_NAME=${DOMAIN_NAME:-localhost}
+      - SSL_ENABLED=${SSL_ENABLED:-true}
+    volumes:
+      - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./docker/nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./docker/security/ssl:/etc/nginx/ssl:ro
+      - nginx-logs:/var/log/nginx
+    networks:
+      - aitrading-prod
+      - aitrading-internal
+    depends_on:
+      - api-gateway
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Central Hub - Production Core
+  central-hub:
+    build:
+      context: .
+      dockerfile: docker/services/central-hub.Dockerfile
+      target: production
+    container_name: aitrading-central-hub-prod
+    expose:
+      - "8010"
+    environment:
+      - NODE_ENV=production
+      - LOG_LEVEL=INFO
+      - LOG_RETENTION_POLICY=production
+      - SECURITY_MODE=zero-trust-prod
+      - MEMORY_OPTIMIZATION=true
+    volumes:
+      - ./config/production:/app/config:ro
+      - hub-logs:/app/logs
+      - hub-memory:/app/memory
+    networks:
+      - aitrading-internal
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8010/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    depends_on:
+      - database-service
+      - dragonfly-cache
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+          cpus: '0.25'
+
+  # API Gateway - Production Zero-Trust
+  api-gateway:
+    build:
+      context: .
+      dockerfile: docker/services/api-gateway.Dockerfile
+      target: production
+    container_name: aitrading-api-gateway-prod
+    expose:
+      - "8000"
+    environment:
+      - NODE_ENV=production
+      - LOG_LEVEL=WARN
+      - JWT_SECRET=${JWT_SECRET_PROD}
+      - RATE_LIMIT_WINDOW=15
+      - RATE_LIMIT_MAX=60
+      - SECURITY_AUDIT_ENABLED=true
+      - SUBSCRIPTION_VALIDATION_ENABLED=true
+      - DDoS_PROTECTION=enhanced
+      - SSL_CERT_PATH=/app/certs/server.crt
+      - SSL_KEY_PATH=/app/certs/server.key
+    volumes:
+      - ./config/production:/app/config:ro
+      - gateway-logs:/app/logs
+      - ./docker/security/certs:/app/certs:ro
+    networks:
+      - aitrading-internal
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    depends_on:
+      - database-service
+      - dragonfly-cache
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'
+        reservations:
+          memory: 512M
+          cpus: '0.5'
+
+  # Database Service - Production Multi-DB
+  database-service:
+    build:
+      context: .
+      dockerfile: docker/services/database-service.Dockerfile
+      target: production
+    container_name: aitrading-database-service-prod
+    expose:
+      - "8008"
+    environment:
+      - NODE_ENV=production
+      - LOG_LEVEL=WARN
+      - DB_ENCRYPTION_ENABLED=true
+      - LOG_RETENTION_OPTIMIZATION=true
+      - COST_TRACKING_ENABLED=true
+      - CONNECTION_POOL_SIZE=20
+      - QUERY_TIMEOUT=30000
+    volumes:
+      - ./config/production:/app/config:ro
+      - database-logs:/app/logs
+    networks:
+      - aitrading-internal
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8008/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    depends_on:
+      - postgres-main
+      - clickhouse-logs
+      - dragonfly-cache
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '2.0'
+        reservations:
+          memory: 1G
+          cpus: '1.0'
+
+  # Data Bridge - Production Secure MT5
+  data-bridge:
+    build:
+      context: .
+      dockerfile: docker/services/data-bridge.Dockerfile
+      target: production
+    container_name: aitrading-data-bridge-prod
+    expose:
+      - "8001"
+    environment:
+      - NODE_ENV=production
+      - LOG_LEVEL=INFO
+      - WEBSOCKET_SECURITY_ENABLED=true
+      - MT5_CREDENTIAL_ENCRYPTION=true
+      - SIGNAL_VALIDATION_ENABLED=true
+      - CONNECTION_POOL_SIZE=5
+      - HEARTBEAT_INTERVAL=30000
+    volumes:
+      - ./config/production:/app/config:ro
+      - bridge-logs:/app/logs
+      - ./docker/security/certs:/app/certs:ro
+    networks:
+      - aitrading-internal
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    depends_on:
+      - database-service
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'
+        reservations:
+          memory: 512M
+          cpus: '0.5'
+
+  # Trading Engine - Production Authority
+  trading-engine:
+    build:
+      context: .
+      dockerfile: docker/services/trading-engine.Dockerfile
+      target: production
+    container_name: aitrading-trading-engine-prod
+    expose:
+      - "8007"
+    environment:
+      - NODE_ENV=production
+      - LOG_LEVEL=INFO
+      - TRADING_AUTHORITY=server-side
+      - RISK_MANAGEMENT_ENABLED=true
+      - AUDIT_TRAIL_ENABLED=true
+      - TRADE_VALIDATION_STRICT=true
+    volumes:
+      - ./config/production:/app/config:ro
+      - trading-logs:/app/logs
+    networks:
+      - aitrading-internal
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8007/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    depends_on:
+      - database-service
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'
+        reservations:
+          memory: 512M
+          cpus: '0.5'
+
+  # PostgreSQL - Production Primary DB
+  postgres-main:
+    image: postgres:15-alpine
+    container_name: aitrading-postgres-prod
+    expose:
+      - "5432"
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_INITDB_ARGS=--auth-host=md5
+      - POSTGRES_SHARED_PRELOAD_LIBRARIES=pg_stat_statements
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./docker/scripts/init-postgres.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ./docker/configs/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+    networks:
+      - aitrading-internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: '2.0'
+        reservations:
+          memory: 2G
+          cpus: '1.0'
+
+  # ClickHouse - Production Log Storage
+  clickhouse-logs:
+    image: clickhouse/clickhouse-server:latest
+    container_name: aitrading-clickhouse-prod
+    expose:
+      - "8123"
+      - "9000"
+    environment:
+      - CLICKHOUSE_DB=${CLICKHOUSE_DB}
+      - CLICKHOUSE_USER=${CLICKHOUSE_USER}
+      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD}
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+      - ./docker/scripts/init-clickhouse.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ./docker/configs/clickhouse-config.xml:/etc/clickhouse-server/config.xml:ro
+      - ./docker/configs/clickhouse-users.xml:/etc/clickhouse-server/users.xml:ro
+    networks:
+      - aitrading-internal
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8123/ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 8G
+          cpus: '4.0'
+        reservations:
+          memory: 4G
+          cpus: '2.0'
+
+  # DragonflyDB - Production Cache
+  dragonfly-cache:
+    image: docker.dragonflydb.io/dragonflydb/dragonfly:latest
+    container_name: aitrading-dragonfly-prod
+    expose:
+      - "6379"
+    environment:
+      - DFLY_requirepass=${DRAGONFLY_PASSWORD}
+      - DFLY_maxmemory=2gb
+      - DFLY_save_schedule=*:*/10
+    volumes:
+      - dragonfly-data:/data
+    networks:
+      - aitrading-internal
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 2.5G
+          cpus: '1.0'
+        reservations:
+          memory: 2G
+          cpus: '0.5'
+
+  # Security Monitor - Production Zero-Trust
+  security-monitor:
+    build:
+      context: .
+      dockerfile: docker/services/security-monitor.Dockerfile
+      target: production
+    container_name: aitrading-security-monitor-prod
+    expose:
+      - "8020"
+    environment:
+      - NODE_ENV=production
+      - LOG_LEVEL=INFO
+      - SECURITY_SCAN_INTERVAL=60
+      - THREAT_DETECTION_ENABLED=true
+      - AUDIT_REAL_TIME=true
+      - ALERT_WEBHOOK=${SECURITY_ALERT_WEBHOOK}
+    volumes:
+      - ./config/production:/app/config:ro
+      - security-logs:/app/logs
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - aitrading-internal
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8020/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    depends_on:
+      - database-service
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+          cpus: '0.25'
+
+  # Log Aggregator - Production Optimized
+  log-aggregator:
+    build:
+      context: .
+      dockerfile: docker/services/log-aggregator.Dockerfile
+      target: production
+    container_name: aitrading-log-aggregator-prod
+    expose:
+      - "8030"
+    environment:
+      - NODE_ENV=production
+      - LOG_LEVEL=WARN
+      - RETENTION_OPTIMIZATION=true
+      - COST_TRACKING=true
+      - HOT_STORAGE_DAYS=3
+      - WARM_STORAGE_DAYS=30
+      - COLD_STORAGE_DAYS=365
+      - COMPRESSION_ENABLED=true
+    volumes:
+      - ./config/production:/app/config:ro
+      - aggregator-logs:/app/logs
+      - hub-logs:/app/source-logs/hub:ro
+      - gateway-logs:/app/source-logs/gateway:ro
+      - database-logs:/app/source-logs/database:ro
+      - bridge-logs:/app/source-logs/bridge:ro
+      - trading-logs:/app/source-logs/trading:ro
+      - security-logs:/app/source-logs/security:ro
+      - nginx-logs:/app/source-logs/nginx:ro
+    networks:
+      - aitrading-internal
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8030/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    depends_on:
+      - clickhouse-logs
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'
+        reservations:
+          memory: 512M
+          cpus: '0.5'
+
+networks:
+  aitrading-prod:
+    driver: bridge
+    external: false
+  aitrading-internal:
+    driver: bridge
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.21.0.0/16
+
+volumes:
+  # Service logs with production retention
+  hub-logs:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /var/lib/aitrading/logs/hub
+  gateway-logs:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /var/lib/aitrading/logs/gateway
+  database-logs:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /var/lib/aitrading/logs/database
+  bridge-logs:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /var/lib/aitrading/logs/bridge
+  trading-logs:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /var/lib/aitrading/logs/trading
+  security-logs:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /var/lib/aitrading/logs/security
+  aggregator-logs:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /var/lib/aitrading/logs/aggregator
+  nginx-logs:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /var/lib/aitrading/logs/nginx
+
+  # Memory and state with backup
+  hub-memory:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /var/lib/aitrading/memory
+
+  # Database persistence with backup
+  postgres-data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /var/lib/aitrading/postgres
+  clickhouse-data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /var/lib/aitrading/clickhouse
+  dragonfly-data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /var/lib/aitrading/dragonfly

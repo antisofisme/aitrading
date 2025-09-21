@@ -1,0 +1,57 @@
+{
+  "name": "aitrading-backend",
+  "version": "1.0.0",
+  "description": "AI Trading Platform - Backend Services (Phase 1 Infrastructure Migration)",
+  "private": true,
+  "scripts": {
+    "dev": "docker-compose -f docker-compose.dev.yml up --build",
+    "prod": "docker-compose -f docker-compose.prod.yml up --build",
+    "test": "npm run test:all",
+    "test:all": "cd central-hub && npm test && cd ../database-service && npm test && cd ../api-gateway && npm test",
+    "build": "npm run build:all",
+    "build:all": "cd central-hub && npm run build && cd ../database-service && npm run build && cd ../api-gateway && npm run build",
+    "health-check": "curl -f http://localhost:8000/health || exit 1",
+    "logs": "docker-compose logs -f",
+    "clean": "docker-compose down --volumes --remove-orphans"
+  },
+  "workspaces": [
+    "central-hub",
+    "database-service",
+    "api-gateway",
+    "data-bridge"
+  ],
+  "dependencies": {
+    "express": "^4.18.2",
+    "cors": "^2.8.5",
+    "helmet": "^7.1.0",
+    "morgan": "^1.10.0",
+    "dotenv": "^16.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "typescript": "^5.3.0",
+    "ts-node": "^10.9.0",
+    "nodemon": "^3.0.2",
+    "jest": "^29.7.0",
+    "@types/jest": "^29.5.8",
+    "supertest": "^6.3.3"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-org/aitrading-platform"
+  },
+  "keywords": [
+    "trading",
+    "forex",
+    "mt5",
+    "microservices",
+    "api",
+    "infrastructure"
+  ],
+  "author": "AI Trading Platform Team",
+  "license": "PROPRIETARY"
+}

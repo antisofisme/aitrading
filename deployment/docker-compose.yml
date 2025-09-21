@@ -1,0 +1,215 @@
+version: '3.8'
+
+services:
+  # Core Infrastructure Services
+  api-gateway:
+    build: ./web/services/api-gateway
+    ports: ["8000:8000"]
+    environment:
+      - NODE_ENV=production
+      - JWT_SECRET=${JWT_SECRET}
+      - RATE_LIMIT_ENABLED=true
+      - CORS_ORIGINS=${CORS_ORIGINS}
+      - LOG_LEVEL=info
+    depends_on: [central-hub, redis]
+    networks: [aitrading-network]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  central-hub:
+    build: ./web/core/central-hub
+    ports: ["8010:8010"]
+    environment:
+      - SERVICE_REGISTRY_ENABLED=true
+      - HEALTH_CHECK_INTERVAL=30s
+      - LOG_LEVEL=info
+    volumes:
+      - hub-config:/app/config
+      - hub-logs:/app/logs
+    networks: [aitrading-network]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8010/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  database-service:
+    build: ./web/services/database-service
+    ports: ["8008:8008"]
+    environment:
+      - POSTGRES_URL=${POSTGRES_URL}
+      - CLICKHOUSE_URL=${CLICKHOUSE_URL}
+      - REDIS_URL=${REDIS_URL}
+      - DRAGONFLYDB_URL=${DRAGONFLYDB_URL}
+      - CONNECTION_POOL_MIN=5
+      - CONNECTION_POOL_MAX=20
+      - QUERY_TIMEOUT=30000
+    depends_on:
+      - postgres
+      - clickhouse
+      - redis
+      - dragonflydb
+    networks: [aitrading-network]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8008/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  data-bridge:
+    build: ./web/services/data-bridge
+    ports: ["8001:8001"]
+    environment:
+      - MT5_WEBSOCKET_ENABLED=true
+      - PROCESSING_BATCH_SIZE=100
+      - TARGET_LATENCY_MS=50
+      - WEBSOCKET_PORT=8001
+      - MAX_CONNECTIONS=1000
+    depends_on: [database-service, central-hub]
+    networks: [aitrading-network]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  trading-engine:
+    build: ./web/services/trading-engine
+    ports: ["8007:8007"]
+    environment:
+      - RISK_MANAGEMENT_ENABLED=true
+      - EXECUTION_TIMEOUT_MS=1200
+      - MAX_POSITION_SIZE=10000
+      - STOP_LOSS_REQUIRED=true
+    depends_on: [database-service, data-bridge]
+    networks: [aitrading-network]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8007/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Database Infrastructure
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: aitrading
+      POSTGRES_USER: ${POSTGRES_USER:-aitrading}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./deployment/scripts/init-postgres.sql:/docker-entrypoint-initdb.d/init.sql
+    networks: [aitrading-network]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-aitrading}"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:23-alpine
+    environment:
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-clickhouse}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+      - ./deployment/scripts/init-clickhouse.sql:/docker-entrypoint-initdb.d/init.sql
+    networks: [aitrading-network]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8123/ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis-data:/data
+    networks: [aitrading-network]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  dragonflydb:
+    image: docker.dragonflydb.io/dragonflydb/dragonfly:latest
+    ports: ["6380:6379"]
+    command: dragonfly --logtostderr --maxmemory=1gb
+    volumes:
+      - dragonfly-data:/data
+    networks: [aitrading-network]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "-p", "6379", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Monitoring and Management
+  prometheus:
+    image: prom/prometheus:latest
+    ports: ["9090:9090"]
+    volumes:
+      - ./web/infrastructure/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    networks: [aitrading-network]
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:latest
+    ports: ["3000:3000"]
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./web/infrastructure/monitoring/grafana-datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml
+    depends_on: [prometheus]
+    networks: [aitrading-network]
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+    driver: local
+  clickhouse-data:
+    driver: local
+  redis-data:
+    driver: local
+  dragonfly-data:
+    driver: local
+  hub-config:
+    driver: local
+  hub-logs:
+    driver: local
+  prometheus-data:
+    driver: local
+  grafana-data:
+    driver: local
+
+networks:
+  aitrading-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

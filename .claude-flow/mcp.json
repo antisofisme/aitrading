@@ -1,0 +1,38 @@
+{
+  "mcpServers": {
+    "mcp-mermaid": {
+      "command": "node",
+      "args": ["src/mcp-mermaid/server.cjs"],
+      "cwd": ".",
+      "env": {
+        "NODE_ENV": "development"
+      },
+      "tools": [
+        "mermaid_generate",
+        "mermaid_analyze",
+        "mermaid_export",
+        "mermaid_watch",
+        "mermaid_status"
+      ],
+      "description": "MCP server for auto-generating Mermaid.js diagrams for AI trading systems",
+      "version": "1.0.0",
+      "integration": {
+        "claudeFlow": true,
+        "hooks": {
+          "preTask": "src/hooks/documentation-hooks.js",
+          "postEdit": "src/hooks/documentation-hooks.js",
+          "postTask": "src/hooks/documentation-hooks.js",
+          "sessionEnd": "src/hooks/documentation-hooks.js"
+        },
+        "autoStart": true,
+        "port": 3000
+      }
+    }
+  },
+  "defaultTimeout": 30000,
+  "retryAttempts": 3,
+  "logging": {
+    "level": "info",
+    "file": ".claude-flow/logs/mcp.log"
+  }
+}
