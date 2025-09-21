@@ -1,277 +1,407 @@
-# LEVEL 3 - DATA FLOW: Business Logic & Processing Architecture
+# LEVEL 3 - DATA FLOW: Data Pipeline & Processing
 
-## 3.1 Multi-Tenant Business Logic Architecture
+## 3.1 MT5 Integration
 
-### Multi-User Foundation Integration
+**Status**: PLANNED
+
+**Dependencies**:
+- Requires: LEVEL_2 complete (2.1, 2.2, 2.3, 2.4)
+- Provides: Market data input for AI intelligence layer
+
+**Context Requirements**:
+- Input: Service connectivity operational
+- Output: Live market data flowing to system
+- Integration Points: Data input for AI processing
+
+### Data Flow Development Standards
+> **Note**: Complete development standards in [TEAM_TRAINING_PLAN](TEAM_TRAINING_PLAN.md#data-processing-expertise)
 ```yaml
-Business-Ready Framework Implementation:
-  ✅ Multi-User Architecture from Day 1 (enterprise-grade foundation)
-  ✅ Midtrans Payment Integration (Indonesian market ready)
-  ✅ Subscription Management System (automated billing with probability tiers)
-  ✅ Per-User AI Customization (personalized probabilistic trading models)
-  ✅ Business Analytics Dashboard (revenue tracking + probabilistic insights)
-  ✅ Multi-Tenant Security (data isolation + compliance)
-  ✅ Probabilistic Enhancement Framework (68-75% accuracy targets)
-  ✅ 4-Layer Probability System (baseline, ensemble, meta-validation, adaptive learning)
-  ✅ Uncertainty Quantification (confidence intervals for all predictions)
-  ✅ Risk-Adjusted Performance Metrics (+15% returns, <8% drawdown)
+Market Data Processing Business Rules:
+  Human-AI Validation for Data Systems:
+    Market Data Processing Validation:
+      - Before: AI implements market data pipelines
+      - Human: Validates data integrity checks
+      - After: Verify market data accuracy and completeness
 
-Revenue Generation Features:
-  ✅ Payment Processing: <30 seconds (Midtrans integration)
-  ✅ User Onboarding: <2 minutes (registration to trading)
-  ✅ Subscription Tiers: Automated billing + feature access
-  ✅ API Rate Limiting: Per-subscription tier quotas
-  ✅ Multi-User Telegram: Individual user channels
-  ✅ Business Intelligence: Real-time revenue analytics
+  Performance Critical Data Processing:
+    - Before: AI optimizes data processing execution
+    - Human: Reviews latency impact on trading
+    - After: Benchmark data processing performance metrics
+
+Error Handling for Market Data (AI-Generated Code Focus):
+  Market Data Errors:
+    - Invalid price data detection
+    - Market feed disconnection handling
+    - Data latency and staleness checks
+    - Alternative data source failover
+
+Data Flow Task Decomposition:
+  DO - Manageable Data Tasks:
+    ✅ "Copy existing Data Bridge and adapt for enhanced MT5 integration"
+    ✅ "Add new data validation endpoint to existing bridge"
+    ✅ "Enhance existing data processing with real-time capabilities"
+    ✅ "Update Data Bridge configuration for multi-source support"
+
+  AVOID - Overwhelming Data Tasks:
+    ❌ "Build complete data pipeline system from scratch"
+    ❌ "Rewrite entire MT5 integration architecture"
+    ❌ "Create multiple data services simultaneously"
+    ❌ "Implement complex data transformation from scratch"
+
+Data Processing Development Cycle:
+  Focus on incremental data pipeline improvements:
+    - Enhance existing MT5 connections
+    - Add validation layers to existing data flow
+    - Optimize current data processing performance
+    - Test with realistic market data scenarios
 ```
 
-### Subscription Validation Protocol
+**AI Agent Coordination**:
+- Responsible Agent: backend-dev
+- Memory Namespace: data-flow/mt5-integration
+- Communication Protocol: Data input coordination
+
+### Data Bridge Setup Workflow
+> **Note**: Complete setup procedures in [OPERATIONAL_PROCEDURES](OPERATIONAL_PROCEDURES.md#technical-readiness)
 ```yaml
-Real-Time Validation System:
-  Continuous Verification:
-    - Every signal generation validates subscription
-    - Real-time subscription status checks
-    - Payment status validation
-    - Service tier verification
-    - Geographic restrictions enforcement
+Day 3: Data Bridge Setup + Basic Chain Registry
+Morning Tasks:
+  - Copy Data Bridge service (Port 8001)
+  - Setup MT5 WebSocket integration
+  - Configure data streaming pipeline
+  - Test basic connectivity
+  - CHAIN MAPPING: Add basic ChainRegistry to Central Hub
 
-  Validation Frequency:
-    - Pre-signal generation: Always
-    - During session: Every 60 seconds
-    - Post-execution: Always
-    - On reconnection: Always
+Deliverables:
+  - server/data-bridge/ (working)
+  - MT5 WebSocket connection
+  - Basic data streaming
+  - ChainRegistry component initialized in Central Hub
 
-  Failure Handling:
-    - Graceful degradation
-    - Clear user notification
-    - Audit trail logging
-    - Automatic retry mechanism
+Afternoon Tasks:
+  - Integrate Data Bridge with Database Service
+  - Setup data persistence pipeline
+  - Test data flow end-to-end
+  - Validate 18 ticks/second performance
+  - CHAIN MAPPING: Register data flow chain in ChainRegistry
+
+Deliverables:
+  - Data Bridge → Database integration
+  - Data persistence working
+  - Performance benchmarks met
+  - Data flow chain registered and trackable
+
+Success Criteria:
+  - MT5 data successfully stored in database
+  - Performance meets 18 ticks/second benchmark
+  - No data loss during streaming
+  - Chain mapping tracks data flow from MT5 to Database
 ```
 
-### Business API Layer
-```yaml
-API Design (Business):
-  POST /api/v1/business/predict
-  {
-    "symbol": "EURUSD",
-    "timeframe": "1h",
-    "prediction_type": "price_direction",
-    "confidence_threshold": 0.7
-  }
-  Response: {
-    "prediction": "bullish",
-    "confidence": 0.85,
-    "timestamp": "2024-03-15T10:30:00Z",
-    "usage_cost": 0.10,
-    "remaining_quota": 890
-  }
+**Completion Criteria**:
+- [ ] MT5 connection operational
+- [ ] Market data flowing
+- [ ] Ready for data validation
+- [ ] Performance within targets
+- [ ] 50+ ticks/second processing capacity validated
+- [ ] High-performance data pipelines operational
 
-Business Features:
-  Free Tier: Basic predictions, 100/month
-  Pro Tier: Advanced predictions, 2000/month, confidence scores
-  Enterprise: Unlimited, custom models, priority support
+## 3.2 Data Validation
+
+**Status**: PLANNED
+
+**Dependencies**:
+- Requires: 3.1 MT5 Integration
+- Provides: Clean data for processing and AI layers
+
+**Context Requirements**:
+- Input: Raw market data from MT5
+- Output: Validated, clean data stream
+- Integration Points: Data quality assurance for AI
+
+**AI Agent Coordination**:
+- Responsible Agent: code-analyzer
+- Memory Namespace: data-flow/validation
+- Communication Protocol: Data quality coordination
+
+**Completion Criteria**:
+- [ ] Data validation operational
+- [ ] Data quality assured
+- [ ] Ready for data processing
+- [ ] Error handling validated
+
+## 3.3 Data Processing
+
+**Status**: PLANNED
+
+**Dependencies**:
+- Requires: 3.1 MT5 Integration, 3.2 Data Validation
+- Provides: Processed data for AI intelligence and storage
+
+**Context Requirements**:
+- Input: Validated market data
+- Output: Processed data ready for AI analysis
+- Integration Points: Data transformation for AI pipeline
+
+**AI Agent Coordination**:
+- Responsible Agent: coder
+- Memory Namespace: data-flow/processing
+- Communication Protocol: Data transformation coordination
+
+**Completion Criteria**:
+- [ ] Data processing operational
+- [ ] Data transformation working
+- [ ] Ready for storage strategy
+- [ ] Performance optimized
+
+## 3.4 Storage Strategy
+
+**Status**: PLANNED
+
+**Dependencies**:
+- Requires: 3.1, 3.2, 3.3
+- Provides: Data persistence for AI intelligence layer
+
+**Context Requirements**:
+- Input: Processed market data
+- Output: Persistent data storage for AI access
+- Integration Points: Data foundation for Level 4 AI components
+
+### Data Storage Development Standards
+> **Note**: Complete storage guidelines in [TEAM_TRAINING_PLAN](TEAM_TRAINING_PLAN.md#data-management-training)
+```yaml
+Data Storage Business Rules:
+  Trading System Data Requirements:
+    - High-frequency data storage optimization
+    - Market data retention policies
+    - Trading history audit trail requirements
+    - Performance data archival strategies
+
+Data Security for Trading Systems:
+  Data Security:
+    - Sensitive trading data encryption
+    - Market data access control
+    - Database connection encryption for trading data
+    - Trading log data sanitization
+    - Financial data access control implementation
+
+Storage Performance Requirements:
+  Performance Critical Data Storage:
+    - Latency testing for trading data access (< 10ms target)
+    - Memory usage under market data stress conditions
+    - High-frequency data storage validation
+    - Concurrent trading data session handling
+    - Market volatility data stress testing
+
+Data Storage Task Management:
+  Storage Development Approach:
+    - Enhance existing database configurations
+    - Add trading-specific data models
+    - Optimize current storage performance
+    - Test with high-volume market data
 ```
 
-## 3.2 ML Component Integration & Orchestration
+**AI Agent Coordination**:
+- Responsible Agent: backend-dev
+- Memory Namespace: data-flow/storage
+- Communication Protocol: Data persistence coordination
 
-### Production ML Pipeline (16,929 Lines of Code)
+### Data Flow Risk Management
+> **Note**: Complete risk assessment in [RISK_MANAGEMENT_FRAMEWORK](RISK_MANAGEMENT_FRAMEWORK.md#data-processing-risks)
 ```yaml
-Hybrid AI Framework Core:
-  Location: src/hybrid_ai_framework/
-  Components: 7 modules, 6,847 lines
-  Purpose: Multi-asset trading intelligence with probabilistic signals
+Data Processing Risks:
+  Data Pipeline Performance Risk:
+    Risk Description: Data processing latency impacts AI decision timing
+    Mitigation Strategies:
+      - Real-time data validation with timeout controls
+      - Cached data fallback for MT5 connectivity issues
+      - Data streaming optimization for 50+ ticks/second
+      - Database query performance monitoring <100ms average
 
-  ✅ hybrid_ai_engine.py (985 lines)
-    - Main orchestrator for 5 ML models
-    - Forex/Gold specialist models
-    - Multi-timeframe analysis
-    - Confidence scoring and uncertainty quantification
+  Market Data Quality Risk:
+    Risk Description: Invalid or delayed market data affects trading decisions
+    Early Warning Indicators:
+      - Data latency >500ms from market close
+      - Missing data points >5% in any session
+      - Data validation errors increasing
+      - MT5 connection stability <95%
 
-  ✅ market_regime_detector.py (684 lines)
-    - 12 market regime types classification
-    - ML-based regime prediction with RandomForest
-    - Adaptive threshold management
-    - Regime transition detection
+    Contingency Plans:
+      If MT5 data unreliable:
+        → Switch to backup data provider
+        → Use cached data with staleness warnings
+        → Implement data quality scoring system
 
-  ✅ correlation_engine.py (543 lines)
-    - Cross-asset correlation analysis (DXY/USD)
-    - Real-time correlation monitoring
-    - Multi-timeframe correlation tracking
-    - Portfolio risk assessment
+Data Storage Risk Management:
+  Database Performance Monitoring:
+    - Query response time tracking per database
+    - Connection pool health monitoring
+    - Data consistency validation across multi-DB setup
+    - Storage capacity and growth rate tracking
 
-ML Models Implementation:
-  Location: src/ml/
-  Components: 7 modules, 8,429 lines
-  Purpose: Production-ready ensemble ML system
-
-  ✅ models.py (752 lines)
-    - XGBoost, LightGBM, RandomForest ensemble
-    - LSTM, Transformer, CNN deep learning models
-    - Meta-learning architecture
-    - PyTorch production wrappers
-
-  ✅ continuous_learning.py (972 lines)
-    - Dynamic model retraining pipeline
-    - A/B testing framework
-    - Performance drift detection
-    - Hyperparameter optimization
-
-  ✅ business_integration/ml_service_architecture.py (648 lines)
-    - Multi-tenant ML serving (1000+ users)
-    - Subscription tier management (Free/Basic/Pro/Enterprise)
-    - Redis-based caching and rate limiting
-    - Usage tracking and billing integration
+  Risk Escalation Triggers:
+    - Database response time >200ms sustained
+    - Connection pool exhaustion events
+    - Data inconsistency between databases
+    - Storage utilization >85%
 ```
 
-### ML Component Integration Strategy
-```yaml
-TIER 1: Production-Ready Components (Direct Integration):
-  ML Probabilistic Enhancement Layer → ML Services (8011-8017)
-    Status: ✅ COMPLETED - 5 modules, 8,429 lines production code
-    Components: XGBoost ensemble, market regime detector, correlation engine
-    Benefits: 68-75% ML accuracy immediately available
-    Migration: Service wrapper and API integration
-    Risk: Very Low (components are production-tested)
-    Timeline: 2-3 days per service
+**Completion Criteria**:
+- [ ] Storage strategy operational
+- [ ] Data persistence working
+- [ ] Ready for Level 4 AI access
+- [ ] Data retrieval optimized
+- [ ] Acceleration framework data integration validated
+- [ ] Database optimization for <15ms AI decision support
+- [ ] Data quality risk management implemented
+- [ ] Market data backup strategies configured
+- [ ] Database performance monitoring active
 
-  Multi-Tenant ML Business Service → ML Business API (8014)
-    Status: ✅ COMPLETED - Full business integration ready
-    Features: Subscription tiers, rate limiting, usage tracking, Redis caching
-    Benefits: Immediate monetization with 1000+ user support
-    Migration: Deploy as standalone service
-    Risk: Very Low (full implementation completed)
-    Timeline: 1 day (deployment configuration)
+---
+
+### Data Flow Testing Standards
+> **Note**: Complete testing methodology in [TESTING_VALIDATION_STRATEGY](TESTING_VALIDATION_STRATEGY.md#data-flow-integration-testing)
+```yaml
+Data Flow Integration Testing:
+  Critical Data Integration Points:
+    ✅ MT5 → Data Bridge → Database Service
+    ✅ Database Service → Feature Engineering
+    ✅ Data validation endpoint testing
+    ✅ Data processing performance validation
+    ✅ Alternative data source failover testing
+
+Data Processing Performance Testing:
+  Target: 18+ market ticks/second processing
+  Measurement:
+    - Count ticks received per second
+    - Measure tick-to-database latency
+    - Track data pipeline throughput
+    - Monitor queue depths
+  Tools: Kafka metrics, database performance counters
+  Validation: Live market data simulation
+
+Feature Engineering Performance Testing:
+  Target: <50ms for 5 technical indicators
+  Measurement:
+    - Time individual indicator calculations
+    - Measure batch processing throughput
+    - Track memory usage during computation
+    - Monitor cache hit rates
+  Tools: Python profiler, memory profiler
+  Validation: Historical data replay
+
+Data Quality Testing:
+  Market Data Validation:
+    - Invalid price data detection
+    - Market feed disconnection handling
+    - Data latency and staleness checks
+    - Data consistency validation across multi-DB setup
+
+Data Storage Testing:
+  Storage Performance Requirements:
+    - Query response time <100ms average
+    - Connection pool health monitoring
+    - Data consistency validation across multi-DB setup
+    - Storage capacity and growth rate tracking
 ```
 
-## 3.3 Trading Engine & Risk Management
-
-### AI Trading Engine Enhancement
+### Production Data Flow Standards
+> **Note**: Complete production procedures in [OPERATIONAL_PROCEDURES](OPERATIONAL_PROCEDURES.md#production-readiness)
 ```yaml
-Trading Engine (Port 8007) → Probabilistic Trading Engine:
-  Current: Basic trading logic, order placement
-  Enhanced: ✅ Confidence-based position sizing, regime-aware decisions
-  Implementation: Integrate with completed Hybrid AI Engine
-  Migration: Replace decision logic with ML ensemble outputs
-  Risk: Medium (core trading logic changes)
-  Timeline: 4 days
+Data Service Deployment:
+  Database Service: 2 replicas dengan load balancing
+  Cache Strategy: Multi-level caching implemented
+  Database Network: Database cluster communication
+  Backup dan Recovery: Procedures tested
 
-AI Orchestration (Port 8003) → Hybrid ML Orchestrator:
-  Current: OpenAI, DeepSeek, Google AI integration
-  Enhanced: ✅ Coordinate 5 ML models + LLM ensemble decisions
-  Implementation: Add ML model coordination to existing LLM orchestration
-  Migration: Extend orchestration to include local ML models
-  Risk: Low (additive enhancement)
-  Timeline: 3 days
+Data Performance Production:
+  Database Performance Analysis:
+    - Query optimization based on actual usage
+    - Cache hit rate optimization
+    - Resource allocation adjustment
+    - Network optimization
+
+Data Security Production:
+  Encryption in Transit: All API communication
+  Data Validation: No data corruption detected
+  Backup Procedures: Weekly validation
+  Disaster Recovery: Testing procedures
+
+Production Monitoring:
+  Data pipeline throughput monitoring
+  Queue depth tracking
+  Data consistency validation
+  Performance trend analysis
 ```
 
-### Trading Authority Boundaries
+### Data Flow Training Standards
+> **Note**: Complete training framework in [TEAM_TRAINING_PLAN](TEAM_TRAINING_PLAN.md#data-pipeline-knowledge-development)
 ```yaml
-Server Responsibilities:
-  - Signal generation and validation
-  - Risk parameter calculation
-  - Position sizing decisions
-  - Stop loss and take profit levels
-  - Market condition analysis
-  - Subscription tier validation
+Data Pipeline Knowledge Development:
+  Data Processing Expertise:
+    - Data Bridge MT5 integration review
+    - Data validation techniques
+    - Feature engineering pipeline design
+    - Data quality monitoring
+    - Performance optimization for data flows
 
-Client Responsibilities:
-  - Signal display and UI
-  - User confirmation interface
-  - MT5 order execution
-  - Execution status reporting
-  - Local error handling
+  Data Management Training:
+    - Database optimization techniques
+    - Connection pooling mechanisms
+    - Query performance tuning
+    - Data consistency validation
+    - Backup dan recovery procedures
+
+Data Processing Expert Path:
+  Level 1: Can implement basic data pipelines
+  Level 2: Can design complex data processing workflows
+  Level 3: Can optimize data processing performance
+  Level 4: Can architect data platform systems
+  Level 5: Can lead data strategy dan mentor others
+
+Training Validation:
+  □ MT5 integration understanding mastered
+  □ Data pipeline architecture comprehended
+  □ Performance optimization techniques applied
+  □ Can handle data quality issues independently (>85%)
+  □ Can contribute to data architectural decisions (>60%)
 ```
 
-### Business Flow Architecture
+### Data Security Standards
+> **Note**: Complete security framework in [COMPLIANCE_SECURITY_FRAMEWORK](COMPLIANCE_SECURITY_FRAMEWORK.md#data-protection-implementation)
 ```yaml
-1. User Subscription Validation:
-   Server validates → Subscription active → Client notified
+Data Protection Implementation:
+  Encryption Standards:
+    - AES-256 encryption untuk data at rest
+    - Database column-level encryption
+    - Key management system (KMS) implementation
+    - Certificate management procedures
+    - Encryption key rotation policies
 
-2. Signal Generation:
-   Server analyzes → Generates signals → Validates risk → Sends to client
+  Financial Data Security:
+    - Trading data encryption at rest dan in transit
+    - Portfolio information access controls
+    - Transaction audit trails
+    - Real-time fraud detection
+    - Anti-money laundering (AML) monitoring
 
-3. Optimized Client Execution:
-   Client receives → Pre-validation check → MT5 pool execution → <50ms total
+Data Compliance Requirements:
+  GDPR Compliance:
+    - Data Processing Impact Assessment (DPIA)
+    - Data subject rights implementation
+    - Data retention policies implemented
+    - Data deletion procedures verified
+    - Cross-border transfer mechanisms validated
 
-4. Server Monitoring:
-   Client reports execution → Server validates → Records audit trail
+  Audit Trail Requirements:
+    - Complete transaction logging implemented
+    - Immutable audit trail verified
+    - Timestamp accuracy validated
+    - Log retention policies implemented
+    - Log integrity protection verified
 ```
 
-## 3.4 Compliance & Regulatory Architecture
+---
 
-### Regulatory Compliance Architecture
-```yaml
-Compliance Monitoring Service (Port 8018):
-  Technology: Spring Boot + Kafka Streams
-  Purpose: Real-time regulatory compliance monitoring
-  Features:
-    - MiFID II transaction reporting
-    - EMIR derivative reporting
-    - Best execution monitoring
-    - Market abuse detection
-
-Audit Trail Service (Port 8019):
-  Technology: Event sourcing + Elasticsearch
-  Purpose: Immutable audit logs for regulatory inspection
-  Retention: 7 years (EU regulations)
-
-Regulatory Reporting Service (Port 8020):
-  Technology: Apache Airflow + regulatory APIs
-  Purpose: Automated regulatory report generation
-  Schedule: Daily, weekly, monthly reports
-```
-
-### Service-Specific Log Retention Policies
-```yaml
-Trading Engine (Port 8007):
-  Critical Logs: 7 years (regulatory)
-  Execution Logs: 90 days hot + 7 years cold
-  Error Logs: 30 days hot + 1 year warm
-  Debug Logs: 7 days hot only
-  Retention Schedule: Daily compression, weekly archive
-
-ML Services (Ports 8011-8017):
-  Model Training: 2 years (performance analysis)
-  Inference Logs: 30 days hot + 1 year warm
-  Performance Metrics: 7 days hot + 90 days warm
-  Error Analysis: 30 days hot + 6 months warm
-  A/B Testing: 1 year (regulatory ML governance)
-
-API Gateway (Port 8000):
-  Access Logs: 90 days hot + 1 year warm
-  Authentication: 1 year (security audit)
-  Rate Limiting: 30 days hot + 90 days warm
-  Error Logs: 90 days hot + 6 months warm
-  Security Events: 7 years (compliance)
-```
-
-### GDPR Compliance
-```yaml
-Data Minimization:
-  - Only essential trading and security events kept long-term
-  - Debug and development logs automatically purged
-  - Personal data anonymized after 90 days
-
-Right to be Forgotten:
-  - User-specific logs can be selectively deleted
-  - Anonymization process for audit trails
-  - Retention override for legal holds
-
-Data Protection Impact:
-  - 75% reduction in personal data storage
-  - Automated deletion prevents data accumulation
-  - Clear retention justification for remaining data
-
-Financial Compliance:
-  Trading Records: 1 year retention (CRITICAL level)
-    - Trade execution logs
-    - Risk management decisions
-    - Client trading signals
-    - Compliance audit events
-
-  Security Events: 1 year retention (CRITICAL level)
-    - Authentication attempts
-    - Authorization failures
-    - Security policy violations
-    - Incident response logs
-```
+**Level 3 Status**: PLANNED
+**Next Level**: LEVEL_4_INTELLIGENCE (AI Components)
