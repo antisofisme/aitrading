@@ -1,28 +1,42 @@
 {
   "name": "@aitrading/database-service",
-  "version": "1.0.0",
-  "description": "Database Service for AI Trading Platform - Phase 1",
+  "version": "2.0.0",
+  "description": "Multi-Database Service for AI Trading Platform - Level 1 Foundation Complete",
   "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./multi-db": "./src/multi-db.js",
+    "./legacy": "./src/config/database.js"
+  },
   "scripts": {
     "start": "node src/index.js",
+    "start:multi-db": "node examples/multi-database-usage.js",
     "dev": "nodemon src/index.js",
+    "dev:multi-db": "nodemon examples/multi-database-usage.js",
     "test": "jest",
     "test:watch": "jest --watch",
+    "test:multi-db": "jest --testPathPattern=multi-database",
     "migrate": "node src/migrations/runner.js",
     "health": "curl http://localhost:8008/health",
+    "health:multi": "node -e \"require('./src/multi-db').createDatabaseService().then(s => s.getHealthStatus()).then(console.log)\"",
+    "demo": "node examples/multi-database-usage.js",
     "docker:build": "docker build -t aitrading/database-service .",
     "docker:run": "docker run -p 8008:8008 --env-file .env aitrading/database-service"
   },
   "dependencies": {
+    "@clickhouse/client": "^1.12.1",
+    "arangojs": "^10.1.2",
+    "axios": "^1.6.0",
+    "bcrypt": "^5.1.1",
+    "cors": "^2.8.5",
     "express": "^4.18.2",
+    "helmet": "^7.1.0",
+    "ioredis": "^5.7.0",
     "pg": "^8.11.3",
     "pg-pool": "^3.6.1",
-    "winston": "^3.11.0",
-    "cors": "^2.8.5",
-    "helmet": "^7.1.0",
-    "axios": "^1.6.0",
     "uuid": "^9.0.1",
-    "bcrypt": "^5.1.1"
+    "weaviate-ts-client": "^2.2.0",
+    "winston": "^3.11.0"
   },
   "devDependencies": {
     "jest": "^29.7.0",
@@ -31,10 +45,44 @@
   },
   "keywords": [
     "database",
+    "multi-database",
     "postgresql",
+    "clickhouse",
+    "weaviate",
+    "arangodb",
+    "dragonflydb",
     "microservice",
-    "ai-trading"
+    "ai-trading",
+    "time-series",
+    "vector-database",
+    "graph-database",
+    "cache",
+    "analytics"
   ],
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ai-trading-platform/database-service"
+  },
+  "databases": {
+    "supported": [
+      "PostgreSQL",
+      "ClickHouse",
+      "Weaviate",
+      "ArangoDB",
+      "DragonflyDB"
+    ],
+    "features": [
+      "unified-interface",
+      "intelligent-routing",
+      "cross-database-transactions",
+      "health-monitoring",
+      "connection-pooling",
+      "performance-optimization"
+    ]
+  },
   "author": "AI Trading Platform",
   "license": "MIT"
 }

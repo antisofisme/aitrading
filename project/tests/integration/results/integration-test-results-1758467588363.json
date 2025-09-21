@@ -1,0 +1,178 @@
+{
+  "startTime": "2025-09-21T15:12:55.279Z",
+  "endTime": "2025-09-21T15:13:08.362Z",
+  "totalTests": 0,
+  "passedTests": 0,
+  "failedTests": 0,
+  "skippedTests": 0,
+  "suiteResults": {
+    "API Gateway": {
+      "suite": "API Gateway",
+      "status": "failed",
+      "code": 127,
+      "output": "",
+      "error": "sh: 1: jest: not found\n",
+      "tests": {
+        "total": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0
+      },
+      "duration": 0
+    },
+    "Database Service": {
+      "suite": "Database Service",
+      "status": "failed",
+      "code": 127,
+      "output": "",
+      "error": "sh: 1: jest: not found\n",
+      "tests": {
+        "total": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0
+      },
+      "duration": 0
+    },
+    "Data Bridge": {
+      "suite": "Data Bridge",
+      "status": "failed",
+      "code": 127,
+      "output": "",
+      "error": "sh: 1: jest: not found\n",
+      "tests": {
+        "total": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0
+      },
+      "duration": 0
+    },
+    "Central Hub": {
+      "suite": "Central Hub",
+      "status": "failed",
+      "code": 127,
+      "output": "",
+      "error": "sh: 1: jest: not found\n",
+      "tests": {
+        "total": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0
+      },
+      "duration": 0
+    },
+    "Workspace Configuration": {
+      "suite": "Workspace Configuration",
+      "status": "failed",
+      "code": 127,
+      "output": "",
+      "error": "sh: 1: jest: not found\n",
+      "tests": {
+        "total": 0,
+        "passed": 0,
+        "failed": 0,
+        "skipped": 0
+      },
+      "duration": 0
+    }
+  },
+  "serviceStatus": {
+    "API Gateway": {
+      "available": false,
+      "healthy": false,
+      "url": "http://localhost:3001",
+      "port": 3001,
+      "critical": true,
+      "details": {
+        "isHealthy": false,
+        "error": "Port not open"
+      }
+    },
+    "Database Service": {
+      "available": false,
+      "healthy": false,
+      "url": "http://localhost:8008",
+      "port": 8008,
+      "critical": true,
+      "details": {
+        "isHealthy": false,
+        "error": "Port not open"
+      }
+    },
+    "Data Bridge": {
+      "available": false,
+      "healthy": false,
+      "url": "http://localhost:5001",
+      "port": 5001,
+      "critical": false,
+      "details": {
+        "isHealthy": false,
+        "error": "Port not open"
+      }
+    },
+    "Central Hub": {
+      "available": false,
+      "healthy": false,
+      "url": "http://localhost:7000",
+      "port": 7000,
+      "critical": true,
+      "details": {
+        "isHealthy": false,
+        "error": "Port not open"
+      }
+    }
+  },
+  "summary": {
+    "testExecution": {
+      "duration": 13083,
+      "totalTests": 0,
+      "passedTests": 0,
+      "failedTests": 0,
+      "skippedTests": 0,
+      "successRate": 0
+    },
+    "serviceHealth": {
+      "API Gateway": {
+        "status": "unhealthy",
+        "critical": true,
+        "issues": [
+          "Service unavailable"
+        ]
+      },
+      "Database Service": {
+        "status": "unhealthy",
+        "critical": true,
+        "issues": [
+          "Service unavailable"
+        ]
+      },
+      "Data Bridge": {
+        "status": "unhealthy",
+        "critical": false,
+        "issues": [
+          "Service unavailable"
+        ]
+      },
+      "Central Hub": {
+        "status": "unhealthy",
+        "critical": true,
+        "issues": [
+          "Service unavailable"
+        ]
+      }
+    },
+    "foundationReadiness": {
+      "level1Complete": false,
+      "readyForLevel2": false,
+      "criticalIssues": [
+        "Critical test suites failed: API Gateway, Database Service, Central Hub, Workspace Configuration",
+        "Critical services unhealthy: API Gateway, Database Service, Central Hub"
+      ],
+      "recommendations": [
+        "Fix failing critical tests before proceeding",
+        "Ensure all critical services are running and healthy"
+      ]
+    }
+  }
+}

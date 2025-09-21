@@ -1,0 +1,58 @@
+{
+  "name": "aitrading-level1-integration-tests",
+  "version": "1.0.0",
+  "description": "LEVEL 1 Foundation Integration Tests for AI Trading Platform",
+  "main": "orchestrator.js",
+  "scripts": {
+    "test": "node orchestrator.js",
+    "test:api-gateway": "jest suites/api-gateway.test.js --verbose",
+    "test:database": "jest suites/database-service.test.js --verbose",
+    "test:data-bridge": "jest suites/data-bridge.test.js --verbose",
+    "test:central-hub": "jest suites/central-hub.test.js --verbose",
+    "test:workspace": "jest suites/workspace-config.test.js --verbose",
+    "test:all": "jest suites/ --verbose",
+    "test:quick": "jest suites/ --verbose --testPathPattern='(api-gateway|database-service|central-hub)'",
+    "test:critical": "jest suites/ --verbose --testPathPattern='(api-gateway|database-service|central-hub|workspace-config)'",
+    "validate": "node orchestrator.js --validate-only",
+    "setup": "npm install && mkdir -p results logs",
+    "clean": "rm -rf results/* logs/* node_modules/.cache"
+  },
+  "dependencies": {
+    "axios": "^1.6.0",
+    "ws": "^8.14.2",
+    "pg": "^8.11.3",
+    "dotenv": "^16.3.1"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "@types/jest": "^29.5.0"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "testTimeout": 30000,
+    "setupFilesAfterEnv": ["<rootDir>/config/jest.setup.js"],
+    "testMatch": [
+      "**/suites/**/*.test.js"
+    ],
+    "collectCoverageFrom": [
+      "utils/**/*.js",
+      "config/**/*.js"
+    ],
+    "coverageDirectory": "results/coverage",
+    "verbose": true,
+    "detectOpenHandles": true,
+    "forceExit": true
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "ai-trading",
+    "integration-tests",
+    "microservices",
+    "foundation",
+    "level1"
+  ],
+  "author": "AI Trading Platform Team",
+  "license": "MIT"
+}

@@ -1,0 +1,78 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "module": "CommonJS",
+    "moduleResolution": "node",
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "outDir": "./dist",
+    "rootDir": "./",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "allowSyntheticDefaultImports": true,
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "removeComments": false,
+    "noImplicitAny": true,
+    "noImplicitReturns": true,
+    "noImplicitThis": true,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+    "exactOptionalPropertyTypes": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "allowUnusedLabels": false,
+    "allowUnreachableCode": false,
+    "incremental": true,
+    "composite": true,
+    "baseUrl": "./",
+    "paths": {
+      "@aitrading/shared": ["./shared/src"],
+      "@aitrading/shared/*": ["./shared/src/*"],
+      "@shared/*": ["./shared/src/*"]
+    }
+  },
+  "include": [
+    "shared/src/**/*",
+    "api-gateway/src/**/*",
+    "central-hub/src/**/*",
+    "database-service/src/**/*",
+    "data-bridge/src/**/*",
+    "monitoring/src/**/*",
+    "scripts/src/**/*"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "**/*.test.ts",
+    "**/*.spec.ts",
+    "**/node_modules",
+    "**/dist"
+  ],
+  "references": [
+    {
+      "path": "./shared"
+    },
+    {
+      "path": "./api-gateway"
+    },
+    {
+      "path": "./central-hub"
+    },
+    {
+      "path": "./database-service"
+    },
+    {
+      "path": "./data-bridge"
+    }
+  ],
+  "ts-node": {
+    "esm": false,
+    "experimentalSpecifierResolution": "node"
+  }
+}

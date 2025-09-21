@@ -6,6 +6,7 @@
 require('dotenv').config();
 const express = require('express');
 const morgan = require('morgan');
+const compression = require('compression');
 const User = require('../models/User');
 const {
   authRateLimit,
@@ -22,6 +23,9 @@ const authRoutes = require('../routes/auth');
 
 // Create Express app
 const app = express();
+
+// Compression middleware
+app.use(compression());
 
 // Security middleware
 app.use(helmet);

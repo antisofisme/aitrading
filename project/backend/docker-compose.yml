@@ -1,0 +1,559 @@
+version: '3.8'
+
+# AI Trading Platform - Microservices Infrastructure
+# Production-ready Docker Compose with service discovery, monitoring, and health checks
+
+networks:
+  aitrading:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+  monitoring:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.21.0.0/16
+
+volumes:
+  redis_data:
+  consul_data:
+  postgres_data:
+  prometheus_data:
+  grafana_data:
+  elasticsearch_data:
+  kibana_data:
+  mongodb_data:
+  shared_logs:
+
+services:
+  # =============================================================================
+  # INFRASTRUCTURE SERVICES
+  # =============================================================================
+
+  # Service Discovery & Configuration
+  consul:
+    image: consul:1.16
+    container_name: aitrading-consul
+    hostname: consul
+    command: >
+      consul agent -dev -server -bootstrap-expect=1 -ui -client=0.0.0.0
+      -bind=0.0.0.0 -data-dir=/consul/data -config-dir=/consul/config
+    ports:
+      - "8500:8500"
+      - "8600:8600/udp"
+    volumes:
+      - consul_data:/consul/data
+      - ./config/consul:/consul/config:ro
+    networks:
+      aitrading:
+        ipv4_address: 172.20.0.10
+    environment:
+      - CONSUL_BIND_INTERFACE=eth0
+      - CONSUL_CLIENT_INTERFACE=eth0
+    healthcheck:
+      test: ["CMD", "consul", "members"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  # Message Queue & Cache
+  redis:
+    image: redis:7-alpine
+    container_name: aitrading-redis
+    hostname: redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+      - ./config/redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+    command: redis-server /usr/local/etc/redis/redis.conf
+    networks:
+      aitrading:
+        ipv4_address: 172.20.0.11
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-aitrading2024}
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    restart: unless-stopped
+
+  # Primary Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: aitrading-postgres
+    hostname: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database-service/migrations:/docker-entrypoint-initdb.d:ro
+      - ./config/postgres:/etc/postgresql:ro
+    networks:
+      aitrading:
+        ipv4_address: 172.20.0.12
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB:-aitrading}
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-aitrading2024}
+      - POSTGRES_MULTIPLE_DATABASES=${POSTGRES_MULTIPLE_DATABASES:-trading,analytics,logs}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-aitrading}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # Document Database (for logs, configurations)
+  mongodb:
+    image: mongo:7.0
+    container_name: aitrading-mongodb
+    hostname: mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+      - ./config/mongodb/mongod.conf:/etc/mongo/mongod.conf:ro
+    networks:
+      aitrading:
+        ipv4_address: 172.20.0.13
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=${MONGO_USERNAME:-admin}
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_PASSWORD:-aitrading2024}
+      - MONGO_INITDB_DATABASE=${MONGO_DATABASE:-aitrading_logs}
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+  # =============================================================================
+  # APPLICATION SERVICES
+  # =============================================================================
+
+  # API Gateway (Entry Point)
+  api-gateway:
+    build:
+      context: ./api-gateway
+      dockerfile: Dockerfile
+      target: production
+    container_name: aitrading-gateway
+    hostname: api-gateway
+    ports:
+      - "8000:8000"
+      - "8001:8001" # Admin/Health port
+    volumes:
+      - shared_logs:/app/logs
+      - ./config/gateway:/app/config:ro
+    networks:
+      aitrading:
+        ipv4_address: 172.20.0.20
+    environment:
+      - NODE_ENV=${NODE_ENV:-production}
+      - PORT=8000
+      - ADMIN_PORT=8001
+      - SERVICE_NAME=api-gateway
+      - SERVICE_VERSION=1.0.0
+      - CONSUL_HOST=consul
+      - CONSUL_PORT=8500
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-aitrading2024}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - JWT_SECRET=${JWT_SECRET:-your-super-secret-jwt-key}
+      - RATE_LIMIT_WINDOW=900000
+      - RATE_LIMIT_MAX=100
+    depends_on:
+      consul:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+          cpus: '0.25'
+
+  # Central Hub (Core Business Logic)
+  central-hub:
+    build:
+      context: ./central-hub
+      dockerfile: Dockerfile
+      target: production
+    container_name: aitrading-hub
+    hostname: central-hub
+    ports:
+      - "8002:8002"
+      - "8003:8003" # Admin port
+    volumes:
+      - shared_logs:/app/logs
+      - ./config/hub:/app/config:ro
+    networks:
+      aitrading:
+        ipv4_address: 172.20.0.21
+    environment:
+      - NODE_ENV=${NODE_ENV:-production}
+      - PORT=8002
+      - ADMIN_PORT=8003
+      - SERVICE_NAME=central-hub
+      - SERVICE_VERSION=1.0.0
+      - CONSUL_HOST=consul
+      - CONSUL_PORT=8500
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=${POSTGRES_DB:-aitrading}
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-aitrading2024}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-aitrading2024}
+      - MONGODB_HOST=mongodb
+      - MONGODB_PORT=27017
+      - MONGODB_USERNAME=${MONGO_USERNAME:-admin}
+      - MONGODB_PASSWORD=${MONGO_PASSWORD:-aitrading2024}
+      - MONGODB_DATABASE=${MONGO_DATABASE:-aitrading_logs}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    depends_on:
+      consul:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8003/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'
+        reservations:
+          memory: 512M
+          cpus: '0.5'
+
+  # Database Service (Data Management)
+  database-service:
+    build:
+      context: ./database-service
+      dockerfile: Dockerfile
+      target: production
+    container_name: aitrading-database
+    hostname: database-service
+    ports:
+      - "8004:8004"
+      - "8005:8005" # Admin port
+    volumes:
+      - shared_logs:/app/logs
+      - ./config/database:/app/config:ro
+    networks:
+      aitrading:
+        ipv4_address: 172.20.0.22
+    environment:
+      - NODE_ENV=${NODE_ENV:-production}
+      - PORT=8004
+      - ADMIN_PORT=8005
+      - SERVICE_NAME=database-service
+      - SERVICE_VERSION=1.0.0
+      - CONSUL_HOST=consul
+      - CONSUL_PORT=8500
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=${POSTGRES_DB:-aitrading}
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-aitrading2024}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-aitrading2024}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    depends_on:
+      consul:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8005/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+          cpus: '0.25'
+
+  # Data Bridge (External Integrations)
+  data-bridge:
+    build:
+      context: ./data-bridge
+      dockerfile: Dockerfile
+      target: production
+    container_name: aitrading-bridge
+    hostname: data-bridge
+    ports:
+      - "8006:8006"
+      - "8007:8007" # Admin port
+    volumes:
+      - shared_logs:/app/logs
+      - ./config/bridge:/app/config:ro
+    networks:
+      aitrading:
+        ipv4_address: 172.20.0.23
+    environment:
+      - NODE_ENV=${NODE_ENV:-production}
+      - PORT=8006
+      - ADMIN_PORT=8007
+      - SERVICE_NAME=data-bridge
+      - SERVICE_VERSION=1.0.0
+      - CONSUL_HOST=consul
+      - CONSUL_PORT=8500
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-aitrading2024}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - MT5_HOST=${MT5_HOST:-mt5-server}
+      - MT5_PORT=${MT5_PORT:-443}
+      - MT5_LOGIN=${MT5_LOGIN}
+      - MT5_PASSWORD=${MT5_PASSWORD}
+      - MT5_SERVER=${MT5_SERVER}
+    depends_on:
+      consul:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8007/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+          cpus: '0.25'
+
+  # =============================================================================
+  # MONITORING & OBSERVABILITY
+  # =============================================================================
+
+  # Metrics Collection
+  prometheus:
+    image: prom/prometheus:v2.48.0
+    container_name: aitrading-prometheus
+    hostname: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - prometheus_data:/prometheus
+      - ./monitoring/prometheus:/etc/prometheus:ro
+    networks:
+      - monitoring
+      - aitrading
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  # Metrics Visualization
+  grafana:
+    image: grafana/grafana:10.2.0
+    container_name: aitrading-grafana
+    hostname: grafana
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    networks:
+      - monitoring
+      - aitrading
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-aitrading2024}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_INSTALL_PLUGINS=grafana-clock-panel,grafana-simple-json-datasource
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  # Log Aggregation
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
+    container_name: aitrading-elasticsearch
+    hostname: elasticsearch
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+      - ./monitoring/elasticsearch/config:/usr/share/elasticsearch/config:ro
+    networks:
+      - monitoring
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s http://localhost:9200/_cluster/health?wait_for_status=green&timeout=1s"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  # Log Visualization
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.11.0
+    container_name: aitrading-kibana
+    hostname: kibana
+    ports:
+      - "5601:5601"
+    volumes:
+      - kibana_data:/usr/share/kibana/data
+      - ./monitoring/kibana/config:/usr/share/kibana/config:ro
+    networks:
+      - monitoring
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+      - XPACK_SECURITY_ENABLED=false
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s -I http://localhost:5601 | grep -q 'HTTP/1.1 302 Found'"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  # Application Performance Monitoring
+  apm-server:
+    image: docker.elastic.co/apm/apm-server:8.11.0
+    container_name: aitrading-apm
+    hostname: apm-server
+    ports:
+      - "8200:8200"
+    volumes:
+      - ./monitoring/apm/apm-server.yml:/usr/share/apm-server/apm-server.yml:ro
+    networks:
+      - monitoring
+    environment:
+      - output.elasticsearch.hosts=elasticsearch:9200
+      - apm-server.host=0.0.0.0:8200
+      - setup.kibana.host=kibana:5601
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8200/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  # =============================================================================
+  # LOAD BALANCER & REVERSE PROXY
+  # =============================================================================
+
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: aitrading-nginx
+    hostname: nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./config/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./config/nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./config/ssl:/etc/nginx/ssl:ro
+      - shared_logs:/var/log/nginx
+    networks:
+      aitrading:
+        ipv4_address: 172.20.0.30
+    environment:
+      - NGINX_ENVSUBST_TEMPLATE_DIR=/etc/nginx/templates
+      - NGINX_ENVSUBST_OUTPUT_DIR=/etc/nginx/conf.d
+    depends_on:
+      - api-gateway
+      - central-hub
+      - database-service
+      - data-bridge
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+# =============================================================================
+# HEALTH CHECK SERVICE
+# =============================================================================
+
+  healthcheck:
+    image: appropriate/curl:latest
+    container_name: aitrading-healthcheck
+    networks:
+      - aitrading
+    command: >
+      sh -c "
+        while true; do
+          sleep 30
+          echo 'Health check starting...'
+          curl -f http://api-gateway:8001/health || echo 'API Gateway unhealthy'
+          curl -f http://central-hub:8003/health || echo 'Central Hub unhealthy'
+          curl -f http://database-service:8005/health || echo 'Database Service unhealthy'
+          curl -f http://data-bridge:8007/health || echo 'Data Bridge unhealthy'
+          echo 'Health check completed'
+        done
+      "
+    depends_on:
+      - api-gateway
+      - central-hub
+      - database-service
+      - data-bridge
+    restart: unless-stopped

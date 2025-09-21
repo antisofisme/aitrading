@@ -1,0 +1,146 @@
+{
+  "services": [
+    {
+      "id": "api-gateway",
+      "name": "api-gateway",
+      "tags": ["api", "gateway", "entry-point"],
+      "address": "172.20.0.20",
+      "port": 8000,
+      "meta": {
+        "version": "1.0.0",
+        "environment": "production",
+        "admin_port": "8001"
+      },
+      "checks": [
+        {
+          "id": "api-gateway-health",
+          "name": "API Gateway Health Check",
+          "http": "http://172.20.0.20:8001/health",
+          "interval": "30s",
+          "timeout": "10s"
+        },
+        {
+          "id": "api-gateway-ready",
+          "name": "API Gateway Ready Check",
+          "http": "http://172.20.0.20:8001/ready",
+          "interval": "10s",
+          "timeout": "5s"
+        }
+      ],
+      "connect": {
+        "sidecar_service": {
+          "proxy": {
+            "upstreams": [
+              {
+                "destination_name": "central-hub",
+                "local_bind_port": 8002
+              },
+              {
+                "destination_name": "database-service",
+                "local_bind_port": 8004
+              },
+              {
+                "destination_name": "data-bridge",
+                "local_bind_port": 8006
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "central-hub",
+      "name": "central-hub",
+      "tags": ["core", "business-logic", "hub"],
+      "address": "172.20.0.21",
+      "port": 8002,
+      "meta": {
+        "version": "1.0.0",
+        "environment": "production",
+        "admin_port": "8003"
+      },
+      "checks": [
+        {
+          "id": "central-hub-health",
+          "name": "Central Hub Health Check",
+          "http": "http://172.20.0.21:8003/health",
+          "interval": "30s",
+          "timeout": "10s"
+        }
+      ],
+      "connect": {
+        "sidecar_service": {
+          "proxy": {
+            "upstreams": [
+              {
+                "destination_name": "database-service",
+                "local_bind_port": 8004
+              },
+              {
+                "destination_name": "data-bridge",
+                "local_bind_port": 8006
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "database-service",
+      "name": "database-service",
+      "tags": ["database", "data-access", "persistence"],
+      "address": "172.20.0.22",
+      "port": 8004,
+      "meta": {
+        "version": "1.0.0",
+        "environment": "production",
+        "admin_port": "8005"
+      },
+      "checks": [
+        {
+          "id": "database-service-health",
+          "name": "Database Service Health Check",
+          "http": "http://172.20.0.22:8005/health",
+          "interval": "30s",
+          "timeout": "10s"
+        }
+      ],
+      "connect": {
+        "sidecar_service": {}
+      }
+    },
+    {
+      "id": "data-bridge",
+      "name": "data-bridge",
+      "tags": ["integration", "external", "bridge"],
+      "address": "172.20.0.23",
+      "port": 8006,
+      "meta": {
+        "version": "1.0.0",
+        "environment": "production",
+        "admin_port": "8007"
+      },
+      "checks": [
+        {
+          "id": "data-bridge-health",
+          "name": "Data Bridge Health Check",
+          "http": "http://172.20.0.23:8007/health",
+          "interval": "30s",
+          "timeout": "10s"
+        }
+      ],
+      "connect": {
+        "sidecar_service": {
+          "proxy": {
+            "upstreams": [
+              {
+                "destination_name": "database-service",
+                "local_bind_port": 8004
+              }
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

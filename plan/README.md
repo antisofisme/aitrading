@@ -69,6 +69,7 @@
 2. **Level Completion**: Level 1 complete → baru Level 2
 3. **Context Dependency**: Setiap sub-item punya dependency yang jelas
 4. **Knowledge Transfer**: AI agent harus share context antar komponen
+5. **Business Content Separation**: Bagian bisnis (selain timeline & cost) dipindah ke LEVEL files untuk technical implementation
 
 ### **Format Penamaan:**
 - **X.Y** = Level.SubLevel
@@ -106,6 +107,12 @@
 - Bagaimana AI agents share context
 - Memory coordination protocols
 - Collaborative development patterns
+
+### **6. Business Content Management**
+- **PRESERVE in original files**: Timeline, cost estimates, budget allocations
+- **MOVE to LEVEL files**: Business logic, technical specifications, implementation details, business workflows, architecture specs
+- **INCLUDE in LEVEL files**: All business logic, workflows, and technical specifications for complete implementation
+- **MAINTAIN**: Cross-references between plan files and LEVEL files for technical implementation
 
 ## 📊 **Implementation Template**
 
