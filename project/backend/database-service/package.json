@@ -1,0 +1,40 @@
+{
+  "name": "@aitrading/database-service",
+  "version": "1.0.0",
+  "description": "Database Service for AI Trading Platform - Phase 1",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "migrate": "node src/migrations/runner.js",
+    "health": "curl http://localhost:8008/health",
+    "docker:build": "docker build -t aitrading/database-service .",
+    "docker:run": "docker run -p 8008:8008 --env-file .env aitrading/database-service"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "pg": "^8.11.3",
+    "pg-pool": "^3.6.1",
+    "winston": "^3.11.0",
+    "cors": "^2.8.5",
+    "helmet": "^7.1.0",
+    "axios": "^1.6.0",
+    "uuid": "^9.0.1",
+    "bcrypt": "^5.1.1"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "nodemon": "^3.0.1",
+    "supertest": "^6.3.3"
+  },
+  "keywords": [
+    "database",
+    "postgresql",
+    "microservice",
+    "ai-trading"
+  ],
+  "author": "AI Trading Platform",
+  "license": "MIT"
+}
