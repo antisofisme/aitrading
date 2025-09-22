@@ -1,0 +1,117 @@
+{
+  "name": "@aitrading/flow-aware-debugging-tests",
+  "version": "1.0.0",
+  "description": "Comprehensive test suite for Flow-Aware Error Handling system",
+  "scripts": {
+    "test": "jest",
+    "test:unit": "jest unit/",
+    "test:integration": "jest integration/",
+    "test:e2e": "jest e2e/",
+    "test:performance": "jest performance/",
+    "test:chaos": "jest chaos/",
+    "test:production": "jest production-readiness.test.js",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "test:ci": "jest --ci --coverage --watchAll=false",
+    "test:verbose": "jest --verbose",
+    "test:debug": "node --inspect-brk node_modules/.bin/jest --runInBand",
+    "test:parallel": "jest --maxWorkers=4",
+    "test:bail": "jest --bail",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "validate": "node run-validation.js",
+    "benchmark": "jest performance/ --testTimeout=300000",
+    "chaos": "jest chaos/ --testTimeout=600000",
+    "report": "jest --coverage && node scripts/generate-test-report.js",
+    "clean": "rimraf coverage temp reports .jest-cache"
+  },
+  "dependencies": {
+    "uuid": "^9.0.0",
+    "axios": "^1.5.0",
+    "ws": "^8.14.0",
+    "express": "^4.18.2"
+  },
+  "devDependencies": {
+    "jest": "^29.6.2",
+    "jest-html-reporters": "^3.1.5",
+    "jest-junit": "^16.0.0",
+    "jest-performance-reporter": "^1.0.0",
+    "supertest": "^6.3.3",
+    "eslint": "^8.47.0",
+    "rimraf": "^5.0.0",
+    "@babel/core": "^7.22.0",
+    "@babel/preset-env": "^7.22.0",
+    "babel-jest": "^29.6.2"
+  },
+  "jest": {
+    "projects": [
+      {
+        "displayName": "Unit Tests",
+        "testMatch": ["<rootDir>/unit/**/*.test.js"],
+        "testTimeout": 30000
+      },
+      {
+        "displayName": "Integration Tests",
+        "testMatch": ["<rootDir>/integration/**/*.test.js"],
+        "testTimeout": 60000
+      },
+      {
+        "displayName": "E2E Tests",
+        "testMatch": ["<rootDir>/e2e/**/*.test.js"],
+        "testTimeout": 120000
+      },
+      {
+        "displayName": "Performance Tests",
+        "testMatch": ["<rootDir>/performance/**/*.test.js"],
+        "testTimeout": 180000
+      },
+      {
+        "displayName": "Chaos Tests",
+        "testMatch": ["<rootDir>/chaos/**/*.test.js"],
+        "testTimeout": 300000
+      },
+      {
+        "displayName": "Production Readiness",
+        "testMatch": ["<rootDir>/production-readiness.test.js"],
+        "testTimeout": 240000
+      }
+    ]
+  },
+  "eslintConfig": {
+    "env": {
+      "node": true,
+      "jest": true,
+      "es6": true
+    },
+    "extends": ["eslint:recommended"],
+    "parserOptions": {
+      "ecmaVersion": 2020,
+      "sourceType": "module"
+    },
+    "rules": {
+      "no-console": "warn",
+      "no-unused-vars": ["error", { "argsIgnorePattern": "^_" }],
+      "prefer-const": "error",
+      "no-var": "error"
+    }
+  },
+  "babel": {
+    "presets": [
+      ["@babel/preset-env", {
+        "targets": {
+          "node": "14"
+        }
+      }]
+    ]
+  },
+  "keywords": [
+    "flow-aware",
+    "error-handling",
+    "debugging",
+    "testing",
+    "monitoring",
+    "reliability"
+  ],
+  "author": "AI Trading Platform Team",
+  "license": "MIT"
+}

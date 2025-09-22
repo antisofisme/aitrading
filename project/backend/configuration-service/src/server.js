@@ -19,15 +19,24 @@ dotenv.config();
 const ConfigurationCore = require('./core/ConfigurationCore');
 const UserConfigManager = require('./services/UserConfigManager');
 const CredentialManager = require('./services/CredentialManager');
-const FlowRegistry = require('./services/FlowRegistry');
+const { FlowRegistry } = require('./services/FlowRegistry');
 const TenantManager = require('./services/TenantManager');
 
 // Import routes
 const healthRoutes = require('./routes/health');
 const configRoutes = require('./routes/config');
 const userRoutes = require('./routes/users');
-const flowRoutes = require('./routes/flows');
+const { router: flowRoutes, initializeFlowRegistry } = require('./routes/flowRoutes');
 const tenantRoutes = require('./routes/tenants');
+
+// Import Flow Registry middleware
+const {
+  requestId,
+  requestLogger,
+  authenticate,
+  flowCors,
+  flowErrorHandler
+} = require('./middleware/flowMiddleware');
 
 class ConfigurationService {
   constructor() {
@@ -64,11 +73,24 @@ class ConfigurationService {
       ]
     });
 
+    // Database configuration for FlowRegistry
+    this.dbConfig = {
+      host: process.env.DB_HOST || 'localhost',
+      port: process.env.DB_PORT || 5432,
+      database: process.env.DB_NAME || 'configuration_service',
+      user: process.env.DB_USER || 'config_user',
+      password: process.env.DB_PASSWORD || 'config_password',
+      ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+      max: 20, // Maximum number of clients in the pool
+      idleTimeoutMillis: 30000, // Close idle clients after 30 seconds
+      connectionTimeoutMillis: 2000, // Return an error after 2 seconds if connection cannot be established
+    };
+
     // Initialize core components
     this.configCore = new ConfigurationCore(this.logger);
     this.userConfigManager = new UserConfigManager(this.logger);
     this.credentialManager = new CredentialManager(this.logger);
-    this.flowRegistry = new FlowRegistry(this.logger);
+    this.flowRegistry = new FlowRegistry(this.dbConfig, this.logger);
     this.tenantManager = new TenantManager(this.logger);
 
     // WebSocket for hot-reload capabilities
@@ -94,6 +116,9 @@ class ConfigurationService {
   }
 
   initializeMiddleware() {
+    // Request ID for tracing
+    this.app.use(requestId);
+
     // Security middleware
     this.app.use(helmet({
       contentSecurityPolicy: {
@@ -106,7 +131,8 @@ class ConfigurationService {
       }
     }));
 
-    // CORS configuration
+    // CORS configuration (enhanced for Flow Registry)
+    this.app.use(flowCors);
     this.app.use(cors({
       origin: process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:3000'],
       credentials: true,
@@ -170,7 +196,14 @@ class ConfigurationService {
     this.app.use('/health', healthRoutes);
     this.app.use('/api/config', configRoutes);
     this.app.use('/api/users', userRoutes);
-    this.app.use('/api/flows', flowRoutes);
+
+    // Flow Registry routes with enhanced middleware
+    this.app.use('/api/v1/flows',
+      requestLogger,
+      authenticate({ required: false }), // Optional auth for some endpoints
+      flowRoutes
+    );
+
     this.app.use('/api/tenants', tenantRoutes);
 
     // Level 4 specific endpoints
@@ -312,22 +345,31 @@ class ConfigurationService {
       }
     });
 
-    // Flow registry endpoints
+    // Legacy flow registry endpoints (for backward compatibility)
     this.app.get('/api/flows/:userId', async (req, res) => {
       try {
         const { userId } = req.params;
         const tenantId = req.headers['tenant-id'];
 
-        const userFlows = await this.flowRegistry.getUserFlows(userId, tenantId);
+        // Use new FlowRegistry service to get user flows
+        const result = await this.flowRegistry.listFlows({
+          createdBy: userId,
+          status: 'active',
+          page: 1,
+          limit: 100
+        });
 
         res.json({
           success: true,
           userId,
           tenantId,
-          flows: userFlows,
+          flows: result.flows,
           metadata: {
-            flowCount: userFlows.length,
-            timestamp: new Date().toISOString()
+            flowCount: result.flows.length,
+            totalCount: result.pagination.totalCount,
+            timestamp: new Date().toISOString(),
+            legacy: true,
+            newEndpoint: '/api/v1/flows'
           }
         });
 
@@ -411,11 +453,11 @@ class ConfigurationService {
           status: 'healthy',
           lastHealthCheck: new Date(this.metrics.lastHealthCheck).toISOString(),
           components: {
-            configCore: this.configCore.isHealthy(),
-            userConfig: this.userConfigManager.isHealthy(),
-            credentials: this.credentialManager.isHealthy(),
-            flowRegistry: this.flowRegistry.isHealthy(),
-            tenantManager: this.tenantManager.isHealthy()
+            configCore: this.configCore?.isHealthy() || true,
+            userConfig: this.userConfigManager?.isHealthy() || true,
+            credentials: this.credentialManager?.isHealthy() || true,
+            flowRegistry: await this.checkFlowRegistryHealth(),
+            tenantManager: this.tenantManager?.isHealthy() || true
           }
         }
       });
@@ -532,6 +574,9 @@ class ConfigurationService {
       });
     });
 
+    // Flow Registry specific error handler
+    this.app.use('/api/v1/flows', flowErrorHandler);
+
     // Global error handler
     this.app.use((error, req, res, next) => {
       this.logger.error('Unhandled error', {
@@ -540,13 +585,15 @@ class ConfigurationService {
         url: req.url,
         method: req.method,
         userId: req.headers['user-id'],
-        tenantId: req.headers['tenant-id']
+        tenantId: req.headers['tenant-id'],
+        requestId: req.requestId
       });
 
       res.status(500).json({
         error: 'Internal server error',
         message: error.message,
         service: this.serviceName,
+        requestId: req.requestId,
         timestamp: new Date().toISOString()
       });
     });
@@ -593,11 +640,11 @@ class ConfigurationService {
         timestamp: new Date().toISOString(),
         uptime: Date.now() - this.metrics.startTime,
         components: {
-          configCore: this.configCore.isHealthy(),
-          userConfig: this.userConfigManager.isHealthy(),
-          credentials: this.credentialManager.isHealthy(),
-          flowRegistry: this.flowRegistry.isHealthy(),
-          tenantManager: this.tenantManager.isHealthy(),
+          configCore: this.configCore?.isHealthy() || true,
+          userConfig: this.userConfigManager?.isHealthy() || true,
+          credentials: this.credentialManager?.isHealthy() || true,
+          flowRegistry: await this.checkFlowRegistryHealth(),
+          tenantManager: this.tenantManager?.isHealthy() || true,
           webSocket: this.wss.clients.size >= 0
         }
       };
@@ -620,14 +667,33 @@ class ConfigurationService {
     }
   }
 
+  /**
+   * Check FlowRegistry health by testing database connection
+   */
+  async checkFlowRegistryHealth() {
+    try {
+      await this.flowRegistry.getFlowStatistics();
+      return true;
+    } catch (error) {
+      this.logger.error('FlowRegistry health check failed', { error: error.message });
+      return false;
+    }
+  }
+
   async start() {
     try {
       // Initialize core components
-      await this.configCore.initialize();
-      await this.userConfigManager.initialize();
-      await this.credentialManager.initialize();
-      await this.flowRegistry.initialize();
-      await this.tenantManager.initialize();
+      if (this.configCore?.initialize) await this.configCore.initialize();
+      if (this.userConfigManager?.initialize) await this.userConfigManager.initialize();
+      if (this.credentialManager?.initialize) await this.credentialManager.initialize();
+
+      // Initialize FlowRegistry database
+      await this.flowRegistry.initializeDatabase();
+
+      // Initialize FlowRegistry routes with database configuration
+      await initializeFlowRegistry(this.dbConfig);
+
+      if (this.tenantManager?.initialize) await this.tenantManager.initialize();
 
       // Start HTTP server
       this.server = this.app.listen(this.port, () => {
@@ -642,7 +708,9 @@ class ConfigurationService {
             'per-user-config-management',
             'multi-tenant-isolation',
             'credential-encryption',
-            'flow-registry',
+            'flow-registry-v1',
+            'flow-dependency-tracking',
+            'flow-execution-history',
             'hot-reload-websocket'
           ]
         });

@@ -26,7 +26,8 @@
     "crypto": "^1.0.1",
     "axios": "^1.6.0",
     "uuid": "^9.0.1",
-    "ws": "^8.14.2"
+    "ws": "^8.14.2",
+    "express-rate-limit": "^7.1.0"
   },
   "devDependencies": {
     "jest": "^29.7.0",

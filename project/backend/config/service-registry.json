@@ -1,0 +1,204 @@
+{
+  "version": "1.0.0",
+  "generatedAt": "2025-09-22T10:54:03.184Z",
+  "coordinator": "ServicePortCoordinator",
+  "services": {
+    "api-gateway": {
+      "port": 3001,
+      "protocol": "http",
+      "description": "External API Gateway - Main entry point",
+      "critical": true,
+      "health": "/health",
+      "configFile": "api-gateway/config/gateway.config.js"
+    },
+    "data-bridge": {
+      "port": 5001,
+      "protocol": "http+ws",
+      "description": "Market Data Bridge - Real-time data ingestion",
+      "critical": false,
+      "health": "/health",
+      "configFile": "data-bridge/config/config.js"
+    },
+    "central-hub": {
+      "port": 7000,
+      "protocol": "http",
+      "description": "Service Discovery & Registration Hub",
+      "critical": true,
+      "health": "/health",
+      "configFile": "central-hub/config/hub.config.js"
+    },
+    "database-service": {
+      "port": 8008,
+      "protocol": "http",
+      "description": "Database Access Layer",
+      "critical": true,
+      "health": "/health",
+      "configFile": "database-service/config/database.config.js"
+    },
+    "ai-orchestrator": {
+      "port": 8020,
+      "protocol": "http",
+      "description": "Level 4 Intelligence Orchestrator",
+      "critical": true,
+      "health": "/health",
+      "configFile": "ai-orchestrator/config/orchestrator.config.js"
+    },
+    "ml-automl": {
+      "port": 8021,
+      "protocol": "http",
+      "description": "AutoML Service",
+      "critical": false,
+      "health": "/health",
+      "configFile": "ml-automl/config/automl.config.js"
+    },
+    "realtime-inference-engine": {
+      "port": 8022,
+      "protocol": "http",
+      "description": "Real-time ML Inference",
+      "critical": false,
+      "health": "/health",
+      "configFile": "realtime-inference-engine/config/inference.config.js"
+    },
+    "trading-engine": {
+      "port": 9000,
+      "protocol": "http",
+      "description": "Core Trading Engine",
+      "critical": true,
+      "health": "/health",
+      "configFile": "trading-engine/config/trading.config.js"
+    },
+    "billing-service": {
+      "port": 9001,
+      "protocol": "http",
+      "description": "Subscription & Billing Management",
+      "critical": false,
+      "health": "/health",
+      "configFile": "billing-service/config/billing.config.js"
+    },
+    "payment-service": {
+      "port": 9002,
+      "protocol": "http",
+      "description": "Payment Processing (Midtrans)",
+      "critical": false,
+      "health": "/health",
+      "configFile": "payment-service/config/payment.config.js"
+    },
+    "notification-service": {
+      "port": 9003,
+      "protocol": "http",
+      "description": "Alerts & Notifications",
+      "critical": false,
+      "health": "/health",
+      "configFile": "notification-service/config/notification.config.js"
+    },
+    "performance-analytics": {
+      "port": 9100,
+      "protocol": "http",
+      "description": "Performance Tracking & Analytics",
+      "critical": false,
+      "health": "/health",
+      "configFile": "performance-analytics/config/analytics.config.js"
+    },
+    "usage-monitoring": {
+      "port": 9101,
+      "protocol": "http",
+      "description": "Usage Analytics & Monitoring",
+      "critical": false,
+      "health": "/health",
+      "configFile": "usage-monitoring/config/monitoring.config.js"
+    },
+    "compliance-monitor": {
+      "port": 9102,
+      "protocol": "http",
+      "description": "Regulatory Compliance Monitoring",
+      "critical": false,
+      "health": "/health",
+      "configFile": "compliance-monitor/config/compliance.config.js"
+    }
+  },
+  "portRanges": {
+    "core-services": "3000-3999",
+    "data-services": "5000-5999",
+    "hub-services": "7000-7999",
+    "database-ai-services": "8000-8999",
+    "trading-business": "9000-9099",
+    "analytics-monitoring": "9100-9199"
+  },
+  "criticalServices": [
+    "api-gateway",
+    "central-hub",
+    "database-service",
+    "ai-orchestrator",
+    "trading-engine"
+  ],
+  "serviceGroups": {
+    "foundation": [
+      "api-gateway",
+      "database-service",
+      "data-bridge",
+      "central-hub"
+    ],
+    "intelligence": [
+      "ai-orchestrator",
+      "ml-automl",
+      "realtime-inference-engine"
+    ],
+    "trading": [
+      "trading-engine",
+      "billing-service",
+      "payment-service"
+    ],
+    "monitoring": [
+      "performance-analytics",
+      "usage-monitoring",
+      "compliance-monitor"
+    ]
+  },
+  "integrationFixes": [
+    {
+      "name": "Environment Variable Standardization",
+      "status": "applied",
+      "timestamp": "2025-09-22T10:54:02.585Z"
+    },
+    {
+      "name": "Database Connection Pooling",
+      "status": "applied",
+      "timestamp": "2025-09-22T10:54:02.631Z"
+    },
+    {
+      "name": "Service Discovery Configuration",
+      "status": "applied",
+      "timestamp": "2025-09-22T10:54:02.725Z"
+    },
+    {
+      "name": "CORS and Security Headers",
+      "status": "applied",
+      "timestamp": "2025-09-22T10:54:02.822Z"
+    },
+    {
+      "name": "Error Handling Standardization",
+      "status": "applied",
+      "timestamp": "2025-09-22T10:54:02.898Z"
+    },
+    {
+      "name": "Health Check Endpoints",
+      "status": "applied",
+      "timestamp": "2025-09-22T10:54:02.983Z"
+    },
+    {
+      "name": "Logging Configuration",
+      "status": "applied",
+      "timestamp": "2025-09-22T10:54:03.073Z"
+    }
+  ],
+  "deployment": {
+    "docker": {
+      "networkName": "aitrading-network",
+      "composeFile": "docker-compose.yml"
+    },
+    "kubernetes": {
+      "namespace": "aitrading",
+      "configMapName": "service-registry"
+    }
+  }
+}

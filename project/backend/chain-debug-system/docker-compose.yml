@@ -1,0 +1,92 @@
+version: '3.8'
+
+services:
+  # Chain Debug System
+  chain-debug-system:
+    build: .
+    ports:
+      - "8025:8025"
+      - "9091:9091"  # Prometheus metrics
+    environment:
+      - NODE_ENV=production
+      - PORT=8025
+      - DATABASE_URL=postgresql://postgres:password@postgres:5432/aitrading_db
+      - REDIS_URL=redis://redis:6379
+      - AI_ORCHESTRATION_URL=http://host.docker.internal:8020
+      - AI_ORCHESTRATOR_URL=http://host.docker.internal:8021
+      - ML_ENSEMBLE_URL=http://host.docker.internal:8022
+    depends_on:
+      - postgres
+      - redis
+    volumes:
+      - ./logs:/app/logs
+    networks:
+      - chain-debug-network
+
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_DB=aitrading_db
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+    networks:
+      - chain-debug-network
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    networks:
+      - chain-debug-network
+
+  # Prometheus (Optional - for metrics collection)
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./config/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    networks:
+      - chain-debug-network
+
+  # Grafana (Optional - for dashboards)
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./config/grafana/dashboards:/etc/grafana/provisioning/dashboards
+      - ./config/grafana/datasources:/etc/grafana/provisioning/datasources
+    networks:
+      - chain-debug-network
+
+volumes:
+  postgres_data:
+  redis_data:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  chain-debug-network:
+    driver: bridge

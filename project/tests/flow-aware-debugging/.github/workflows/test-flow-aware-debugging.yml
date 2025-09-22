@@ -1,0 +1,554 @@
+name: Flow-Aware Error Handling Tests
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'tests/flow-aware-debugging/**'
+      - 'backend/**/flow-*.js'
+      - 'backend/**/chain-*.js'
+      - 'backend/**/error-*.js'
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - 'tests/flow-aware-debugging/**'
+      - 'backend/**/flow-*.js'
+      - 'backend/**/chain-*.js'
+      - 'backend/**/error-*.js'
+  schedule:
+    # Run nightly comprehensive tests
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      test_suite:
+        description: 'Test suite to run'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+        - all
+        - unit
+        - integration
+        - e2e
+        - performance
+        - chaos
+        - production
+      parallel_jobs:
+        description: 'Number of parallel jobs'
+        required: false
+        default: '4'
+        type: string
+
+env:
+  NODE_VERSION: '18'
+  CACHE_VERSION: v1
+
+jobs:
+  setup:
+    name: Setup and Validation
+    runs-on: ubuntu-latest
+    outputs:
+      test-suite: ${{ steps.determine-tests.outputs.test-suite }}
+      parallel-jobs: ${{ steps.determine-tests.outputs.parallel-jobs }}
+      cache-key: ${{ steps.cache-key.outputs.key }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: tests/flow-aware-debugging/package-lock.json
+
+      - name: Determine test configuration
+        id: determine-tests
+        run: |
+          TEST_SUITE="${{ github.event.inputs.test_suite || 'all' }}"
+          PARALLEL_JOBS="${{ github.event.inputs.parallel_jobs || '4' }}"
+
+          # Adjust for scheduled runs
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            TEST_SUITE="all"
+            PARALLEL_JOBS="6"
+          fi
+
+          echo "test-suite=$TEST_SUITE" >> $GITHUB_OUTPUT
+          echo "parallel-jobs=$PARALLEL_JOBS" >> $GITHUB_OUTPUT
+
+      - name: Generate cache key
+        id: cache-key
+        run: |
+          HASH=$(sha256sum tests/flow-aware-debugging/package-lock.json | cut -d' ' -f1)
+          echo "key=${{ env.CACHE_VERSION }}-node-${{ env.NODE_VERSION }}-$HASH" >> $GITHUB_OUTPUT
+
+      - name: Cache node modules
+        uses: actions/cache@v3
+        with:
+          path: ~/.npm
+          key: ${{ steps.cache-key.outputs.key }}
+          restore-keys: |
+            ${{ env.CACHE_VERSION }}-node-${{ env.NODE_VERSION }}-
+
+      - name: Install dependencies
+        working-directory: tests/flow-aware-debugging
+        run: npm ci
+
+      - name: Validate test configuration
+        working-directory: tests/flow-aware-debugging
+        run: |
+          npm run lint
+          node -e "console.log('✓ Test configuration validated')"
+
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    needs: setup
+    if: contains(fromJson('["all", "unit"]'), needs.setup.outputs.test-suite)
+    strategy:
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: tests/flow-aware-debugging/package-lock.json
+
+      - name: Restore cache
+        uses: actions/cache@v3
+        with:
+          path: ~/.npm
+          key: ${{ needs.setup.outputs.cache-key }}
+
+      - name: Install dependencies
+        working-directory: tests/flow-aware-debugging
+        run: npm ci
+
+      - name: Run unit tests (shard ${{ matrix.shard }})
+        working-directory: tests/flow-aware-debugging
+        run: |
+          npm run test:unit -- \
+            --shard=${{ matrix.shard }}/4 \
+            --coverage \
+            --coverageDirectory=coverage/unit-${{ matrix.shard }} \
+            --testResultsProcessor=jest-junit \
+            --ci
+        env:
+          JEST_JUNIT_OUTPUT_FILE: reports/unit-tests-${{ matrix.shard }}.xml
+          NODE_OPTIONS: --max-old-space-size=4096
+
+      - name: Upload unit test results
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: unit-test-results-${{ matrix.shard }}
+          path: |
+            tests/flow-aware-debugging/coverage/unit-${{ matrix.shard }}
+            tests/flow-aware-debugging/reports/unit-tests-${{ matrix.shard }}.xml
+
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: setup
+    if: contains(fromJson('["all", "integration"]'), needs.setup.outputs.test-suite)
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: tests/flow-aware-debugging/package-lock.json
+
+      - name: Install dependencies
+        working-directory: tests/flow-aware-debugging
+        run: npm ci
+
+      - name: Run integration tests
+        working-directory: tests/flow-aware-debugging
+        run: |
+          npm run test:integration -- \
+            --coverage \
+            --coverageDirectory=coverage/integration \
+            --testResultsProcessor=jest-junit \
+            --ci
+        env:
+          JEST_JUNIT_OUTPUT_FILE: reports/integration-tests.xml
+          REDIS_URL: redis://localhost:6379
+          NODE_OPTIONS: --max-old-space-size=4096
+
+      - name: Upload integration test results
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: integration-test-results
+          path: |
+            tests/flow-aware-debugging/coverage/integration
+            tests/flow-aware-debugging/reports/integration-tests.xml
+
+  e2e-tests:
+    name: End-to-End Tests
+    runs-on: ubuntu-latest
+    needs: setup
+    if: contains(fromJson('["all", "e2e"]'), needs.setup.outputs.test-suite)
+    timeout-minutes: 30
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: tests/flow-aware-debugging/package-lock.json
+
+      - name: Install dependencies
+        working-directory: tests/flow-aware-debugging
+        run: npm ci
+
+      - name: Run E2E tests
+        working-directory: tests/flow-aware-debugging
+        run: |
+          npm run test:e2e -- \
+            --coverage \
+            --coverageDirectory=coverage/e2e \
+            --testResultsProcessor=jest-junit \
+            --ci
+        env:
+          JEST_JUNIT_OUTPUT_FILE: reports/e2e-tests.xml
+          NODE_OPTIONS: --max-old-space-size=6144
+
+      - name: Upload E2E test results
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: e2e-test-results
+          path: |
+            tests/flow-aware-debugging/coverage/e2e
+            tests/flow-aware-debugging/reports/e2e-tests.xml
+
+  performance-tests:
+    name: Performance Tests
+    runs-on: ubuntu-latest-4-cores
+    needs: setup
+    if: contains(fromJson('["all", "performance"]'), needs.setup.outputs.test-suite)
+    timeout-minutes: 45
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: tests/flow-aware-debugging/package-lock.json
+
+      - name: Install dependencies
+        working-directory: tests/flow-aware-debugging
+        run: npm ci
+
+      - name: Run performance tests
+        working-directory: tests/flow-aware-debugging
+        run: |
+          npm run benchmark -- \
+            --testResultsProcessor=jest-junit \
+            --ci
+        env:
+          JEST_JUNIT_OUTPUT_FILE: reports/performance-tests.xml
+          NODE_OPTIONS: --max-old-space-size=8192 --expose-gc
+
+      - name: Upload performance test results
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: performance-test-results
+          path: |
+            tests/flow-aware-debugging/reports/performance-tests.xml
+            tests/flow-aware-debugging/reports/performance-*.json
+
+  chaos-tests:
+    name: Chaos Engineering Tests
+    runs-on: ubuntu-latest-4-cores
+    needs: setup
+    if: contains(fromJson('["all", "chaos"]'), needs.setup.outputs.test-suite)
+    timeout-minutes: 60
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: tests/flow-aware-debugging/package-lock.json
+
+      - name: Install dependencies
+        working-directory: tests/flow-aware-debugging
+        run: npm ci
+
+      - name: Run chaos tests
+        working-directory: tests/flow-aware-debugging
+        run: |
+          npm run chaos -- \
+            --testResultsProcessor=jest-junit \
+            --ci
+        env:
+          JEST_JUNIT_OUTPUT_FILE: reports/chaos-tests.xml
+          CHAOS_TESTING: enabled
+          NODE_OPTIONS: --max-old-space-size=8192
+
+      - name: Upload chaos test results
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: chaos-test-results
+          path: |
+            tests/flow-aware-debugging/reports/chaos-tests.xml
+            tests/flow-aware-debugging/reports/chaos-*.json
+
+  production-readiness:
+    name: Production Readiness Tests
+    runs-on: ubuntu-latest-8-cores
+    needs: setup
+    if: contains(fromJson('["all", "production"]'), needs.setup.outputs.test-suite)
+    timeout-minutes: 60
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: tests/flow-aware-debugging/package-lock.json
+
+      - name: Install dependencies
+        working-directory: tests/flow-aware-debugging
+        run: npm ci
+
+      - name: Run production readiness tests
+        working-directory: tests/flow-aware-debugging
+        run: |
+          npm run test:production -- \
+            --testResultsProcessor=jest-junit \
+            --ci
+        env:
+          JEST_JUNIT_OUTPUT_FILE: reports/production-readiness.xml
+          NODE_OPTIONS: --max-old-space-size=12288 --expose-gc
+
+      - name: Upload production readiness results
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: production-readiness-results
+          path: |
+            tests/flow-aware-debugging/reports/production-readiness.xml
+            tests/flow-aware-debugging/reports/production-*.json
+
+  coverage-report:
+    name: Generate Coverage Report
+    runs-on: ubuntu-latest
+    needs: [unit-tests, integration-tests, e2e-tests]
+    if: always() && (needs.unit-tests.result == 'success' || needs.integration-tests.result == 'success' || needs.e2e-tests.result == 'success')
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Download all test artifacts
+        uses: actions/download-artifact@v3
+        with:
+          path: test-artifacts
+
+      - name: Install dependencies
+        working-directory: tests/flow-aware-debugging
+        run: npm ci
+
+      - name: Merge coverage reports
+        working-directory: tests/flow-aware-debugging
+        run: |
+          mkdir -p coverage/merged
+          npx nyc merge test-artifacts/*/coverage coverage/merged/coverage.json
+          npx nyc report --reporter=lcov --reporter=html --reporter=text-summary --temp-dir=coverage/merged --report-dir=coverage/final
+
+      - name: Generate test report
+        working-directory: tests/flow-aware-debugging
+        run: npm run report
+
+      - name: Upload final coverage
+        uses: actions/upload-artifact@v3
+        with:
+          name: final-coverage-report
+          path: |
+            tests/flow-aware-debugging/coverage/final
+            tests/flow-aware-debugging/reports
+
+      - name: Comment coverage on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const fs = require('fs');
+            const path = 'tests/flow-aware-debugging/coverage/final/lcov-report/index.html';
+
+            if (fs.existsSync(path)) {
+              const coverage = fs.readFileSync('tests/flow-aware-debugging/coverage/final/coverage-summary.json', 'utf8');
+              const summary = JSON.parse(coverage);
+
+              const comment = `
+              ## 📊 Flow-Aware Error Handling Test Coverage
+
+              | Metric | Coverage |
+              |--------|----------|
+              | Lines | ${summary.total.lines.pct}% |
+              | Functions | ${summary.total.functions.pct}% |
+              | Branches | ${summary.total.branches.pct}% |
+              | Statements | ${summary.total.statements.pct}% |
+
+              Full report available in artifacts.
+              `;
+
+              github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: comment
+              });
+            }
+
+  quality-gates:
+    name: Quality Gates
+    runs-on: ubuntu-latest
+    needs: [unit-tests, integration-tests, coverage-report]
+    if: always()
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download coverage reports
+        uses: actions/download-artifact@v3
+        with:
+          name: final-coverage-report
+          path: coverage-report
+
+      - name: Check quality gates
+        run: |
+          echo "Checking quality gates..."
+
+          # Coverage thresholds
+          COVERAGE_THRESHOLD=85
+          FUNCTION_THRESHOLD=90
+          BRANCH_THRESHOLD=80
+
+          if [ -f "coverage-report/coverage-summary.json" ]; then
+            LINES_COVERAGE=$(cat coverage-report/coverage-summary.json | jq '.total.lines.pct')
+            FUNCTIONS_COVERAGE=$(cat coverage-report/coverage-summary.json | jq '.total.functions.pct')
+            BRANCHES_COVERAGE=$(cat coverage-report/coverage-summary.json | jq '.total.branches.pct')
+
+            echo "Coverage: Lines=${LINES_COVERAGE}%, Functions=${FUNCTIONS_COVERAGE}%, Branches=${BRANCHES_COVERAGE}%"
+
+            if (( $(echo "$LINES_COVERAGE < $COVERAGE_THRESHOLD" | bc -l) )); then
+              echo "❌ Lines coverage below threshold: ${LINES_COVERAGE}% < ${COVERAGE_THRESHOLD}%"
+              exit 1
+            fi
+
+            if (( $(echo "$FUNCTIONS_COVERAGE < $FUNCTION_THRESHOLD" | bc -l) )); then
+              echo "❌ Functions coverage below threshold: ${FUNCTIONS_COVERAGE}% < ${FUNCTION_THRESHOLD}%"
+              exit 1
+            fi
+
+            if (( $(echo "$BRANCHES_COVERAGE < $BRANCH_THRESHOLD" | bc -l) )); then
+              echo "❌ Branches coverage below threshold: ${BRANCHES_COVERAGE}% < ${BRANCH_THRESHOLD}%"
+              exit 1
+            fi
+
+            echo "✅ All coverage thresholds met"
+          else
+            echo "⚠️ Coverage report not found, skipping coverage gates"
+          fi
+
+          # Test results validation
+          if [ "${{ needs.unit-tests.result }}" != "success" ]; then
+            echo "❌ Unit tests failed"
+            exit 1
+          fi
+
+          if [ "${{ needs.integration-tests.result }}" != "success" ]; then
+            echo "❌ Integration tests failed"
+            exit 1
+          fi
+
+          echo "✅ All quality gates passed"
+
+  notify:
+    name: Notify Results
+    runs-on: ubuntu-latest
+    needs: [unit-tests, integration-tests, e2e-tests, performance-tests, chaos-tests, production-readiness, quality-gates]
+    if: always() && github.event_name == 'schedule'
+    steps:
+      - name: Prepare notification
+        id: prepare
+        run: |
+          STATUS="✅ SUCCESS"
+          COLOR="good"
+
+          if [ "${{ needs.quality-gates.result }}" != "success" ]; then
+            STATUS="❌ FAILED"
+            COLOR="danger"
+          elif [ "${{ needs.unit-tests.result }}" != "success" ] || [ "${{ needs.integration-tests.result }}" != "success" ]; then
+            STATUS="⚠️ PARTIAL"
+            COLOR="warning"
+          fi
+
+          echo "status=$STATUS" >> $GITHUB_OUTPUT
+          echo "color=$COLOR" >> $GITHUB_OUTPUT
+
+      - name: Send notification
+        if: env.SLACK_WEBHOOK_URL != ''
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          curl -X POST -H 'Content-type: application/json' \
+            --data "{
+              \"attachments\": [{
+                \"color\": \"${{ steps.prepare.outputs.color }}\",
+                \"title\": \"Flow-Aware Error Handling Tests\",
+                \"text\": \"Nightly test run completed: ${{ steps.prepare.outputs.status }}\",
+                \"fields\": [
+                  {\"title\": \"Unit Tests\", \"value\": \"${{ needs.unit-tests.result }}\", \"short\": true},
+                  {\"title\": \"Integration Tests\", \"value\": \"${{ needs.integration-tests.result }}\", \"short\": true},
+                  {\"title\": \"E2E Tests\", \"value\": \"${{ needs.e2e-tests.result }}\", \"short\": true},
+                  {\"title\": \"Performance Tests\", \"value\": \"${{ needs.performance-tests.result }}\", \"short\": true},
+                  {\"title\": \"Chaos Tests\", \"value\": \"${{ needs.chaos-tests.result }}\", \"short\": true},
+                  {\"title\": \"Production Tests\", \"value\": \"${{ needs.production-readiness.result }}\", \"short\": true}
+                ],
+                \"footer\": \"GitHub Actions\",
+                \"ts\": $(date +%s)
+              }]
+            }" $SLACK_WEBHOOK_URL
