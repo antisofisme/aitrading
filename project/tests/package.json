@@ -53,8 +53,9 @@
       "^.+\\.(ts|tsx)$": "ts-jest"
     },
     "collectCoverageFrom": [
-      "../ai_trading/**/*.{js,py}",
-      "../src/**/*.{js,ts}",
+      "../backend/**/*.{js,ts}",
+      "../client/**/*.{js,ts}",
+      "../web/**/*.{js,ts}",
       "!**/*.d.ts",
       "!**/node_modules/**",
       "!**/coverage/**"

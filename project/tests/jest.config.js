@@ -10,8 +10,9 @@ module.exports = {
     '^.+\\.(ts|tsx)$': 'ts-jest'
   },
   collectCoverageFrom: [
-    '../ai_trading/**/*.{js,py}',
-    '../src/**/*.{js,ts}',
+    '../backend/**/*.{js,ts}',
+    '../client/**/*.{js,ts}',
+    '../web/**/*.{js,ts}',
     '!**/*.d.ts',
     '!**/node_modules/**',
     '!**/coverage/**'
@@ -33,7 +34,9 @@ module.exports = {
   testRunner: 'jest-circus/runner',
   // Mock configuration
   moduleNameMapping: {
-    '^@/(.*)$': '<rootDir>/../src/$1',
+    '^@backend/(.*)$': '<rootDir>/../backend/$1',
+    '^@client/(.*)$': '<rootDir>/../client/$1',
+    '^@web/(.*)$': '<rootDir>/../web/$1',
     '^@tests/(.*)$': '<rootDir>/$1'
   },
   // Global test environment variables
