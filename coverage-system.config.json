@@ -1,0 +1,208 @@
+{
+  "context": {
+    "projectType": "api",
+    "teamSize": "medium",
+    "developmentStage": "growth",
+    "testingMaturity": "intermediate",
+    "codebaseSize": "medium",
+    "domainCriticality": "high"
+  },
+  "coverage": {
+    "global": {
+      "lines": 80,
+      "functions": 80,
+      "branches": 75,
+      "statements": 80
+    },
+    "modules": [
+      {
+        "path": "src/coverage-system",
+        "name": "Coverage System",
+        "thresholds": { "lines": 95, "functions": 95, "branches": 90, "statements": 95 },
+        "critical": true,
+        "priority": "high",
+        "tags": ["core", "testing", "quality"]
+      },
+      {
+        "path": "src/trading",
+        "name": "Trading Engine",
+        "thresholds": { "lines": 90, "functions": 90, "branches": 85, "statements": 90 },
+        "critical": true,
+        "priority": "high",
+        "tags": ["trading", "business-critical"]
+      },
+      {
+        "path": "src/ai",
+        "name": "AI Services",
+        "thresholds": { "lines": 85, "functions": 85, "branches": 80, "statements": 85 },
+        "critical": true,
+        "priority": "high",
+        "tags": ["ai", "ml", "algorithms"]
+      },
+      {
+        "path": "src/data",
+        "name": "Data Layer",
+        "thresholds": { "lines": 88, "functions": 88, "branches": 83, "statements": 88 },
+        "critical": true,
+        "priority": "high",
+        "tags": ["data", "persistence"]
+      },
+      {
+        "path": "src/api",
+        "name": "API Layer",
+        "thresholds": { "lines": 85, "functions": 85, "branches": 80, "statements": 85 },
+        "critical": false,
+        "priority": "medium",
+        "tags": ["api", "http"]
+      },
+      {
+        "path": "src/utils",
+        "name": "Utilities",
+        "thresholds": { "lines": 75, "functions": 75, "branches": 70, "statements": 75 },
+        "critical": false,
+        "priority": "low",
+        "tags": ["utils", "helpers"]
+      }
+    ],
+    "qualityGates": [
+      {
+        "id": "minimum-coverage",
+        "name": "Minimum Coverage Gate",
+        "description": "Ensures minimum coverage standards are met",
+        "enforced": true,
+        "blocking": true,
+        "conditions": [
+          {
+            "metric": "coverage",
+            "operator": "gte",
+            "value": 80,
+            "threshold": 80,
+            "severity": "blocker"
+          }
+        ]
+      },
+      {
+        "id": "critical-modules",
+        "name": "Critical Module Gate",
+        "description": "Higher standards for critical business modules",
+        "enforced": true,
+        "blocking": true,
+        "conditions": [
+          {
+            "metric": "coverage",
+            "operator": "gte",
+            "value": 90,
+            "threshold": 90,
+            "severity": "blocker"
+          }
+        ]
+      },
+      {
+        "id": "trend-gate",
+        "name": "Trend Analysis Gate",
+        "description": "Prevents significant coverage degradation",
+        "enforced": true,
+        "blocking": false,
+        "conditions": [
+          {
+            "metric": "trend",
+            "operator": "gt",
+            "value": -5,
+            "threshold": -5,
+            "severity": "critical"
+          }
+        ]
+      }
+    ],
+    "reporting": {
+      "formats": ["html", "json", "markdown"],
+      "outputDir": "coverage-reports",
+      "includeSourceMaps": true,
+      "historicalTrends": true,
+      "detailedMetrics": true,
+      "visualCharts": true,
+      "generateSummary": true
+    },
+    "cicd": {
+      "enabled": true,
+      "failOnThreshold": true,
+      "generateArtifacts": true,
+      "publishMetrics": true,
+      "slackNotifications": false,
+      "githubComments": true,
+      "autoRemediation": false
+    },
+    "alerts": {
+      "enabled": true,
+      "thresholdDecreasePercent": 5,
+      "consecutiveFailures": 2,
+      "channels": ["github"],
+      "slackChannel": "#quality-alerts"
+    }
+  },
+  "monitoring": {
+    "thresholds": {
+      "coverageDecrease": 5,
+      "qualityGateFailures": 1,
+      "consecutiveFailures": 2,
+      "trendDeclining": 7,
+      "hotspotIncrease": 3,
+      "responseTimeThreshold": 5000
+    },
+    "alerts": {
+      "channels": [
+        {
+          "type": "github",
+          "config": {},
+          "enabled": true,
+          "severityFilter": ["warning", "error", "critical"]
+        }
+      ],
+      "severity": {
+        "coverageDecrease": "warning",
+        "qualityGateFail": "error",
+        "trendDeclining": "warning",
+        "hotspotCritical": "error",
+        "systemError": "error"
+      },
+      "throttling": {
+        "enabled": true,
+        "window": 30,
+        "maxAlerts": 5,
+        "backoffMultiplier": 2
+      },
+      "escalation": {
+        "enabled": false,
+        "levels": []
+      }
+    },
+    "automation": {
+      "actions": [
+        {
+          "trigger": {
+            "event": "coverage-decrease",
+            "threshold": { "decrease": 5 }
+          },
+          "action": {
+            "type": "create-issue",
+            "config": {
+              "repository": "aitrading-platform/aitrading",
+              "title": "Coverage Decrease Alert",
+              "template": "coverage-decrease"
+            }
+          },
+          "conditions": [],
+          "enabled": false,
+          "rateLimit": 1
+        }
+      ],
+      "permissions": {
+        "createIssues": false,
+        "createPRs": false,
+        "blockMerges": false,
+        "runScripts": false,
+        "notifyTeams": true
+      }
+    }
+  }
+}

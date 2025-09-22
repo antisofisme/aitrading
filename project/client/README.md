@@ -1,8 +1,6 @@
-# AI Trading Platform - Windows Desktop Client
+# AI Trading Platform - Client
 
-## Phase 1 Infrastructure Migration
-
-This directory contains the Windows desktop client for the AI Trading Platform, implementing zero-trust security architecture with secure MT5 integration.
+Windows Desktop Client for the AI Trading Platform with MetaTrader 5 integration, real-time data streaming, and comprehensive performance monitoring.
 
 ## 🏗️ Architecture Overview
 

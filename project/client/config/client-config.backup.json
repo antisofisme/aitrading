@@ -1,0 +1,70 @@
+{
+  "mt5": {
+    "server": "",
+    "login": "",
+    "password": "",
+    "maxConnections": 5,
+    "targetTicksPerSecond": 50,
+    "symbols": [
+      "EURUSD",
+      "GBPUSD",
+      "USDJPY",
+      "USDCHF",
+      "AUDUSD"
+    ],
+    "timeframes": [
+      "M1",
+      "M5",
+      "M15",
+      "H1"
+    ],
+    "reconnectDelay": 5000,
+    "maxReconnectAttempts": 10
+  },
+  "dataCollector": {
+    "backendUrl": "ws://localhost:3001/ws",
+    "bufferSize": 1000,
+    "aggregationInterval": 100,
+    "cacheMaxAge": 300000,
+    "reconnectDelay": 3000,
+    "maxReconnectAttempts": 10
+  },
+  "backend": {
+    "apiGateway": "http://localhost:8000",
+    "dataBridge": "ws://localhost:3001/ws",
+    "centralHub": "http://localhost:7000",
+    "authEndpoint": "/api/auth",
+    "timeout": 30000,
+    "retries": 3
+  },
+  "performance": {
+    "targetTicksPerSecond": 50,
+    "maxLatencyMs": 50,
+    "monitoringInterval": 1000,
+    "alertThresholds": {
+      "highLatency": 100,
+      "lowThroughput": 25,
+      "connectionLoss": 5000
+    }
+  },
+  "security": {
+    "encryptionEnabled": true,
+    "certificatePinning": true,
+    "tlsMinVersion": "TLSv1.3",
+    "tokenRefreshInterval": 3600000
+  },
+  "ui": {
+    "theme": "dark",
+    "refreshInterval": 1000,
+    "chartUpdateInterval": 500,
+    "notificationsEnabled": true,
+    "soundEnabled": false
+  },
+  "logging": {
+    "level": "info",
+    "maxFiles": 5,
+    "maxSize": "10m",
+    "enableConsole": true,
+    "enableFile": true
+  }
+}

@@ -1,0 +1,47 @@
+{
+  "name": "level4-orchestrator",
+  "version": "1.0.0",
+  "description": "Level 4 Intelligence Orchestrator - Multi-tenant AI coordination and deployment",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "build": "echo 'No build needed for Node.js service'",
+    "health": "curl -f http://localhost:8020/health || exit 1",
+    "deploy:level4": "docker-compose -f ../docker-compose.level4.yml up -d",
+    "stop:level4": "docker-compose -f ../docker-compose.level4.yml down",
+    "logs:level4": "docker-compose -f ../docker-compose.level4.yml logs -f"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "cors": "^2.8.5",
+    "helmet": "^7.1.0",
+    "dotenv": "^16.3.1",
+    "winston": "^3.11.0",
+    "joi": "^17.11.0",
+    "node-cron": "^3.0.3",
+    "redis": "^4.6.10",
+    "pg": "^8.11.3",
+    "axios": "^1.6.0",
+    "uuid": "^9.0.1",
+    "lodash": "^4.17.21",
+    "moment": "^2.29.4"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "nodemon": "^3.0.1",
+    "supertest": "^6.3.3"
+  },
+  "keywords": [
+    "orchestrator",
+    "ai",
+    "level4",
+    "coordination",
+    "multi-tenant",
+    "deployment"
+  ],
+  "author": "AI Trading Platform Team",
+  "license": "MIT"
+}

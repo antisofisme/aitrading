@@ -1,0 +1,421 @@
+version: '3.8'
+
+services:
+  # Database Services
+  postgres:
+    image: postgres:15-alpine
+    container_name: aitrading_test_postgres
+    environment:
+      POSTGRES_DB: aitrading_test
+      POSTGRES_USER: test
+      POSTGRES_PASSWORD: test
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_test_data:/var/lib/postgresql/data
+      - ./scripts/init-postgres.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - aitrading_test_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U test -d aitrading_test"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    labels:
+      - "aitrading-test=true"
+
+  redis:
+    image: redis:7-alpine
+    container_name: aitrading_test_redis
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_test_data:/data
+    networks:
+      - aitrading_test_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    labels:
+      - "aitrading-test=true"
+
+  arangodb:
+    image: arangodb:3.11
+    container_name: aitrading_test_arangodb
+    environment:
+      ARANGO_NO_AUTH: 1
+      ARANGO_ROOT_PASSWORD: test
+    ports:
+      - "8529:8529"
+    volumes:
+      - arangodb_test_data:/var/lib/arangodb3
+      - arangodb_test_apps:/var/lib/arangodb3-apps
+    networks:
+      - aitrading_test_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8529/_api/version"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    labels:
+      - "aitrading-test=true"
+
+  # Core Services
+  api-gateway:
+    build:
+      context: ../../src/gateway
+      dockerfile: Dockerfile.test
+    container_name: aitrading_test_gateway
+    environment:
+      NODE_ENV: test
+      PORT: 3000
+      DATABASE_URL: postgresql://test:test@postgres:5432/aitrading_test
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: test-jwt-secret-key
+      API_KEY: test-api-key
+      LOG_LEVEL: debug
+      CORS_ORIGINS: "*"
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - aitrading_test_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    labels:
+      - "aitrading-test=true"
+
+  user-service:
+    build:
+      context: ../../ai_trading/server_microservice/services/user-service
+      dockerfile: Dockerfile.test
+    container_name: aitrading_test_user_service
+    environment:
+      NODE_ENV: test
+      PORT: 8001
+      DATABASE_URL: postgresql://test:test@postgres:5432/aitrading_test
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: test-jwt-secret-key
+      BCRYPT_ROUNDS: 4
+    ports:
+      - "8001:8001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - aitrading_test_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    labels:
+      - "aitrading-test=true"
+
+  trading-engine:
+    build:
+      context: ../../ai_trading/server_microservice/services/trading-engine
+      dockerfile: Dockerfile.test
+    container_name: aitrading_test_trading_engine
+    environment:
+      NODE_ENV: test
+      PORT: 8002
+      DATABASE_URL: postgresql://test:test@postgres:5432/aitrading_test
+      REDIS_URL: redis://redis:6379
+      MARKET_DATA_URL: http://data-bridge:8003
+      USER_SERVICE_URL: http://user-service:8001
+      RISK_ENGINE_ENABLED: true
+      MAX_POSITION_SIZE: 1000000
+      MAX_DAILY_LOSS: 10000
+    ports:
+      - "8002:8002"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      user-service:
+        condition: service_healthy
+    networks:
+      - aitrading_test_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    labels:
+      - "aitrading-test=true"
+
+  data-bridge:
+    build:
+      context: ../../ai_trading/server_microservice/services/data-bridge
+      dockerfile: Dockerfile.test
+    container_name: aitrading_test_data_bridge
+    environment:
+      NODE_ENV: test
+      PORT: 8003
+      DATABASE_URL: postgresql://test:test@postgres:5432/aitrading_test
+      REDIS_URL: redis://redis:6379
+      MT5_ENABLED: false
+      MOCK_DATA_ENABLED: true
+      UPDATE_INTERVAL: 1000
+    ports:
+      - "8003:8003"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - aitrading_test_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8003/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    labels:
+      - "aitrading-test=true"
+
+  ai-orchestration:
+    build:
+      context: ../../ai_trading/server_microservice/services/ai-orchestration
+      dockerfile: Dockerfile.test
+    container_name: aitrading_test_ai_orchestration
+    environment:
+      NODE_ENV: test
+      PORT: 8004
+      DATABASE_URL: postgresql://test:test@postgres:5432/aitrading_test
+      REDIS_URL: redis://redis:6379
+      AI_PROVIDER_URL: http://ai-provider:8005
+      OPENAI_API_KEY: test-openai-key
+      CLAUDE_API_KEY: test-claude-key
+    ports:
+      - "8004:8004"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - aitrading_test_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8004/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    labels:
+      - "aitrading-test=true"
+
+  ai-provider:
+    build:
+      context: ../../ai_trading/server_microservice/services/ai-provider
+      dockerfile: Dockerfile.test
+    container_name: aitrading_test_ai_provider
+    environment:
+      NODE_ENV: test
+      PORT: 8005
+      REDIS_URL: redis://redis:6379
+      MOCK_AI_ENABLED: true
+      MODEL_CACHE_TTL: 300
+    ports:
+      - "8005:8005"
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - aitrading_test_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8005/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    labels:
+      - "aitrading-test=true"
+
+  # Frontend Service
+  web-ui:
+    build:
+      context: ../../web
+      dockerfile: Dockerfile.test
+    container_name: aitrading_test_web_ui
+    environment:
+      NODE_ENV: test
+      REACT_APP_API_URL: http://localhost:3000/api/v1
+      REACT_APP_WS_URL: ws://localhost:3000/ws
+      REACT_APP_VERSION: test
+    ports:
+      - "3001:3000"
+    depends_on:
+      api-gateway:
+        condition: service_healthy
+    networks:
+      - aitrading_test_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    labels:
+      - "aitrading-test=true"
+
+  # Testing Services
+  selenium-hub:
+    image: selenium/hub:4.15.0
+    container_name: aitrading_test_selenium_hub
+    ports:
+      - "4444:4444"
+      - "4442:4442"
+      - "4443:4443"
+    networks:
+      - aitrading_test_network
+    environment:
+      GRID_MAX_SESSION: 16
+      GRID_BROWSER_TIMEOUT: 300
+      GRID_TIMEOUT: 300
+    labels:
+      - "aitrading-test=true"
+
+  selenium-chrome:
+    image: selenium/node-chrome:4.15.0
+    container_name: aitrading_test_selenium_chrome
+    shm_size: 2gb
+    depends_on:
+      - selenium-hub
+    environment:
+      HUB_HOST: selenium-hub
+      HUB_PORT: 4444
+      NODE_MAX_INSTANCES: 4
+      NODE_MAX_SESSION: 4
+    networks:
+      - aitrading_test_network
+    labels:
+      - "aitrading-test=true"
+
+  selenium-firefox:
+    image: selenium/node-firefox:4.15.0
+    container_name: aitrading_test_selenium_firefox
+    shm_size: 2gb
+    depends_on:
+      - selenium-hub
+    environment:
+      HUB_HOST: selenium-hub
+      HUB_PORT: 4444
+      NODE_MAX_INSTANCES: 4
+      NODE_MAX_SESSION: 4
+    networks:
+      - aitrading_test_network
+    labels:
+      - "aitrading-test=true"
+
+  # Monitoring Services
+  prometheus:
+    image: prom/prometheus:v2.40.0
+    container_name: aitrading_test_prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./config/prometheus.test.yml:/etc/prometheus/prometheus.yml
+      - prometheus_test_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=1h'
+      - '--web.enable-lifecycle'
+    networks:
+      - aitrading_test_network
+    labels:
+      - "aitrading-test=true"
+
+  grafana:
+    image: grafana/grafana:9.3.0
+    container_name: aitrading_test_grafana
+    ports:
+      - "3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: test
+      GF_USERS_ALLOW_SIGN_UP: false
+    volumes:
+      - grafana_test_data:/var/lib/grafana
+      - ./config/grafana-datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml
+      - ./config/grafana-dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yml
+    depends_on:
+      - prometheus
+    networks:
+      - aitrading_test_network
+    labels:
+      - "aitrading-test=true"
+
+  # Message Queue (for async operations)
+  rabbitmq:
+    image: rabbitmq:3.11-management-alpine
+    container_name: aitrading_test_rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: test
+      RABBITMQ_DEFAULT_PASS: test
+      RABBITMQ_DEFAULT_VHOST: /
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq_test_data:/var/lib/rabbitmq
+    networks:
+      - aitrading_test_network
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    labels:
+      - "aitrading-test=true"
+
+volumes:
+  postgres_test_data:
+    driver: local
+    labels:
+      - "aitrading-test=true"
+  redis_test_data:
+    driver: local
+    labels:
+      - "aitrading-test=true"
+  arangodb_test_data:
+    driver: local
+    labels:
+      - "aitrading-test=true"
+  arangodb_test_apps:
+    driver: local
+    labels:
+      - "aitrading-test=true"
+  prometheus_test_data:
+    driver: local
+    labels:
+      - "aitrading-test=true"
+  grafana_test_data:
+    driver: local
+    labels:
+      - "aitrading-test=true"
+  rabbitmq_test_data:
+    driver: local
+    labels:
+      - "aitrading-test=true"
+
+networks:
+  aitrading_test_network:
+    driver: bridge
+    name: aitrading_test_network
+    labels:
+      - "aitrading-test=true"

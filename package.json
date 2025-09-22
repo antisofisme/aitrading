@@ -21,7 +21,19 @@
     "diagram:watch": "node dist/scripts/watch-files.js",
     "claude-flow:init": "npx claude-flow@alpha hooks pre-task --description 'AI Trading Platform Initialization'",
     "claude-flow:status": "npx claude-flow@alpha swarm status",
-    "claude-flow:memory": "npx claude-flow@alpha memory usage"
+    "claude-flow:memory": "npx claude-flow@alpha memory usage",
+    "test:performance": "ts-node tests/performance/examples/RunPerformanceTests.ts",
+    "test:performance:trading": "ts-node tests/performance/examples/RunPerformanceTests.ts trading",
+    "test:performance:comprehensive": "ts-node tests/performance/examples/RunPerformanceTests.ts comprehensive",
+    "test:performance:stress": "ts-node tests/performance/examples/RunPerformanceTests.ts stress",
+    "test:performance:custom": "ts-node tests/performance/examples/RunPerformanceTests.ts custom",
+    "test:performance:hft": "ts-node tests/performance/examples/RunPerformanceTests.ts stress",
+    "test:coverage": "jest --coverage",
+    "coverage:analyze": "node dist/coverage-system/cli/coverage-cli.js analyze",
+    "coverage:monitor": "node dist/coverage-system/cli/coverage-cli.js monitor",
+    "coverage:report": "node dist/coverage-system/cli/coverage-cli.js report",
+    "coverage:trends": "node dist/coverage-system/cli/coverage-cli.js trends",
+    "coverage:examples": "node dist/coverage-system/examples/basic-usage.js"
   },
   "keywords": [
     "trading",

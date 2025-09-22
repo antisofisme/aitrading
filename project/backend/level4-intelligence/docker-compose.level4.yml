@@ -1,0 +1,428 @@
+version: '3.8'
+
+services:
+  # Feature Engineering Service (8011)
+  feature-engineering:
+    build:
+      context: ./feature-engineering
+      dockerfile: Dockerfile
+    container_name: aitrading-feature-engineering
+    ports:
+      - "8011:8011"
+    environment:
+      - NODE_ENV=development
+      - FEATURE_ENG_PORT=8011
+      - LOG_LEVEL=info
+      - ALLOWED_ORIGINS=http://localhost:3000,http://localhost:3001
+      - REDIS_URL=redis://redis:6379
+      - DATABASE_URL=postgresql://postgres:password@postgres:5432/aitrading
+      - CONFIG_SERVICE_URL=http://configuration-service:8012
+      - LEVEL3_DATA_STREAM_URL=http://data-bridge:8001
+    depends_on:
+      - redis
+      - postgres
+      - configuration-service
+    volumes:
+      - ./feature-engineering/logs:/app/logs
+      - ./feature-engineering/models:/app/models
+    networks:
+      - level4-intelligence
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8011/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Configuration Service (8012)
+  configuration-service:
+    build:
+      context: ./configuration-service
+      dockerfile: Dockerfile
+    container_name: aitrading-configuration-service
+    ports:
+      - "8012:8012"
+      - "9012:9012" # WebSocket port for hot-reload
+    environment:
+      - NODE_ENV=development
+      - CONFIG_SERVICE_PORT=8012
+      - LOG_LEVEL=info
+      - ALLOWED_ORIGINS=http://localhost:3000,http://localhost:3001
+      - REDIS_URL=redis://redis:6379
+      - DATABASE_URL=postgresql://postgres:password@postgres:5432/aitrading
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY:-your-32-char-encryption-key-here}
+    depends_on:
+      - redis
+      - postgres
+    volumes:
+      - ./configuration-service/logs:/app/logs
+      - ./configuration-service/data:/app/data
+    networks:
+      - level4-intelligence
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8012/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ML AutoML Service (8013)
+  ml-automl:
+    build:
+      context: ./ml-automl
+      dockerfile: Dockerfile
+    container_name: aitrading-ml-automl
+    ports:
+      - "8013:8013"
+    environment:
+      - NODE_ENV=development
+      - ML_AUTOML_PORT=8013
+      - LOG_LEVEL=info
+      - ALLOWED_ORIGINS=http://localhost:3000,http://localhost:3001
+      - REDIS_URL=redis://redis:6379
+      - DATABASE_URL=postgresql://postgres:password@postgres:5432/aitrading
+      - CONFIG_SERVICE_URL=http://configuration-service:8012
+      - FEATURE_ENG_URL=http://feature-engineering:8011
+      - AI_ACCURACY_TARGET=0.65
+      - INFERENCE_TARGET_MS=15
+    depends_on:
+      - redis
+      - postgres
+      - configuration-service
+      - feature-engineering
+    volumes:
+      - ./ml-automl/logs:/app/logs
+      - ./ml-automl/models:/app/models
+      - ./ml-automl/training_data:/app/training_data
+    networks:
+      - level4-intelligence
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8013/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Pattern Validator Service (8015)
+  pattern-validator:
+    build:
+      context: ./pattern-validator
+      dockerfile: Dockerfile
+    container_name: aitrading-pattern-validator
+    ports:
+      - "8015:8015"
+    environment:
+      - NODE_ENV=development
+      - PATTERN_VALIDATOR_PORT=8015
+      - LOG_LEVEL=info
+      - ALLOWED_ORIGINS=http://localhost:3000,http://localhost:3001
+      - REDIS_URL=redis://redis:6379
+      - DATABASE_URL=postgresql://postgres:password@postgres:5432/aitrading
+      - CONFIG_SERVICE_URL=http://configuration-service:8012
+      - ML_AUTOML_URL=http://ml-automl:8013
+      - VALIDATION_CONFIDENCE_THRESHOLD=0.75
+    depends_on:
+      - redis
+      - postgres
+      - configuration-service
+      - ml-automl
+    volumes:
+      - ./pattern-validator/logs:/app/logs
+      - ./pattern-validator/patterns:/app/patterns
+    networks:
+      - level4-intelligence
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8015/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Telegram Service (8016)
+  telegram-service:
+    build:
+      context: ./telegram-service
+      dockerfile: Dockerfile
+    container_name: aitrading-telegram-service
+    ports:
+      - "8016:8016"
+    environment:
+      - NODE_ENV=development
+      - TELEGRAM_SERVICE_PORT=8016
+      - LOG_LEVEL=info
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - ALLOWED_ORIGINS=http://localhost:3000,http://localhost:3001
+      - REDIS_URL=redis://redis:6379
+      - DATABASE_URL=postgresql://postgres:password@postgres:5432/aitrading
+      - CONFIG_SERVICE_URL=http://configuration-service:8012
+      - PERFORMANCE_ANALYTICS_URL=http://performance-analytics:8002
+    depends_on:
+      - redis
+      - postgres
+      - configuration-service
+      - performance-analytics
+    volumes:
+      - ./telegram-service/logs:/app/logs
+    networks:
+      - level4-intelligence
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8016/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ML Ensemble Service (8021)
+  ml-ensemble:
+    build:
+      context: ./ml-ensemble
+      dockerfile: Dockerfile
+    container_name: aitrading-ml-ensemble
+    ports:
+      - "8021:8021"
+    environment:
+      - NODE_ENV=development
+      - ML_ENSEMBLE_PORT=8021
+      - LOG_LEVEL=info
+      - ALLOWED_ORIGINS=http://localhost:3000,http://localhost:3001
+      - REDIS_URL=redis://redis:6379
+      - DATABASE_URL=postgresql://postgres:password@postgres:5432/aitrading
+      - CONFIG_SERVICE_URL=http://configuration-service:8012
+      - ML_AUTOML_URL=http://ml-automl:8013
+      - ENSEMBLE_MIN_MODELS=3
+      - ENSEMBLE_ACCURACY_THRESHOLD=0.70
+    depends_on:
+      - redis
+      - postgres
+      - configuration-service
+      - ml-automl
+    volumes:
+      - ./ml-ensemble/logs:/app/logs
+      - ./ml-ensemble/ensembles:/app/ensembles
+    networks:
+      - level4-intelligence
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8021/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Backtesting Engine (8024)
+  backtesting-engine:
+    build:
+      context: ./backtesting-engine
+      dockerfile: Dockerfile
+    container_name: aitrading-backtesting-engine
+    ports:
+      - "8024:8024"
+    environment:
+      - NODE_ENV=development
+      - BACKTESTING_PORT=8024
+      - LOG_LEVEL=info
+      - ALLOWED_ORIGINS=http://localhost:3000,http://localhost:3001
+      - REDIS_URL=redis://redis:6379
+      - DATABASE_URL=postgresql://postgres:password@postgres:5432/aitrading
+      - CONFIG_SERVICE_URL=http://configuration-service:8012
+      - ML_ENSEMBLE_URL=http://ml-ensemble:8021
+      - HISTORICAL_DATA_YEARS=5
+    depends_on:
+      - redis
+      - postgres
+      - configuration-service
+      - ml-ensemble
+    volumes:
+      - ./backtesting-engine/logs:/app/logs
+      - ./backtesting-engine/historical_data:/app/historical_data
+      - ./backtesting-engine/backtests:/app/backtests
+    networks:
+      - level4-intelligence
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8024/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Performance Analytics Service (8002)
+  performance-analytics:
+    build:
+      context: ./performance-analytics
+      dockerfile: Dockerfile
+    container_name: aitrading-performance-analytics
+    ports:
+      - "8002:8002"
+    environment:
+      - NODE_ENV=development
+      - PERFORMANCE_ANALYTICS_PORT=8002
+      - LOG_LEVEL=info
+      - ALLOWED_ORIGINS=http://localhost:3000,http://localhost:3001
+      - REDIS_URL=redis://redis:6379
+      - DATABASE_URL=postgresql://postgres:password@postgres:5432/aitrading
+      - CONFIG_SERVICE_URL=http://configuration-service:8012
+      - ANALYTICS_RETENTION_DAYS=90
+      - REALTIME_UPDATE_INTERVAL=5000
+    depends_on:
+      - redis
+      - postgres
+      - configuration-service
+    volumes:
+      - ./performance-analytics/logs:/app/logs
+      - ./performance-analytics/data:/app/data
+    networks:
+      - level4-intelligence
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Revenue Analytics Service (8026)
+  revenue-analytics:
+    build:
+      context: ./revenue-analytics
+      dockerfile: Dockerfile
+    container_name: aitrading-revenue-analytics
+    ports:
+      - "8026:8026"
+    environment:
+      - NODE_ENV=development
+      - REVENUE_ANALYTICS_PORT=8026
+      - LOG_LEVEL=info
+      - ALLOWED_ORIGINS=http://localhost:3000,http://localhost:3001
+      - REDIS_URL=redis://redis:6379
+      - DATABASE_URL=postgresql://postgres:password@postgres:5432/aitrading
+      - CONFIG_SERVICE_URL=http://configuration-service:8012
+      - PERFORMANCE_ANALYTICS_URL=http://performance-analytics:8002
+    depends_on:
+      - redis
+      - postgres
+      - configuration-service
+      - performance-analytics
+    volumes:
+      - ./revenue-analytics/logs:/app/logs
+    networks:
+      - level4-intelligence
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8026/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Usage Monitoring Service (8027)
+  usage-monitoring:
+    build:
+      context: ./usage-monitoring
+      dockerfile: Dockerfile
+    container_name: aitrading-usage-monitoring
+    ports:
+      - "8027:8027"
+    environment:
+      - NODE_ENV=development
+      - USAGE_MONITORING_PORT=8027
+      - LOG_LEVEL=info
+      - ALLOWED_ORIGINS=http://localhost:3000,http://localhost:3001
+      - REDIS_URL=redis://redis:6379
+      - DATABASE_URL=postgresql://postgres:password@postgres:5432/aitrading
+      - CONFIG_SERVICE_URL=http://configuration-service:8012
+      - DEFAULT_USER_QUOTA=1000
+      - QUOTA_RESET_INTERVAL=daily
+    depends_on:
+      - redis
+      - postgres
+      - configuration-service
+    volumes:
+      - ./usage-monitoring/logs:/app/logs
+    networks:
+      - level4-intelligence
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8027/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Compliance Monitor Service (8040)
+  compliance-monitor:
+    build:
+      context: ./compliance-monitor
+      dockerfile: Dockerfile
+    container_name: aitrading-compliance-monitor
+    ports:
+      - "8040:8040"
+    environment:
+      - NODE_ENV=development
+      - COMPLIANCE_MONITOR_PORT=8040
+      - LOG_LEVEL=info
+      - ALLOWED_ORIGINS=http://localhost:3000,http://localhost:3001
+      - REDIS_URL=redis://redis:6379
+      - DATABASE_URL=postgresql://postgres:password@postgres:5432/aitrading
+      - CONFIG_SERVICE_URL=http://configuration-service:8012
+      - COMPLIANCE_CHECK_INTERVAL=3600
+      - AUDIT_RETENTION_DAYS=2555 # 7 years
+    depends_on:
+      - redis
+      - postgres
+      - configuration-service
+    volumes:
+      - ./compliance-monitor/logs:/app/logs
+      - ./compliance-monitor/audits:/app/audits
+    networks:
+      - level4-intelligence
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8040/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Shared Infrastructure
+  redis:
+    image: redis:7-alpine
+    container_name: aitrading-redis-level4
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - level4-intelligence
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: aitrading-postgres-level4
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_DB=aitrading
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_INITDB_ARGS=--auth-host=scram-sha-256
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db:/docker-entrypoint-initdb.d
+    networks:
+      - level4-intelligence
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  redis_data:
+    driver: local
+  postgres_data:
+    driver: local
+
+networks:
+  level4-intelligence:
+    driver: bridge
+    name: level4-intelligence
+    ipam:
+      config:
+        - subnet: 172.24.0.0/16

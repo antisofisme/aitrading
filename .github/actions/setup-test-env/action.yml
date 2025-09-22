@@ -1,0 +1,170 @@
+name: 'Setup Test Environment'
+description: 'Composite action to setup consistent test environment across workflows'
+
+inputs:
+  node-version:
+    description: 'Node.js version to use'
+    required: false
+    default: '18'
+  python-version:
+    description: 'Python version to use'
+    required: false
+    default: '3.11'
+  java-version:
+    description: 'Java version to use'
+    required: false
+    default: '17'
+  cache-key:
+    description: 'Cache key for dependencies'
+    required: false
+  test-type:
+    description: 'Type of test environment to setup'
+    required: false
+    default: 'unit'
+  install-browsers:
+    description: 'Install browser dependencies for E2E tests'
+    required: false
+    default: 'false'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: 🔧 Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ inputs.node-version }}
+        cache: 'npm'
+
+    - name: 🐍 Setup Python
+      if: inputs.python-version != ''
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ inputs.python-version }}
+        cache: 'pip'
+
+    - name: ☕ Setup Java
+      if: inputs.java-version != ''
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'temurin'
+        java-version: ${{ inputs.java-version }}
+
+    - name: 📦 Restore Dependencies Cache
+      if: inputs.cache-key != ''
+      uses: actions/cache@v3
+      with:
+        path: |
+          node_modules
+          ~/.npm
+          ~/.cache/pip
+          ~/.m2/repository
+        key: ${{ inputs.cache-key }}
+        restore-keys: |
+          deps-${{ runner.os }}-
+
+    - name: 📦 Install Dependencies
+      shell: bash
+      run: |
+        if [ ! -d "node_modules" ]; then
+          npm ci --legacy-peer-deps
+        fi
+
+        if [ -f "requirements.txt" ]; then
+          pip install -r requirements.txt
+        fi
+
+        if [ -f "pom.xml" ]; then
+          mvn dependency:go-offline -q
+        fi
+
+    - name: 🌐 Install Browser Dependencies
+      if: inputs.install-browsers == 'true' || contains(inputs.test-type, 'e2e')
+      shell: bash
+      run: |
+        # Install Playwright browsers
+        npx playwright install --with-deps
+
+        # Install additional browser dependencies
+        sudo apt-get update
+        sudo apt-get install -y \
+          libnss3 \
+          libnspr4 \
+          libatk-bridge2.0-0 \
+          libdrm2 \
+          libxkbcommon0 \
+          libgtk-3-0 \
+          libxss1 \
+          libasound2
+
+    - name: 🔧 Setup Test Environment Variables
+      shell: bash
+      run: |
+        # Set common test environment variables
+        echo "NODE_ENV=test" >> $GITHUB_ENV
+        echo "CI=true" >> $GITHUB_ENV
+        echo "FORCE_COLOR=1" >> $GITHUB_ENV
+
+        # Test-type specific configurations
+        case "${{ inputs.test-type }}" in
+          "unit"|"backend-unit"|"frontend-unit")
+            echo "TEST_ENVIRONMENT=unit" >> $GITHUB_ENV
+            echo "JEST_WORKERS=2" >> $GITHUB_ENV
+            ;;
+          "integration"|"api-integration")
+            echo "TEST_ENVIRONMENT=integration" >> $GITHUB_ENV
+            echo "JEST_WORKERS=1" >> $GITHUB_ENV
+            echo "DATABASE_URL=postgresql://testuser:testpass@localhost:5432/testdb_${{ inputs.test-type }}" >> $GITHUB_ENV
+            echo "REDIS_URL=redis://localhost:6379" >> $GITHUB_ENV
+            ;;
+          "e2e"*)
+            echo "TEST_ENVIRONMENT=e2e" >> $GITHUB_ENV
+            echo "HEADLESS=true" >> $GITHUB_ENV
+            echo "BROWSER_TIMEOUT=30000" >> $GITHUB_ENV
+            echo "SCREENSHOT_ON_FAILURE=true" >> $GITHUB_ENV
+            ;;
+          "performance")
+            echo "TEST_ENVIRONMENT=performance" >> $GITHUB_ENV
+            echo "PERFORMANCE_BUDGET=5000" >> $GITHUB_ENV
+            ;;
+          "security")
+            echo "TEST_ENVIRONMENT=security" >> $GITHUB_ENV
+            echo "SECURITY_SCAN_LEVEL=high" >> $GITHUB_ENV
+            ;;
+        esac
+
+    - name: 📁 Setup Test Directories
+      shell: bash
+      run: |
+        # Create test output directories
+        mkdir -p test-results
+        mkdir -p coverage
+        mkdir -p screenshots
+        mkdir -p videos
+        mkdir -p test-logs
+
+        # Set permissions
+        chmod 755 test-results coverage screenshots videos test-logs
+
+    - name: 🔍 Environment Information
+      shell: bash
+      run: |
+        echo "🔍 Test Environment Setup Summary:"
+        echo "=================================="
+        echo "Node.js: $(node --version)"
+        echo "NPM: $(npm --version)"
+
+        if command -v python3 &> /dev/null; then
+          echo "Python: $(python3 --version)"
+        fi
+
+        if command -v java &> /dev/null; then
+          echo "Java: $(java --version | head -1)"
+        fi
+
+        echo "Test Type: ${{ inputs.test-type }}"
+        echo "Working Directory: $(pwd)"
+        echo "=================================="
+
+        # Display environment variables for debugging
+        echo "Environment Variables:"
+        env | grep -E '^(NODE_ENV|CI|TEST_|DATABASE_URL|REDIS_URL)' | sort

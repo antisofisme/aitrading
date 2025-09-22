@@ -1,0 +1,347 @@
+name: 'Deploy Application'
+description: 'Composite action for deploying application to different environments'
+
+inputs:
+  environment:
+    description: 'Target environment (development, staging, production)'
+    required: true
+  image-tag:
+    description: 'Docker image tag to deploy'
+    required: true
+  secrets:
+    description: 'JSON string containing all secrets'
+    required: true
+  force-deploy:
+    description: 'Force deployment even if validations fail'
+    required: false
+    default: 'false'
+  deployment-strategy:
+    description: 'Deployment strategy override'
+    required: false
+
+outputs:
+  url:
+    description: 'Deployed application URL'
+    value: ${{ steps.deploy.outputs.url }}
+  status:
+    description: 'Deployment status'
+    value: ${{ steps.deploy.outputs.status }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: 🔧 Setup Deployment Tools
+      shell: bash
+      run: |
+        # Install kubectl
+        curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+        chmod +x kubectl
+        sudo mv kubectl /usr/local/bin/
+
+        # Install Helm
+        curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
+        chmod 700 get_helm.sh
+        ./get_helm.sh
+
+        # Install additional tools
+        curl -L "https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64" -o yq
+        chmod +x yq
+        sudo mv yq /usr/local/bin/
+
+    - name: 🔐 Configure Authentication
+      shell: bash
+      run: |
+        # Parse secrets from JSON input
+        secrets='${{ inputs.secrets }}'
+
+        # Configure Kubernetes authentication
+        if echo "$secrets" | jq -e '.KUBE_CONFIG' > /dev/null; then
+          echo "$secrets" | jq -r '.KUBE_CONFIG' | base64 -d > kubeconfig
+          export KUBECONFIG=kubeconfig
+          chmod 600 kubeconfig
+        fi
+
+        # Configure Docker registry authentication
+        if echo "$secrets" | jq -e '.REGISTRY_TOKEN' > /dev/null; then
+          registry_token=$(echo "$secrets" | jq -r '.REGISTRY_TOKEN')
+          echo "$registry_token" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+        fi
+
+        # Verify cluster access
+        kubectl cluster-info
+        kubectl get nodes
+
+    - name: 📋 Environment Configuration
+      shell: bash
+      run: |
+        environment="${{ inputs.environment }}"
+
+        # Set environment-specific variables
+        case $environment in
+          "development")
+            echo "NAMESPACE=dev" >> $GITHUB_ENV
+            echo "REPLICAS=1" >> $GITHUB_ENV
+            echo "RESOURCES_REQUESTS_CPU=100m" >> $GITHUB_ENV
+            echo "RESOURCES_REQUESTS_MEMORY=128Mi" >> $GITHUB_ENV
+            echo "RESOURCES_LIMITS_CPU=500m" >> $GITHUB_ENV
+            echo "RESOURCES_LIMITS_MEMORY=512Mi" >> $GITHUB_ENV
+            echo "INGRESS_HOST=aitrading-dev.example.com" >> $GITHUB_ENV
+            echo "SSL_ENABLED=false" >> $GITHUB_ENV
+            ;;
+          "staging")
+            echo "NAMESPACE=staging" >> $GITHUB_ENV
+            echo "REPLICAS=2" >> $GITHUB_ENV
+            echo "RESOURCES_REQUESTS_CPU=200m" >> $GITHUB_ENV
+            echo "RESOURCES_REQUESTS_MEMORY=256Mi" >> $GITHUB_ENV
+            echo "RESOURCES_LIMITS_CPU=1000m" >> $GITHUB_ENV
+            echo "RESOURCES_LIMITS_MEMORY=1Gi" >> $GITHUB_ENV
+            echo "INGRESS_HOST=aitrading-staging.example.com" >> $GITHUB_ENV
+            echo "SSL_ENABLED=true" >> $GITHUB_ENV
+            ;;
+          "production")
+            echo "NAMESPACE=production" >> $GITHUB_ENV
+            echo "REPLICAS=3" >> $GITHUB_ENV
+            echo "RESOURCES_REQUESTS_CPU=500m" >> $GITHUB_ENV
+            echo "RESOURCES_REQUESTS_MEMORY=512Mi" >> $GITHUB_ENV
+            echo "RESOURCES_LIMITS_CPU=2000m" >> $GITHUB_ENV
+            echo "RESOURCES_LIMITS_MEMORY=2Gi" >> $GITHUB_ENV
+            echo "INGRESS_HOST=aitrading.example.com" >> $GITHUB_ENV
+            echo "SSL_ENABLED=true" >> $GITHUB_ENV
+            ;;
+        esac
+
+        echo "📋 Environment configuration set for: $environment"
+
+    - name: 🏗️ Prepare Namespace and Resources
+      shell: bash
+      run: |
+        namespace="${{ env.NAMESPACE }}"
+
+        # Create namespace if it doesn't exist
+        kubectl create namespace $namespace --dry-run=client -o yaml | kubectl apply -f -
+
+        # Apply RBAC if needed
+        if [ -f "k8s/rbac/${{ inputs.environment }}.yaml" ]; then
+          kubectl apply -f k8s/rbac/${{ inputs.environment }}.yaml -n $namespace
+        fi
+
+        # Apply secrets and configmaps
+        if [ -f "k8s/secrets/${{ inputs.environment }}.yaml" ]; then
+          envsubst < k8s/secrets/${{ inputs.environment }}.yaml | kubectl apply -f -
+        fi
+
+        if [ -f "k8s/configmaps/${{ inputs.environment }}.yaml" ]; then
+          envsubst < k8s/configmaps/${{ inputs.environment }}.yaml | kubectl apply -f -
+        fi
+
+    - name: 🗄️ Database Migration
+      shell: bash
+      run: |
+        namespace="${{ env.NAMESPACE }}"
+        image_tag="${{ inputs.image-tag }}"
+
+        echo "🗄️ Checking database migration requirements..."
+
+        # Run migration check
+        kubectl run migration-check-$RANDOM \
+          --image=$image_tag \
+          --rm -it \
+          --restart=Never \
+          --namespace=$namespace \
+          --command -- npm run db:migrate:check
+
+        migration_exit_code=$?
+
+        if [ $migration_exit_code -eq 1 ]; then
+          echo "🚀 Running database migrations..."
+
+          kubectl run migration-job-$RANDOM \
+            --image=$image_tag \
+            --rm -it \
+            --restart=Never \
+            --namespace=$namespace \
+            --command -- npm run db:migrate
+
+          echo "✅ Database migrations completed"
+        else
+          echo "✅ Database is up to date"
+        fi
+
+    - name: 🚀 Execute Deployment
+      id: deploy
+      shell: bash
+      run: |
+        namespace="${{ env.NAMESPACE }}"
+        environment="${{ inputs.environment }}"
+        image_tag="${{ inputs.image-tag }}"
+        strategy="${{ inputs.deployment-strategy }}"
+
+        # Determine deployment strategy if not provided
+        if [ -z "$strategy" ]; then
+          case $environment in
+            "production")
+              strategy="blue-green"
+              ;;
+            "staging")
+              strategy="rolling"
+              ;;
+            *)
+              strategy="recreate"
+              ;;
+          esac
+        fi
+
+        echo "🚀 Deploying using strategy: $strategy"
+
+        # Generate Helm values
+        cat > values-override.yaml << EOF
+        image:
+          repository: ghcr.io/${{ github.repository }}
+          tag: $image_tag
+          pullPolicy: Always
+
+        replicaCount: ${{ env.REPLICAS }}
+
+        resources:
+          requests:
+            cpu: ${{ env.RESOURCES_REQUESTS_CPU }}
+            memory: ${{ env.RESOURCES_REQUESTS_MEMORY }}
+          limits:
+            cpu: ${{ env.RESOURCES_LIMITS_CPU }}
+            memory: ${{ env.RESOURCES_LIMITS_MEMORY }}
+
+        ingress:
+          enabled: true
+          hostname: ${{ env.INGRESS_HOST }}
+          tls: ${{ env.SSL_ENABLED }}
+
+        strategy:
+          type: RollingUpdate
+          rollingUpdate:
+            maxSurge: 1
+            maxUnavailable: 0
+
+        environment: $environment
+
+        config:
+          nodeEnv: $environment
+          logLevel: info
+          metricsEnabled: true
+        EOF
+
+        # Execute deployment based on strategy
+        case $strategy in
+          "blue-green")
+            echo "🔵 Executing Blue-Green deployment"
+
+            # Deploy to blue environment first
+            helm upgrade --install aitrading-blue helm-chart/ \
+              --namespace $namespace \
+              --values values-override.yaml \
+              --set nameOverride=aitrading-blue \
+              --set service.name=aitrading-blue \
+              --wait --timeout=600s
+
+            # Run smoke tests on blue
+            kubectl run smoke-test-$RANDOM \
+              --image=curlimages/curl \
+              --rm -it \
+              --restart=Never \
+              --namespace=$namespace \
+              --command -- curl -f http://aitrading-blue.$namespace.svc.cluster.local/health
+
+            # Switch traffic to blue
+            kubectl patch service aitrading-app \
+              --namespace $namespace \
+              --patch '{"spec":{"selector":{"app":"aitrading-blue"}}}'
+
+            # Clean up green deployment
+            helm uninstall aitrading-green --namespace $namespace || true
+            ;;
+
+          "rolling")
+            echo "🔄 Executing Rolling update"
+
+            helm upgrade --install aitrading-app helm-chart/ \
+              --namespace $namespace \
+              --values values-override.yaml \
+              --wait --timeout=600s
+            ;;
+
+          "recreate")
+            echo "🔄 Executing Recreate deployment"
+
+            yq eval '.strategy.type = "Recreate"' -i values-override.yaml
+
+            helm upgrade --install aitrading-app helm-chart/ \
+              --namespace $namespace \
+              --values values-override.yaml \
+              --wait --timeout=600s
+            ;;
+        esac
+
+        # Set outputs
+        echo "url=https://${{ env.INGRESS_HOST }}" >> $GITHUB_OUTPUT
+        echo "status=success" >> $GITHUB_OUTPUT
+
+        echo "✅ Deployment completed successfully"
+
+    - name: 🔍 Post-deployment Validation
+      shell: bash
+      run: |
+        namespace="${{ env.NAMESPACE }}"
+        url="${{ steps.deploy.outputs.url }}"
+
+        echo "🔍 Validating deployment..."
+
+        # Wait for pods to be ready
+        kubectl wait --for=condition=ready pod \
+          --selector=app=aitrading-app \
+          --namespace=$namespace \
+          --timeout=300s
+
+        # Check deployment status
+        kubectl get deployment aitrading-app -n $namespace
+
+        # Basic connectivity test
+        kubectl run connectivity-test-$RANDOM \
+          --image=curlimages/curl \
+          --rm -it \
+          --restart=Never \
+          --namespace=$namespace \
+          --command -- curl -f http://aitrading-app.$namespace.svc.cluster.local/health
+
+        echo "✅ Post-deployment validation completed"
+
+    - name: 📊 Deployment Metrics
+      shell: bash
+      run: |
+        namespace="${{ env.NAMESPACE }}"
+
+        echo "📊 Collecting deployment metrics..."
+
+        # Get pod information
+        kubectl get pods -n $namespace -l app=aitrading-app -o wide
+
+        # Get resource usage
+        kubectl top pods -n $namespace -l app=aitrading-app || echo "Metrics server not available"
+
+        # Get service information
+        kubectl get services -n $namespace
+
+        # Get ingress information
+        kubectl get ingress -n $namespace
+
+        echo "📊 Deployment metrics collected"
+
+    - name: 🧹 Cleanup
+      if: always()
+      shell: bash
+      run: |
+        # Clean up temporary files
+        rm -f kubeconfig values-override.yaml
+
+        # Clean up any failed jobs
+        kubectl delete jobs --field-selector status.successful=0 -n ${{ env.NAMESPACE }} || true
+
+        echo "🧹 Cleanup completed"

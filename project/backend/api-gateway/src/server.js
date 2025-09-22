@@ -19,6 +19,7 @@ const {
 
 // Import routes
 const authRoutes = require('../routes/auth');
+const businessRoutes = require('../routes/business');
 // const userRoutes = require('../routes/users'); // Temporarily disabled for basic test
 
 // Create Express app
@@ -103,6 +104,7 @@ app.get('/api', (req, res) => {
 
 // Mount API routes
 app.use('/api/auth', authRoutes);
+app.use('/api/business', businessRoutes);
 // app.use('/api/users', userRoutes); // Temporarily disabled for basic test
 
 // Central Hub integration endpoint

@@ -7,6 +7,7 @@ const winston = require('winston');
 require('dotenv').config();
 
 const DatabaseConnection = require('./database/connection');
+const MultiDbManager = require('./database/multiDbManager');
 const UserService = require('./services/userService');
 const QueryInterface = require('./database/queryInterface');
 const HealthMonitor = require('./health/monitor');
@@ -33,6 +34,7 @@ class DatabaseService {
     this.app = express();
     this.port = process.env.PORT || 8008;
     this.db = null;
+    this.multiDbManager = null;
     this.userService = null;
     this.queryInterface = null;
     this.healthMonitor = null;
@@ -45,6 +47,11 @@ class DatabaseService {
       this.db = new DatabaseConnection();
       await this.db.connect();
       logger.info('Database connected successfully');
+
+      // Initialize multi-database manager
+      this.multiDbManager = new MultiDbManager();
+      await this.multiDbManager.initialize();
+      logger.info('Multi-Database Manager initialized successfully');
 
       // Initialize services
       this.userService = new UserService(this.db);
@@ -87,7 +94,18 @@ class DatabaseService {
     this.app.get('/health', async (req, res) => {
       try {
         const health = await this.healthMonitor.checkHealth();
-        res.status(health.status === 'healthy' ? 200 : 503).json(health);
+        const multiDbHealth = await this.multiDbManager.healthCheckAll();
+
+        const combinedHealth = {
+          ...health,
+          databases: multiDbHealth,
+          multiDbStatus: this.multiDbManager.getConnectionCount()
+        };
+
+        const isHealthy = health.status === 'healthy' &&
+          Object.values(multiDbHealth).every(db => db.status === 'healthy' || db.status === 'mock');
+
+        res.status(isHealthy ? 200 : 503).json(combinedHealth);
       } catch (error) {
         logger.error('Health check failed:', error);
         res.status(503).json({ status: 'unhealthy', error: error.message });
@@ -135,6 +153,30 @@ class DatabaseService {
         res.json({ success: true, data: result });
       } catch (error) {
         logger.error('Query execution failed:', error);
+        res.status(500).json({ success: false, error: error.message });
+      }
+    });
+
+    // Multi-database query endpoint
+    this.app.post('/api/multi-db/query', async (req, res) => {
+      try {
+        const { database, query, params } = req.body;
+        const result = await this.multiDbManager.executeQuery(database, query, params);
+        res.json({ success: true, data: result });
+      } catch (error) {
+        logger.error('Multi-DB query execution failed:', error);
+        res.status(500).json({ success: false, error: error.message });
+      }
+    });
+
+    // Database status endpoint
+    this.app.get('/api/databases/status', async (req, res) => {
+      try {
+        const status = this.multiDbManager.getHealthStatus();
+        const connections = this.multiDbManager.getConnectionCount();
+        res.json({ success: true, data: { status, connections } });
+      } catch (error) {
+        logger.error('Get database status failed:', error);
         res.status(500).json({ success: false, error: error.message });
       }
     });

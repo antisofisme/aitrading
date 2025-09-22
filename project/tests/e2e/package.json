@@ -1,0 +1,58 @@
+{
+  "name": "aitrading-e2e-tests",
+  "version": "1.0.0",
+  "description": "End-to-end testing framework for AI Trading Platform",
+  "scripts": {
+    "test:e2e": "playwright test",
+    "test:e2e:headed": "playwright test --headed",
+    "test:e2e:debug": "playwright test --debug",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:regression": "playwright test --grep '@regression'",
+    "test:e2e:smoke": "playwright test --grep '@smoke'",
+    "test:e2e:auth": "playwright test tests/auth/",
+    "test:e2e:trading": "playwright test tests/trading/",
+    "test:e2e:reports": "playwright test tests/reports/",
+    "test:e2e:integration": "playwright test tests/integration/",
+    "test:setup": "node scripts/setup-test-environment.js",
+    "test:cleanup": "node scripts/cleanup-test-environment.js",
+    "test:data:seed": "node scripts/seed-test-data.js",
+    "test:data:reset": "node scripts/reset-test-data.js",
+    "test:env:start": "docker-compose -f docker-compose.test.yml up -d",
+    "test:env:stop": "docker-compose -f docker-compose.test.yml down",
+    "test:env:reset": "npm run test:env:stop && npm run test:env:start",
+    "test:parallel": "playwright test --workers=4",
+    "test:cross-browser": "playwright test --project=chromium --project=firefox --project=webkit",
+    "test:mobile": "playwright test --project=mobile-chrome --project=mobile-safari",
+    "test:api": "playwright test tests/api/",
+    "test:performance": "playwright test tests/performance/",
+    "test:accessibility": "playwright test tests/accessibility/",
+    "report:generate": "playwright show-report",
+    "report:html": "playwright show-report --host=0.0.0.0 --port=9323",
+    "install:browsers": "playwright install",
+    "install:deps": "playwright install-deps"
+  },
+  "dependencies": {
+    "@playwright/test": "^1.40.0",
+    "@types/node": "^20.0.0",
+    "axios": "^1.6.0",
+    "faker": "^6.6.6",
+    "moment": "^2.30.1",
+    "dotenv": "^16.3.0",
+    "winston": "^3.11.0",
+    "joi": "^18.0.1",
+    "lodash": "^4.17.21",
+    "csv-parser": "^3.0.0",
+    "json2csv": "^6.1.0"
+  },
+  "devDependencies": {
+    "@types/faker": "^6.6.9",
+    "@types/lodash": "^4.14.0",
+    "typescript": "^5.2.0",
+    "allure-playwright": "^2.8.0",
+    "playwright-lighthouse": "^4.0.0",
+    "@axe-core/playwright": "^4.8.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
