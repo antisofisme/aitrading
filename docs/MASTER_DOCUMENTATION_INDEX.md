@@ -8,27 +8,27 @@ This master index serves as the single source of truth for all cross-references,
 
 ### **Core Level Documents (Main Architecture)**
 ```yaml
-LEVEL_1_FOUNDATION.md:
+../plan2/LEVEL_1_FOUNDATION.md:
   Primary Content: Infrastructure core, database, error handling, logging
   Dependencies: None (foundation level)
   Provides To: All higher levels
 
-LEVEL_2_CONNECTIVITY.md:
+../plan2/LEVEL_2_CONNECTIVITY.md:
   Primary Content: API Gateway, authentication, service registry, inter-service communication
   Dependencies: LEVEL_1 complete
   Provides To: LEVEL_3, LEVEL_4, LEVEL_5
 
-LEVEL_3_DATA_FLOW.md:
+../plan2/LEVEL_3_DATA_FLOW.md:
   Primary Content: MT5 integration, data validation, processing, storage strategy
   Dependencies: LEVEL_2 complete
   Provides To: LEVEL_4 (AI processing), LEVEL_5 (UI display)
 
-LEVEL_4_INTELLIGENCE.md:
+../plan2/LEVEL_4_INTELLIGENCE.md:
   Primary Content: ML pipeline, decision engine, learning system, model management
   Dependencies: LEVEL_3 complete
   Provides To: LEVEL_5 (UI integration)
 
-LEVEL_5_USER_INTERFACE.md:
+../plan2/LEVEL_5_USER_INTERFACE.md:
   Primary Content: Web dashboard, desktop client, API access, mobile support
   Dependencies: LEVEL_4 complete
   Provides To: Complete system
@@ -36,32 +36,32 @@ LEVEL_5_USER_INTERFACE.md:
 
 ### **Supporting Framework Documents**
 ```yaml
-BUSINESS_STRATEGY.md:
+../plan2/BUSINESS_STRATEGY.md:
   Primary Content: Business model, market strategy, value propositions, multi-agent coordination
   Scope: All levels - business context and strategic direction
   Integration: Multi-agent framework specifications and decision frameworks
 
-OPERATIONAL_PROCEDURES.md:
+../plan2/OPERATIONAL_PROCEDURES.md:
   Primary Content: Production transition, launch procedures, post-launch operations
   Scope: All levels - operational excellence
   Enhanced: Business validation procedures and third-party integrations
 
-RISK_MANAGEMENT_FRAMEWORK.md:
+../plan2/RISK_MANAGEMENT_FRAMEWORK.md:
   Primary Content: Risk assessment, mitigation strategies, contingency plans
   Scope: All levels - risk management
   Enhanced: Multi-agent risk assessment and Go/No-Go decision criteria
 
-TESTING_VALIDATION_STRATEGY.md:
+../plan2/TESTING_VALIDATION_STRATEGY.md:
   Primary Content: Testing methodology, validation procedures, quality assurance
   Scope: All levels - quality management
   Enhanced: AI agent testing and business acceptance criteria
 
-TEAM_TRAINING_PLAN.md:
+../plan2/TEAM_TRAINING_PLAN.md:
   Primary Content: Training roadmap, knowledge transfer, skill development
   Scope: All levels - human resources
   Enhanced: Multi-agent development skills and business domain expertise
 
-COMPLIANCE_SECURITY_FRAMEWORK.md:
+../plan2/COMPLIANCE_SECURITY_FRAMEWORK.md:
   Primary Content: Security requirements, compliance checklist, audit procedures
   Scope: All levels - security governance
   Enhanced: Financial regulations and multi-tenant security frameworks
