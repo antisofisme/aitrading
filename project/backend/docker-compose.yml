@@ -1,7 +1,7 @@
 version: '3.8'
 
-# AI Trading Platform - Microservices Infrastructure
-# Production-ready Docker Compose with service discovery, monitoring, and health checks
+# Forex & Gold Trading Platform - Indonesian Market
+# High-frequency trading microservices with Midtrans payment integration
 
 networks:
   aitrading:
@@ -100,7 +100,8 @@ services:
       - POSTGRES_DB=${POSTGRES_DB:-aitrading}
       - POSTGRES_USER=${POSTGRES_USER:-postgres}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-aitrading2024}
-      - POSTGRES_MULTIPLE_DATABASES=${POSTGRES_MULTIPLE_DATABASES:-trading,analytics,logs}
+      - POSTGRES_MULTIPLE_DATABASES=${POSTGRES_MULTIPLE_DATABASES:-forex,gold,analytics,payments,logs}
+      - TZ=Asia/Jakarta
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-aitrading}"]
       interval: 10s
@@ -124,7 +125,8 @@ services:
     environment:
       - MONGO_INITDB_ROOT_USERNAME=${MONGO_USERNAME:-admin}
       - MONGO_INITDB_ROOT_PASSWORD=${MONGO_PASSWORD:-aitrading2024}
-      - MONGO_INITDB_DATABASE=${MONGO_DATABASE:-aitrading_logs}
+      - MONGO_INITDB_DATABASE=${MONGO_DATABASE:-forex_gold_logs}
+      - TZ=Asia/Jakarta
     healthcheck:
       test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
       interval: 10s
@@ -142,7 +144,7 @@ services:
       context: ./api-gateway
       dockerfile: Dockerfile
       target: production
-    container_name: aitrading-gateway
+    container_name: forexgold-gateway
     hostname: api-gateway
     ports:
       - "8000:8000"
@@ -167,14 +169,25 @@ services:
       - LOG_LEVEL=${LOG_LEVEL:-info}
       - JWT_SECRET=${JWT_SECRET:-your-super-secret-jwt-key}
       - SERVICE_SECRET=${SERVICE_SECRET:-service-communication-secret}
-      - RATE_LIMIT_WINDOW=900000
-      - RATE_LIMIT_MAX=100
+      - RATE_LIMIT_WINDOW=60000
+      - RATE_LIMIT_MAX=1000
+      # Forex & Gold Trading Configuration
+      - TRADING_MODE=FOREX_GOLD
+      - BASE_CURRENCY=IDR
+      - TIMEZONE=Asia/Jakarta
+      - LOCALE=id_ID
+      - TRADING_HOURS_START=07:00
+      - TRADING_HOURS_END=17:00
+      - HIGH_FREQUENCY_ENABLED=true
       # Level 2 Service URLs
       - USER_MANAGEMENT_URL=http://user-management:8021
       - SUBSCRIPTION_SERVICE_URL=http://subscription-service:8022
       - PAYMENT_GATEWAY_URL=http://payment-gateway:8023
       - NOTIFICATION_SERVICE_URL=http://notification-service:8024
       - BILLING_SERVICE_URL=http://billing-service:8025
+      - FOREX_ENGINE_URL=http://forex-engine:8026
+      - GOLD_ENGINE_URL=http://gold-engine:8027
+      - RISK_MANAGEMENT_URL=http://risk-management:8028
       - CENTRAL_HUB_URL=http://central-hub:8002
       - DATA_BRIDGE_URL=http://data-bridge:8001
       - DATABASE_SERVICE_URL=http://database-service:8006
@@ -193,11 +206,11 @@ services:
     deploy:
       resources:
         limits:
+          memory: 2G
+          cpus: '2.0'
+        reservations:
           memory: 1G
           cpus: '1.0'
-        reservations:
-          memory: 512M
-          cpus: '0.5'
 
   # User Management Service (8021) - Level 2
   user-management:
@@ -313,11 +326,21 @@ services:
       - REDIS_PORT=6379
       - REDIS_PASSWORD=${REDIS_PASSWORD:-aitrading2024}
       - LOG_LEVEL=${LOG_LEVEL:-info}
-      # Midtrans Configuration
+      # Midtrans Payment Gateway Configuration
       - MIDTRANS_SERVER_KEY=${MIDTRANS_SERVER_KEY}
       - MIDTRANS_CLIENT_KEY=${MIDTRANS_CLIENT_KEY}
       - MIDTRANS_IS_PRODUCTION=${MIDTRANS_IS_PRODUCTION:-false}
+      - MIDTRANS_MERCHANT_ID=${MIDTRANS_MERCHANT_ID}
+      - MIDTRANS_NOTIFICATION_URL=${MIDTRANS_NOTIFICATION_URL}
       - BASE_URL=${BASE_URL:-http://localhost:8000}
+      # Indonesian Banking Integration
+      - BANK_TRANSFER_ENABLED=true
+      - GOPAY_ENABLED=true
+      - OVO_ENABLED=true
+      - DANA_ENABLED=true
+      - SHOPEEPAY_ENABLED=true
+      - CURRENCY=IDR
+      - TZ=Asia/Jakarta
     depends_on:
       postgres:
         condition: service_healthy
@@ -417,8 +440,11 @@ services:
       - LOG_LEVEL=${LOG_LEVEL:-info}
       # PDF Generation
       - INVOICE_LOGO_URL=${INVOICE_LOGO_URL}
-      - COMPANY_NAME=${COMPANY_NAME:-AI Trading Platform}
-      - COMPANY_ADDRESS=${COMPANY_ADDRESS}
+      - COMPANY_NAME=${COMPANY_NAME:-ForexGold Indonesia}
+      - COMPANY_ADDRESS=${COMPANY_ADDRESS:-Jakarta, Indonesia}
+      - CURRENCY=IDR
+      - TAX_RATE=${TAX_RATE:-11}
+      - TZ=Asia/Jakarta
     depends_on:
       postgres:
         condition: service_healthy
@@ -438,7 +464,7 @@ services:
       context: ./central-hub
       dockerfile: Dockerfile
       target: production
-    container_name: aitrading-hub
+    container_name: forexgold-hub
     hostname: central-hub
     ports:
       - "8002:8002"
@@ -469,8 +495,11 @@ services:
       - MONGODB_PORT=27017
       - MONGODB_USERNAME=${MONGO_USERNAME:-admin}
       - MONGODB_PASSWORD=${MONGO_PASSWORD:-aitrading2024}
-      - MONGODB_DATABASE=${MONGO_DATABASE:-aitrading_logs}
+      - MONGODB_DATABASE=${MONGO_DATABASE:-forex_gold_logs}
       - LOG_LEVEL=${LOG_LEVEL:-info}
+      - TZ=Asia/Jakarta
+      - CURRENCY=IDR
+      - TRADING_MODE=FOREX_GOLD
     depends_on:
       consul:
         condition: service_healthy
@@ -490,11 +519,11 @@ services:
     deploy:
       resources:
         limits:
+          memory: 2G
+          cpus: '2.0'
+        reservations:
           memory: 1G
           cpus: '1.0'
-        reservations:
-          memory: 512M
-          cpus: '0.5'
 
   # Database Service (Data Management)
   database-service:
@@ -582,11 +611,18 @@ services:
       - REDIS_PORT=6379
       - REDIS_PASSWORD=${REDIS_PASSWORD:-aitrading2024}
       - LOG_LEVEL=${LOG_LEVEL:-info}
+      # MT5 Forex & Gold Configuration
       - MT5_HOST=${MT5_HOST:-mt5-server}
       - MT5_PORT=${MT5_PORT:-443}
       - MT5_LOGIN=${MT5_LOGIN}
       - MT5_PASSWORD=${MT5_PASSWORD}
       - MT5_SERVER=${MT5_SERVER}
+      - FOREX_SYMBOLS=${FOREX_SYMBOLS:-EURUSD,GBPUSD,USDJPY,AUDUSD,USDCAD,NZDUSD,USDCHF}
+      - GOLD_SYMBOLS=${GOLD_SYMBOLS:-XAUUSD,XAGUSD}
+      - TRADING_MODE=FOREX_GOLD
+      - TICK_DATA_ENABLED=true
+      - REAL_TIME_QUOTES=true
+      - TZ=Asia/Jakarta
     depends_on:
       consul:
         condition: service_healthy
@@ -607,6 +643,171 @@ services:
         reservations:
           memory: 256M
           cpus: '0.25'
+
+  # Forex Trading Engine (8026) - Level 2
+  forex-engine:
+    build:
+      context: ./forex-engine
+      dockerfile: Dockerfile
+      target: production
+    container_name: forexgold-forex-engine
+    hostname: forex-engine
+    ports:
+      - "8026:8026"
+    volumes:
+      - shared_logs:/app/logs
+    networks:
+      aitrading:
+        ipv4_address: 172.20.0.36
+    environment:
+      - NODE_ENV=${NODE_ENV:-production}
+      - PORT=8026
+      - SERVICE_NAME=forex-engine
+      - SERVICE_VERSION=1.0.0
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=forex
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-aitrading2024}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-aitrading2024}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - TZ=Asia/Jakarta
+      - CURRENCY=IDR
+      - HIGH_FREQUENCY_MODE=true
+      - TICK_PROCESSING_INTERVAL=100
+      - MAX_CONCURRENT_TRADES=1000
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8026/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '2.0'
+        reservations:
+          memory: 1G
+          cpus: '1.0'
+
+  # Gold Trading Engine (8027) - Level 2
+  gold-engine:
+    build:
+      context: ./gold-engine
+      dockerfile: Dockerfile
+      target: production
+    container_name: forexgold-gold-engine
+    hostname: gold-engine
+    ports:
+      - "8027:8027"
+    volumes:
+      - shared_logs:/app/logs
+    networks:
+      aitrading:
+        ipv4_address: 172.20.0.37
+    environment:
+      - NODE_ENV=${NODE_ENV:-production}
+      - PORT=8027
+      - SERVICE_NAME=gold-engine
+      - SERVICE_VERSION=1.0.0
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=gold
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-aitrading2024}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-aitrading2024}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - TZ=Asia/Jakarta
+      - CURRENCY=IDR
+      - HIGH_FREQUENCY_MODE=true
+      - TICK_PROCESSING_INTERVAL=100
+      - MAX_CONCURRENT_TRADES=500
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8027/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '2.0'
+        reservations:
+          memory: 1G
+          cpus: '1.0'
+
+  # Risk Management Service (8028) - Level 2
+  risk-management:
+    build:
+      context: ./risk-management
+      dockerfile: Dockerfile
+      target: production
+    container_name: forexgold-risk-management
+    hostname: risk-management
+    ports:
+      - "8028:8028"
+    volumes:
+      - shared_logs:/app/logs
+    networks:
+      aitrading:
+        ipv4_address: 172.20.0.38
+    environment:
+      - NODE_ENV=${NODE_ENV:-production}
+      - PORT=8028
+      - SERVICE_NAME=risk-management
+      - SERVICE_VERSION=1.0.0
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=${POSTGRES_DB:-aitrading}
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-aitrading2024}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-aitrading2024}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - TZ=Asia/Jakarta
+      - CURRENCY=IDR
+      - MAX_RISK_EXPOSURE=${MAX_RISK_EXPOSURE:-0.1}
+      - STOP_LOSS_THRESHOLD=${STOP_LOSS_THRESHOLD:-0.02}
+      - MARGIN_CALL_LEVEL=${MARGIN_CALL_LEVEL:-0.5}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8028/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'
+        reservations:
+          memory: 512M
+          cpus: '0.5'
 
   # =============================================================================
   # MONITORING & OBSERVABILITY
@@ -779,7 +980,7 @@ services:
 
   healthcheck:
     image: appropriate/curl:latest
-    container_name: aitrading-healthcheck
+    container_name: forexgold-healthcheck
     networks:
       - aitrading
     command: >
@@ -791,6 +992,10 @@ services:
           curl -f http://central-hub:8003/health || echo 'Central Hub unhealthy'
           curl -f http://database-service:8007/health || echo 'Database Service unhealthy'
           curl -f http://data-bridge:8002/health || echo 'Data Bridge unhealthy'
+          curl -f http://forex-engine:8026/health || echo 'Forex Engine unhealthy'
+          curl -f http://gold-engine:8027/health || echo 'Gold Engine unhealthy'
+          curl -f http://risk-management:8028/health || echo 'Risk Management unhealthy'
+          curl -f http://payment-gateway:8023/health || echo 'Payment Gateway unhealthy'
           echo 'Health check completed'
         done
       "
@@ -799,4 +1004,8 @@ services:
       - central-hub
       - database-service
       - data-bridge
+      - forex-engine
+      - gold-engine
+      - risk-management
+      - payment-gateway
     restart: unless-stopped

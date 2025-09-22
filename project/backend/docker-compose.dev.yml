@@ -1,322 +1,146 @@
 version: '3.8'
 
-# AI Trading Platform - Development Environment
-# Lightweight Docker Compose for rapid development with hot reload
+# Forex & Gold Trading Platform - Development Environment
+# Optimized for development with hot-reload and debugging
 
 networks:
-  aitrading-dev:
+  forexgold-dev:
     driver: bridge
+    ipam:
+      config:
+        - subnet: 172.22.0.0/16
 
 volumes:
-  redis_dev_data:
-  postgres_dev_data:
-  shared_dev_logs:
+  redis_data_dev:
+  postgres_data_dev:
+  mongodb_data_dev:
 
 services:
-  # =============================================================================
-  # INFRASTRUCTURE SERVICES (DEV)
-  # =============================================================================
-
-  redis-dev:
-    image: redis:7-alpine
-    container_name: aitrading-redis-dev
-    ports:
-      - "6380:6379"
-    volumes:
-      - redis_dev_data:/data
-    networks:
-      - aitrading-dev
-    command: redis-server --requirepass dev123
-    healthcheck:
-      test: ["CMD", "redis-cli", "-a", "dev123", "ping"]
-      interval: 10s
-      timeout: 3s
-      retries: 3
-
+  # Development Database
   postgres-dev:
     image: postgres:15-alpine
-    container_name: aitrading-postgres-dev
+    container_name: forexgold-postgres-dev
     ports:
       - "5433:5432"
     volumes:
-      - postgres_dev_data:/var/lib/postgresql/data
+      - postgres_data_dev:/var/lib/postgresql/data
       - ./database-service/migrations:/docker-entrypoint-initdb.d:ro
     networks:
-      - aitrading-dev
+      - forexgold-dev
     environment:
-      - POSTGRES_DB=aitrading_dev
+      - POSTGRES_DB=forexgold_dev
       - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=dev123
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d aitrading_dev"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
+      - POSTGRES_PASSWORD=aitrading2024
+      - POSTGRES_MULTIPLE_DATABASES=forex,gold,analytics,payments,logs
+      - TZ=Asia/Jakarta
+    restart: unless-stopped
 
-  # Simple service discovery for dev
-  consul-dev:
-    image: consul:1.16
-    container_name: aitrading-consul-dev
+  # Development Redis
+  redis-dev:
+    image: redis:7-alpine
+    container_name: forexgold-redis-dev
     ports:
-      - "8501:8500"
-    command: consul agent -dev -server -bootstrap-expect=1 -ui -client=0.0.0.0
+      - "6380:6379"
+    volumes:
+      - redis_data_dev:/data
     networks:
-      - aitrading-dev
-    healthcheck:
-      test: ["CMD", "consul", "members"]
-      interval: 10s
-      timeout: 3s
-      retries: 3
+      - forexgold-dev
+    environment:
+      - REDIS_PASSWORD=aitrading2024
+      - TZ=Asia/Jakarta
+    restart: unless-stopped
 
-  # =============================================================================
-  # APPLICATION SERVICES (DEV with Hot Reload)
-  # =============================================================================
+  # Development MongoDB
+  mongodb-dev:
+    image: mongo:7.0
+    container_name: forexgold-mongodb-dev
+    ports:
+      - "27018:27017"
+    volumes:
+      - mongodb_data_dev:/data/db
+    networks:
+      - forexgold-dev
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=admin
+      - MONGO_INITDB_ROOT_PASSWORD=aitrading2024
+      - MONGO_INITDB_DATABASE=forex_gold_logs
+      - TZ=Asia/Jakarta
+    restart: unless-stopped
 
+  # API Gateway (Development with hot-reload)
   api-gateway-dev:
     build:
       context: ./api-gateway
       dockerfile: Dockerfile
       target: development
-    container_name: aitrading-gateway-dev
+    container_name: forexgold-gateway-dev
     ports:
       - "8000:8000"
       - "8001:8001"
       - "9229:9229" # Debug port
     volumes:
-      - ./api-gateway/src:/app/src
-      - ./api-gateway/package.json:/app/package.json
-      - ./shared:/app/shared
-      - shared_dev_logs:/app/logs
+      - ./api-gateway:/app
+      - /app/node_modules
     networks:
-      - aitrading-dev
+      - forexgold-dev
     environment:
       - NODE_ENV=development
       - PORT=8000
       - ADMIN_PORT=8001
-      - SERVICE_NAME=api-gateway
-      - CONSUL_HOST=consul-dev
-      - CONSUL_PORT=8500
-      - REDIS_HOST=redis-dev
-      - REDIS_PORT=6379
-      - REDIS_PASSWORD=dev123
       - LOG_LEVEL=debug
-      - JWT_SECRET=dev-jwt-secret-key
-      - DEBUG=aitrading:*
-    depends_on:
-      consul-dev:
-        condition: service_healthy
-      redis-dev:
-        condition: service_healthy
-    command: npm run dev
-    stdin_open: true
-    tty: true
-
-  central-hub-dev:
-    build:
-      context: ./central-hub
-      dockerfile: Dockerfile
-      target: development
-    container_name: aitrading-hub-dev
-    ports:
-      - "8002:8002"
-      - "8003:8003"
-      - "9230:9229" # Debug port
-    volumes:
-      - ./central-hub/src:/app/src
-      - ./central-hub/package.json:/app/package.json
-      - ./shared:/app/shared
-      - shared_dev_logs:/app/logs
-    networks:
-      - aitrading-dev
-    environment:
-      - NODE_ENV=development
-      - PORT=8002
-      - ADMIN_PORT=8003
-      - SERVICE_NAME=central-hub
-      - CONSUL_HOST=consul-dev
-      - CONSUL_PORT=8500
+      - TZ=Asia/Jakarta
+      - TRADING_MODE=FOREX_GOLD
+      - BASE_CURRENCY=IDR
+      - LOCALE=id_ID
+      - HIGH_FREQUENCY_ENABLED=true
       - POSTGRES_HOST=postgres-dev
       - POSTGRES_PORT=5432
-      - POSTGRES_DB=aitrading_dev
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=dev123
       - REDIS_HOST=redis-dev
       - REDIS_PORT=6379
-      - REDIS_PASSWORD=dev123
-      - LOG_LEVEL=debug
-      - DEBUG=aitrading:*
-    depends_on:
-      consul-dev:
-        condition: service_healthy
-      postgres-dev:
-        condition: service_healthy
-      redis-dev:
-        condition: service_healthy
-    command: npm run dev
-    stdin_open: true
-    tty: true
-
-  database-service-dev:
-    build:
-      context: ./database-service
-      dockerfile: Dockerfile
-      target: development
-    container_name: aitrading-database-dev
-    ports:
-      - "8004:8004"
-      - "8005:8005"
-      - "9231:9229" # Debug port
-    volumes:
-      - ./database-service/src:/app/src
-      - ./database-service/package.json:/app/package.json
-      - ./shared:/app/shared
-      - shared_dev_logs:/app/logs
-    networks:
-      - aitrading-dev
-    environment:
-      - NODE_ENV=development
-      - PORT=8004
-      - ADMIN_PORT=8005
-      - SERVICE_NAME=database-service
-      - CONSUL_HOST=consul-dev
-      - CONSUL_PORT=8500
-      - POSTGRES_HOST=postgres-dev
-      - POSTGRES_PORT=5432
-      - POSTGRES_DB=aitrading_dev
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=dev123
-      - REDIS_HOST=redis-dev
-      - REDIS_PORT=6379
-      - REDIS_PASSWORD=dev123
-      - LOG_LEVEL=debug
-      - DEBUG=aitrading:*
-    depends_on:
-      consul-dev:
-        condition: service_healthy
-      postgres-dev:
-        condition: service_healthy
-      redis-dev:
-        condition: service_healthy
-    command: npm run dev
-    stdin_open: true
-    tty: true
-
-  data-bridge-dev:
-    build:
-      context: ./data-bridge
-      dockerfile: Dockerfile
-      target: development
-    container_name: aitrading-bridge-dev
-    ports:
-      - "8006:8006"
-      - "8007:8007"
-      - "9232:9229" # Debug port
-    volumes:
-      - ./data-bridge/src:/app/src
-      - ./data-bridge/package.json:/app/package.json
-      - ./shared:/app/shared
-      - shared_dev_logs:/app/logs
-    networks:
-      - aitrading-dev
-    environment:
-      - NODE_ENV=development
-      - PORT=8006
-      - ADMIN_PORT=8007
-      - SERVICE_NAME=data-bridge
-      - CONSUL_HOST=consul-dev
-      - CONSUL_PORT=8500
-      - REDIS_HOST=redis-dev
-      - REDIS_PORT=6379
-      - REDIS_PASSWORD=dev123
-      - LOG_LEVEL=debug
-      - DEBUG=aitrading:*
-      - MT5_HOST=demo-mt5-server
-      - MT5_PORT=443
-    depends_on:
-      consul-dev:
-        condition: service_healthy
-      redis-dev:
-        condition: service_healthy
-    command: npm run dev
-    stdin_open: true
-    tty: true
-
-  # =============================================================================
-  # DEVELOPMENT TOOLS
-  # =============================================================================
-
-  # Development database admin
-  pgadmin-dev:
-    image: dpage/pgadmin4:latest
-    container_name: aitrading-pgadmin-dev
-    ports:
-      - "5050:80"
-    volumes:
-      - ./config/pgadmin/servers.json:/pgadmin4/servers.json:ro
-    networks:
-      - aitrading-dev
-    environment:
-      - PGADMIN_DEFAULT_EMAIL=admin@aitrading.dev
-      - PGADMIN_DEFAULT_PASSWORD=dev123
-      - PGADMIN_DISABLE_POSTFIX=true
     depends_on:
       - postgres-dev
+      - redis-dev
+    command: npm run dev
+    restart: unless-stopped
 
-  # Redis admin
-  redis-commander-dev:
+  # Development Tools
+  mailhog:
+    image: mailhog/mailhog:v1.0.1
+    container_name: forexgold-mailhog
+    ports:
+      - "1025:1025" # SMTP
+      - "8025:8025" # Web UI
+    networks:
+      - forexgold-dev
+    restart: unless-stopped
+
+  # Redis Commander (Redis GUI)
+  redis-commander:
     image: rediscommander/redis-commander:latest
-    container_name: aitrading-redis-admin-dev
+    container_name: forexgold-redis-gui
     ports:
       - "8081:8081"
     networks:
-      - aitrading-dev
+      - forexgold-dev
     environment:
-      - REDIS_HOSTS=local:redis-dev:6379:0:dev123
+      - REDIS_HOSTS=local:redis-dev:6379:0:aitrading2024
     depends_on:
       - redis-dev
+    restart: unless-stopped
 
-  # Log aggregation for development
-  logspout-dev:
-    image: gliderlabs/logspout:latest
-    container_name: aitrading-logspout-dev
+  # MongoDB Express (MongoDB GUI)
+  mongo-express:
+    image: mongo-express:latest
+    container_name: forexgold-mongo-gui
     ports:
-      - "8083:80"
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - "8082:8081"
     networks:
-      - aitrading-dev
-    command: syslog+tcp://logstash-dev:5000
+      - forexgold-dev
     environment:
-      - SYSLOG_FORMAT=rfc3164
-
-  # Simple monitoring for dev
-  prometheus-dev:
-    image: prom/prometheus:v2.48.0
-    container_name: aitrading-prometheus-dev
-    ports:
-      - "9091:9090"
-    volumes:
-      - ./monitoring/prometheus/prometheus.dev.yml:/etc/prometheus/prometheus.yml:ro
-    networks:
-      - aitrading-dev
-    command:
-      - '--config.file=/etc/prometheus/prometheus.yml'
-      - '--storage.tsdb.path=/prometheus'
-      - '--web.console.libraries=/etc/prometheus/console_libraries'
-      - '--web.console.templates=/etc/prometheus/consoles'
-      - '--storage.tsdb.retention.time=24h'
-      - '--web.enable-lifecycle'
-
-  # Development file watcher and auto-restart
-  watchtower-dev:
-    image: containrrr/watchtower:latest
-    container_name: aitrading-watchtower-dev
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-    networks:
-      - aitrading-dev
-    environment:
-      - WATCHTOWER_POLL_INTERVAL=10
-      - WATCHTOWER_CLEANUP=true
-      - WATCHTOWER_INCLUDE_RESTARTING=true
-    command: --interval 30 --cleanup aitrading-gateway-dev aitrading-hub-dev aitrading-database-dev aitrading-bridge-dev
+      - ME_CONFIG_MONGODB_ADMINUSERNAME=admin
+      - ME_CONFIG_MONGODB_ADMINPASSWORD=aitrading2024
+      - ME_CONFIG_MONGODB_SERVER=mongodb-dev
+      - ME_CONFIG_MONGODB_PORT=27017
+    depends_on:
+      - mongodb-dev
+    restart: unless-stopped

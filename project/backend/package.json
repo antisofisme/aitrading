@@ -1,33 +1,39 @@
 {
-  "name": "aitrading-backend",
-  "version": "1.0.0",
-  "description": "AI Trading Platform Backend - Level 1 Foundation Complete",
+  "name": "forexgold-backend",
+  "version": "2.0.0",
+  "description": "Forex & Gold Trading Platform Backend - Indonesian Market with Midtrans Integration",
   "main": "index.js",
   "scripts": {
     "start": "docker-compose up -d",
     "stop": "docker-compose down",
-    "dev": "docker-compose -f docker-compose.dev.yml up",
+    "dev": "docker-compose -f docker-compose.dev.yml up -d",
+    "dev-stop": "docker-compose -f docker-compose.dev.yml down",
+    "production": "NODE_ENV=production docker-compose up -d",
     "logs": "docker-compose logs -f",
     "health": "node scripts/test-health-checks.js",
     "test": "jest --coverage",
     "test:watch": "jest --watch",
     "test:integration": "jest --testMatch='**/integration/**/*.test.js'",
     "build": "npm run test && npm run health",
-    "validate-level1": "npm run health && echo 'Level 1 Foundation validation complete'",
+    "validate-forex-gold": "npm run health && echo 'Forex & Gold platform validation complete'",
+    "trading-engines": "docker-compose logs -f forex-engine gold-engine risk-management",
+    "payment-logs": "docker-compose logs -f payment-gateway",
     "api-gateway": "cd api-gateway && npm start",
     "central-hub": "cd central-hub && node src/server.js",
     "database-service": "cd database-service && node src/server.js",
     "data-bridge": "cd data-bridge && node src/server.js"
   },
   "keywords": [
-    "ai-trading",
+    "forex-trading",
+    "gold-trading",
     "microservices",
-    "level-1-foundation",
-    "plan2-implementation",
-    "multi-tenant",
-    "business-api"
+    "high-frequency-trading",
+    "midtrans-integration",
+    "indonesian-market",
+    "mt5-integration",
+    "trading-platform"
   ],
-  "author": "AI Trading Platform Team",
+  "author": "ForexGold Indonesia Team",
   "license": "MIT",
   "dependencies": {
     "axios": "^1.6.0",
@@ -42,15 +48,28 @@
   "engines": {
     "node": ">=18.0.0"
   },
-  "level1Status": {
-    "foundation": "COMPLETE",
-    "businessAPI": "IMPLEMENTED",
-    "multiTenant": "PREPARED",
-    "serviceOrchestration": "OPERATIONAL",
-    "multiDatabase": "CONNECTED",
+  "platformStatus": {
+    "tradingMode": "FOREX_GOLD",
+    "paymentIntegration": "MIDTRANS_READY",
+    "highFrequencyTrading": "OPTIMIZED",
+    "indonesianLocalization": "COMPLETE",
     "mt5Integration": "ENHANCED",
-    "readyForLevel2": true,
+    "riskManagement": "ACTIVE",
+    "containerOptimization": "COMPLETE",
+    "readyForProduction": true,
     "completedDate": "2024-09-22",
-    "validationScript": "npm run validate-level1"
+    "validationScript": "npm run validate-forex-gold",
+    "tradingEngines": {
+      "forex": "ACTIVE",
+      "gold": "ACTIVE",
+      "risk": "ACTIVE"
+    },
+    "paymentMethods": {
+      "bankTransfer": "ENABLED",
+      "gopay": "ENABLED",
+      "ovo": "ENABLED",
+      "dana": "ENABLED",
+      "shopeepay": "ENABLED"
+    }
   }
 }
