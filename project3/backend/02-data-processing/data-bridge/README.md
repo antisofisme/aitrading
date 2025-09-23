@@ -51,7 +51,7 @@ contracts/
 ```python
 # Import from centralized schemas
 import sys
-sys.path.append('../../../05-support/shared/generated/python')
+sys.path.append('../../../01-core-infrastructure/central-hub/static/generated/python')
 
 from common.tick_data_pb2 import BatchTickData, TickData, QualityMetrics
 from common.user_context_pb2 import UserContext, SubscriptionTier
@@ -153,7 +153,7 @@ async def enrich_tick_data(self, tick: TickData, user_context: UserContext) -> E
 # Input Contract: API Gateway → Data Bridge
 
 ## Protocol Buffer Schema
-- **Source**: `shared/proto/common/tick-data.proto`
+- **Source**: `central-hub/static/proto/common/tick-data.proto`
 - **Message Type**: `BatchTickData`
 - **Transport**: WebSocket Binary
 
@@ -186,7 +186,7 @@ message BatchTickData {
 # Output Contract: Data Bridge → Database Service
 
 ## Protocol Buffer Schema
-- **Source**: `shared/proto/trading/enriched-data.proto`
+- **Source**: `central-hub/static/proto/trading/enriched-data.proto`
 - **Message Type**: `EnrichedBatchData`
 - **Transport**: HTTP Binary (direct service call)
 
