@@ -1,0 +1,246 @@
+{
+  "serviceRegistry": {
+    "version": "1.0.0",
+    "lastUpdated": "2025-09-22T10:40:00.000Z",
+    "services": {
+      "api-gateway": {
+        "port": 8000,
+        "status": "active",
+        "type": "gateway",
+        "description": "Main API gateway with authentication and routing",
+        "healthEndpoint": "/health",
+        "dependencies": ["user-service", "trading-engine"]
+      },
+      "data-bridge": {
+        "port": 8001,
+        "status": "active",
+        "type": "data",
+        "description": "MT5 data bridge with enhanced processing",
+        "healthEndpoint": "/health",
+        "dependencies": ["database-service"]
+      },
+      "trading-engine": {
+        "port": 8002,
+        "status": "active",
+        "type": "core",
+        "description": "Core trading engine with AI integration",
+        "healthEndpoint": "/health",
+        "dependencies": ["data-bridge", "ai-orchestration"]
+      },
+      "ai-orchestration": {
+        "port": 8003,
+        "status": "active",
+        "type": "ai",
+        "description": "AI model orchestration and coordination",
+        "healthEndpoint": "/health",
+        "dependencies": ["multi-agent-coordinator", "decision-engine"]
+      },
+      "ai-provider": {
+        "port": 8004,
+        "status": "active",
+        "type": "ai",
+        "description": "AI provider service for model inference",
+        "healthEndpoint": "/health",
+        "dependencies": []
+      },
+      "user-service": {
+        "port": 8005,
+        "status": "active",
+        "type": "business",
+        "description": "User management and authentication",
+        "healthEndpoint": "/health",
+        "dependencies": ["database-service"]
+      },
+      "database-service": {
+        "port": 8006,
+        "status": "active",
+        "type": "data",
+        "description": "Multi-database service (PostgreSQL, Redis, etc.)",
+        "healthEndpoint": "/health",
+        "dependencies": []
+      },
+      "notification-service": {
+        "port": 8007,
+        "status": "active",
+        "type": "communication",
+        "description": "Notification service with Telegram integration",
+        "healthEndpoint": "/health",
+        "dependencies": ["user-service"]
+      },
+      "payment-service": {
+        "port": 8008,
+        "status": "active",
+        "type": "business",
+        "description": "Payment processing and subscription management",
+        "healthEndpoint": "/health",
+        "dependencies": ["user-service"]
+      },
+      "subscription-service": {
+        "port": 8009,
+        "status": "active",
+        "type": "business",
+        "description": "Subscription and billing management",
+        "healthEndpoint": "/health",
+        "dependencies": ["user-service", "payment-service"]
+      },
+      "central-hub": {
+        "port": 8010,
+        "status": "active",
+        "type": "infrastructure",
+        "description": "Central hub for service coordination",
+        "healthEndpoint": "/health",
+        "dependencies": []
+      },
+      "feature-engineering-service": {
+        "port": 8011,
+        "status": "active",
+        "type": "ai",
+        "description": "User-specific feature engineering and ML feature sets",
+        "healthEndpoint": "/health",
+        "dependencies": ["data-bridge", "configuration-service"],
+        "capabilities": [
+          "technicalIndicators",
+          "statisticalFeatures",
+          "customFeatures",
+          "realTimeProcessing"
+        ]
+      },
+      "configuration-service": {
+        "port": 8012,
+        "status": "active",
+        "type": "infrastructure",
+        "description": "Per-user configuration management",
+        "healthEndpoint": "/health",
+        "dependencies": ["database-service"],
+        "capabilities": [
+          "userConfigManagement",
+          "systemConfiguration",
+          "configTemplates",
+          "auditLogging"
+        ]
+      },
+      "audit-service": {
+        "port": 8013,
+        "status": "active",
+        "type": "compliance",
+        "description": "Audit trail and compliance monitoring",
+        "healthEndpoint": "/health",
+        "dependencies": ["database-service"]
+      },
+      "analytics-service": {
+        "port": 8014,
+        "status": "active",
+        "type": "analytics",
+        "description": "Performance analytics and reporting",
+        "healthEndpoint": "/health",
+        "dependencies": ["database-service"]
+      },
+      "pattern-validator-service": {
+        "port": 8015,
+        "status": "active",
+        "type": "ai",
+        "description": "Per-user pattern validation and recognition",
+        "healthEndpoint": "/health",
+        "dependencies": ["feature-engineering-service", "configuration-service"],
+        "capabilities": [
+          "candlestickPatterns",
+          "chartPatterns",
+          "customPatterns",
+          "realTimeValidation",
+          "userSpecificRules"
+        ],
+        "performanceTarget": "<8ms"
+      },
+      "multi-agent-coordinator": {
+        "port": 8030,
+        "status": "active",
+        "type": "ai",
+        "description": "Multi-agent coordination hub for AI trading decisions",
+        "healthEndpoint": "/health",
+        "dependencies": ["decision-engine", "configuration-service"],
+        "capabilities": [
+          "multiAgentConsensus",
+          "realTimeCoordination",
+          "decisionAggregation"
+        ],
+        "performanceTarget": "Sub-100ms coordination"
+      },
+      "decision-engine": {
+        "port": 8031,
+        "status": "active",
+        "type": "ai",
+        "description": "Multi-agent decision making engine for AI trading",
+        "healthEndpoint": "/health",
+        "dependencies": ["multi-agent-coordinator", "pattern-validator-service"],
+        "capabilities": [
+          "multiAgentDecisions",
+          "ensembleModels",
+          "realTimeInference",
+          "bayesianOptimization"
+        ],
+        "performanceTarget": "<15ms decision time"
+      }
+    },
+    "serviceTypes": {
+      "gateway": ["api-gateway"],
+      "data": ["data-bridge", "database-service"],
+      "core": ["trading-engine"],
+      "ai": ["ai-orchestration", "ai-provider", "feature-engineering-service", "pattern-validator-service", "multi-agent-coordinator", "decision-engine"],
+      "business": ["user-service", "payment-service", "subscription-service"],
+      "communication": ["notification-service"],
+      "infrastructure": ["central-hub", "configuration-service"],
+      "compliance": ["audit-service"],
+      "analytics": ["analytics-service"]
+    },
+    "portMapping": {
+      "8000": "api-gateway",
+      "8001": "data-bridge",
+      "8002": "trading-engine",
+      "8003": "ai-orchestration",
+      "8004": "ai-provider",
+      "8005": "user-service",
+      "8006": "database-service",
+      "8007": "notification-service",
+      "8008": "payment-service",
+      "8009": "subscription-service",
+      "8010": "central-hub",
+      "8011": "feature-engineering-service",
+      "8012": "configuration-service",
+      "8013": "audit-service",
+      "8014": "analytics-service",
+      "8015": "pattern-validator-service",
+      "8030": "multi-agent-coordinator",
+      "8031": "decision-engine"
+    },
+    "statistics": {
+      "totalServices": 17,
+      "activeServices": 17,
+      "servicesByType": {
+        "gateway": 1,
+        "data": 2,
+        "core": 1,
+        "ai": 6,
+        "business": 3,
+        "communication": 1,
+        "infrastructure": 2,
+        "compliance": 1,
+        "analytics": 1
+      },
+      "plan2Compliance": {
+        "targetServices": 25,
+        "implementedServices": 17,
+        "completionPercentage": 68.0,
+        "missingCriticalServices": [
+          "ml-processing",
+          "ml-automl",
+          "ml-ensemble",
+          "telegram-service",
+          "revenue-analytics",
+          "usage-monitoring",
+          "compliance-monitor",
+          "regulatory-reporting"
+        ]
+      }
+    }
+  }
+}

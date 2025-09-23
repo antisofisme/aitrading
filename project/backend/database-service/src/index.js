@@ -2,7 +2,9 @@ const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const winston = require('winston');
-const DatabaseConfig = require('./config/database');
+// Import the new multi-database service
+const { createDatabaseService } = require('./multi-db');
+const DatabaseConfig = require('./config/database'); // Legacy support
 const HealthService = require('./services/HealthService');
 const HubIntegration = require('./services/HubIntegration');
 const createApiRoutes = require('./routes/api');
@@ -36,7 +38,9 @@ class DatabaseService {
   constructor() {
     this.app = express();
     this.port = process.env.PORT || 8008;
-    this.db = new DatabaseConfig();
+    // Use the new multi-database service
+    this.multiDb = null;
+    this.db = new DatabaseConfig(); // Legacy support
     this.healthService = null;
     this.hubIntegration = new HubIntegration();
     this.server = null;
@@ -145,8 +149,11 @@ class DatabaseService {
       });
     });
 
-    // API routes
+    // API routes (legacy)
     this.app.use('/api', createApiRoutes(this.db));
+
+    // Multi-database API routes
+    this.app.use('/api/v2', this.createMultiDbRoutes());
 
     // 404 handler
     this.app.use('*', (req, res) => {
@@ -175,23 +182,92 @@ class DatabaseService {
     });
   }
 
+  createMultiDbRoutes() {
+    const router = require('express').Router();
+
+    // Unified query endpoint
+    router.post('/query', async (req, res) => {
+      try {
+        const result = await this.multiDb.execute(req.body);
+        res.json(result);
+      } catch (error) {
+        logger.error('Multi-database query error:', error);
+        res.status(500).json({ error: error.message });
+      }
+    });
+
+    // Cross-database operations
+    router.post('/cross-db', async (req, res) => {
+      try {
+        const result = await this.multiDb.executeCrossDatabase(req.body);
+        res.json(result);
+      } catch (error) {
+        logger.error('Cross-database operation error:', error);
+        res.status(500).json({ error: error.message });
+      }
+    });
+
+    // Database-specific endpoints
+    router.get('/databases', (req, res) => {
+      const databases = this.multiDb.getAllDatabases();
+      const databaseList = Array.from(databases.keys()).map(type => ({
+        type,
+        status: databases.get(type).getStatus(),
+        capabilities: this.getDatabaseCapabilities(type)
+      }));
+      res.json({ databases: databaseList });
+    });
+
+    // Health status for all databases
+    router.get('/health/all', async (req, res) => {
+      try {
+        const health = await this.multiDb.getHealthStatus();
+        res.json(health);
+      } catch (error) {
+        logger.error('Multi-database health check error:', error);
+        res.status(500).json({ error: error.message });
+      }
+    });
+
+    return router;
+  }
+
+  getDatabaseCapabilities(type) {
+    const capabilities = {
+      postgresql: ['ACID_TRANSACTIONS', 'COMPLEX_QUERIES', 'REFERENTIAL_INTEGRITY'],
+      clickhouse: ['TIME_SERIES', 'ANALYTICS', 'COLUMNAR_STORAGE'],
+      weaviate: ['VECTOR_SEARCH', 'SIMILARITY', 'AI_INTEGRATION'],
+      arangodb: ['GRAPH_TRAVERSAL', 'MULTI_MODEL', 'AQL_QUERIES'],
+      dragonflydb: ['HIGH_PERFORMANCE_CACHE', 'REDIS_COMPATIBILITY', 'LOW_LATENCY'],
+      redpanda: ['REAL_TIME_STREAMING', 'MESSAGE_QUEUING', 'EVENT_SOURCING']
+    };
+    return capabilities[type] || [];
+  }
+
   async initialize() {
     try {
-      logger.info('Initializing Database Service...');
+      logger.info('Initializing Database Service with Plan2 Multi-Database Architecture...');
 
-      // Initialize database connection
+      // Initialize new multi-database service
+      this.multiDb = await createDatabaseService({
+        enableHealthMonitoring: true,
+        enablePoolManagement: true
+      });
+      logger.info('Multi-database service initialized successfully');
+
+      // Initialize legacy database connection for backward compatibility
       await this.db.initialize();
-      logger.info('Database connection established');
+      logger.info('Legacy database connection established');
 
-      // Initialize health service
-      this.healthService = new HealthService(this.db);
-      logger.info('Health service initialized');
+      // Initialize health service with multi-database support
+      this.healthService = new HealthService(this.db, this.multiDb);
+      logger.info('Health service initialized with multi-database support');
 
       // Setup Express app
       this.setupMiddleware();
       this.setupRoutes();
 
-      logger.info('Database Service initialized successfully');
+      logger.info('Database Service initialized successfully with Plan2 architecture');
 
     } catch (error) {
       logger.error('Failed to initialize Database Service:', error);
@@ -253,6 +329,9 @@ class DatabaseService {
       await this.hubIntegration.deregisterFromHub();
 
       // Close database connections
+      if (this.multiDb) {
+        await this.multiDb.close();
+      }
       if (this.db) {
         await this.db.close();
       }

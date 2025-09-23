@@ -8,6 +8,7 @@ const ClickHouseManager = require('../managers/ClickHouseManager');
 const WeaviateManager = require('../managers/WeaviateManager');
 const ArangoDBManager = require('../managers/ArangoDBManager');
 const DragonflyDBManager = require('../managers/DragonflyDBManager');
+const RedpandaManager = require('../managers/RedpandaManager');
 const winston = require('winston');
 
 // Logger configuration
@@ -77,6 +78,12 @@ class DatabaseFactory {
         password: process.env.DRAGONFLY_PASSWORD || '',
         maxRetriesPerRequest: parseInt(process.env.DRAGONFLY_MAX_RETRIES) || 3,
         retryDelayOnFailover: parseInt(process.env.DRAGONFLY_RETRY_DELAY) || 100,
+      },
+      redpanda: {
+        type: 'redpanda',
+        brokers: process.env.REDPANDA_BROKERS ? process.env.REDPANDA_BROKERS.split(',') : ['localhost:19092'],
+        schemaRegistry: process.env.REDPANDA_SCHEMA_REGISTRY || 'http://localhost:8081',
+        adminApi: process.env.REDPANDA_ADMIN_API || 'http://localhost:9644',
       }
     };
   }
@@ -108,6 +115,9 @@ class DatabaseFactory {
         break;
       case 'dragonflydb':
         manager = new DragonflyDBManager(config);
+        break;
+      case 'redpanda':
+        manager = new RedpandaManager(config);
         break;
       default:
         throw new Error(`Unknown database type: ${type}`);

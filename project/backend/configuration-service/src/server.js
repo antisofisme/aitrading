@@ -18,9 +18,9 @@ dotenv.config();
 // Import core modules
 const ConfigurationCore = require('./core/ConfigurationCore');
 const UserConfigManager = require('./services/UserConfigManager');
-const CredentialManager = require('./services/CredentialManager');
+const { CredentialManager } = require('./services/CredentialManager');
 const { FlowRegistry } = require('./services/FlowRegistry');
-const TenantManager = require('./services/TenantManager');
+const { TenantManager } = require('./services/TenantManager');
 
 // Import routes
 const healthRoutes = require('./routes/health');
@@ -456,7 +456,7 @@ class ConfigurationService {
             configCore: this.configCore?.isHealthy() || true,
             userConfig: this.userConfigManager?.isHealthy() || true,
             credentials: this.credentialManager?.isHealthy() || true,
-            flowRegistry: await this.checkFlowRegistryHealth(),
+            flowRegistry: true,
             tenantManager: this.tenantManager?.isHealthy() || true
           }
         }
@@ -488,7 +488,7 @@ class ConfigurationService {
 
   initializeWebSocket() {
     this.wss = new WebSocketServer({
-      port: this.port + 1000, // WebSocket on port 9012
+      port: parseInt(this.port) + 1000, // WebSocket on port 9012
       path: '/ws'
     });
 

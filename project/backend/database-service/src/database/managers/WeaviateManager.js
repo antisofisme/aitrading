@@ -3,7 +3,7 @@
  * AI/ML vector database for similarity search and recommendations
  */
 
-const weaviate = require('weaviate-ts-client');
+const weaviate = require('weaviate-ts-client').default;
 const IDatabaseManager = require('../interfaces/IDatabaseManager');
 const winston = require('winston');
 

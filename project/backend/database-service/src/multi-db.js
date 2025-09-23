@@ -13,6 +13,7 @@ const ClickHouseManager = require('./database/managers/ClickHouseManager');
 const WeaviateManager = require('./database/managers/WeaviateManager');
 const ArangoDBManager = require('./database/managers/ArangoDBManager');
 const DragonflyDBManager = require('./database/managers/DragonflyDBManager');
+const RedpandaManager = require('./database/managers/RedpandaManager');
 
 // Utilities
 const HealthMonitor = require('./database/health/HealthMonitor');
@@ -33,6 +34,7 @@ module.exports = {
   WeaviateManager,
   ArangoDBManager,
   DragonflyDBManager,
+  RedpandaManager,
 
   // Utilities
   HealthMonitor,
@@ -52,6 +54,7 @@ module.exports = {
   createWeaviateManager: (config) => new WeaviateManager(config),
   createArangoDBManager: (config) => new ArangoDBManager(config),
   createDragonflyDBManager: (config) => new DragonflyDBManager(config),
+  createRedpandaManager: (config) => new RedpandaManager(config),
 
   // Database types constant
   DATABASE_TYPES: {
@@ -59,6 +62,7 @@ module.exports = {
     CLICKHOUSE: 'clickhouse',
     WEAVIATE: 'weaviate',
     ARANGODB: 'arangodb',
-    DRAGONFLYDB: 'dragonflydb'
+    DRAGONFLYDB: 'dragonflydb',
+    REDPANDA: 'redpanda'
   }
 };

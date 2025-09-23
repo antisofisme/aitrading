@@ -23,12 +23,42 @@ const config = {
     maxReconnectAttempts: parseInt(process.env.MT5_MAX_RECONNECT_ATTEMPTS) || 10
   },
 
+  // DragonflyDB (High-Performance Cache - replaces Redis)
+  dragonflydb: {
+    host: process.env.DRAGONFLY_HOST || 'localhost',
+    port: parseInt(process.env.DRAGONFLY_PORT) || 6379,
+    password: process.env.DRAGONFLY_PASSWORD || '',
+    maxRetriesPerRequest: parseInt(process.env.DRAGONFLY_MAX_RETRIES) || 3,
+    retryDelayOnFailover: parseInt(process.env.DRAGONFLY_RETRY_DELAY) || 100,
+    keyPrefix: process.env.DRAGONFLY_KEY_PREFIX || 'data-bridge:'
+  },
+
+  // Legacy Redis support (for backward compatibility)
   redis: {
     host: process.env.REDIS_HOST || 'localhost',
     port: parseInt(process.env.REDIS_PORT) || 6379,
     password: process.env.REDIS_PASSWORD || '',
     db: parseInt(process.env.REDIS_DB) || 0,
     keyPrefix: process.env.REDIS_KEY_PREFIX || 'data-bridge:'
+  },
+
+  // ClickHouse (Time-Series Analytics)
+  clickhouse: {
+    host: process.env.CLICKHOUSE_HOST || 'localhost',
+    port: parseInt(process.env.CLICKHOUSE_PORT) || 8123,
+    database: process.env.CLICKHOUSE_DB || 'aitrading_analytics',
+    user: process.env.CLICKHOUSE_USER || 'default',
+    password: process.env.CLICKHOUSE_PASSWORD || ''
+  },
+
+  // PostgreSQL (Operational Data)
+  postgresql: {
+    host: process.env.POSTGRES_HOST || 'localhost',
+    port: parseInt(process.env.POSTGRES_PORT) || 5432,
+    database: process.env.POSTGRES_DB || 'aitrading_operational',
+    user: process.env.POSTGRES_USER || 'postgres',
+    password: process.env.POSTGRES_PASSWORD || '',
+    max: parseInt(process.env.POSTGRES_POOL_MAX) || 20
   },
 
   logging: {

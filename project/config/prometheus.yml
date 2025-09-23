@@ -1,0 +1,193 @@
+# Prometheus Configuration for AI Trading Platform Plan2
+# ====================================================
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  # - "first_rules.yml"
+  # - "second_rules.yml"
+
+scrape_configs:
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # Core Services
+  - job_name: 'configuration-service'
+    static_configs:
+      - targets: ['configuration-service:8012']
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+
+  - job_name: 'api-gateway'
+    static_configs:
+      - targets: ['api-gateway:3001']
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+
+  - job_name: 'database-service'
+    static_configs:
+      - targets: ['database-service:8008']
+    metrics_path: '/metrics'
+    scrape_interval: 15s
+
+  # Trading Services
+  - job_name: 'ai-orchestrator'
+    static_configs:
+      - targets: ['ai-orchestrator:8020']
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+
+  - job_name: 'trading-engine'
+    static_configs:
+      - targets: ['trading-engine:9000']
+    metrics_path: '/metrics'
+    scrape_interval: 5s  # More frequent for trading
+
+  - job_name: 'ml-predictor'
+    static_configs:
+      - targets: ['ml-predictor:8021']
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+
+  - job_name: 'risk-analyzer'
+    static_configs:
+      - targets: ['risk-analyzer:8022']
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+
+  - job_name: 'portfolio-manager'
+    static_configs:
+      - targets: ['portfolio-manager:9001']
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+
+  - job_name: 'order-management'
+    static_configs:
+      - targets: ['order-management:9002']
+    metrics_path: '/metrics'
+    scrape_interval: 5s  # More frequent for orders
+
+  # Support Services
+  - job_name: 'data-bridge'
+    static_configs:
+      - targets: ['data-bridge:5001']
+    metrics_path: '/metrics'
+    scrape_interval: 15s
+
+  - job_name: 'central-hub'
+    static_configs:
+      - targets: ['central-hub:7000']
+    metrics_path: '/metrics'
+    scrape_interval: 15s
+
+  - job_name: 'notification-service'
+    static_configs:
+      - targets: ['notification-service:9003']
+    metrics_path: '/metrics'
+    scrape_interval: 15s
+
+  - job_name: 'user-management'
+    static_configs:
+      - targets: ['user-management:8010']
+    metrics_path: '/metrics'
+    scrape_interval: 30s
+
+  - job_name: 'billing-service'
+    static_configs:
+      - targets: ['billing-service:8011']
+    metrics_path: '/metrics'
+    scrape_interval: 30s
+
+  - job_name: 'payment-service'
+    static_configs:
+      - targets: ['payment-service:8013']
+    metrics_path: '/metrics'
+    scrape_interval: 15s
+
+  - job_name: 'compliance-monitor'
+    static_configs:
+      - targets: ['compliance-monitor:8014']
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+
+  - job_name: 'backtesting-engine'
+    static_configs:
+      - targets: ['backtesting-engine:8015']
+    metrics_path: '/metrics'
+    scrape_interval: 30s
+
+  # Analytics Services
+  - job_name: 'performance-analytics'
+    static_configs:
+      - targets: ['performance-analytics:9100']
+    metrics_path: '/metrics'
+    scrape_interval: 15s
+
+  - job_name: 'usage-monitoring'
+    static_configs:
+      - targets: ['usage-monitoring:9101']
+    metrics_path: '/metrics'
+    scrape_interval: 15s
+
+  - job_name: 'revenue-analytics'
+    static_configs:
+      - targets: ['revenue-analytics:9102']
+    metrics_path: '/metrics'
+    scrape_interval: 30s
+
+  - job_name: 'chain-debug-system'
+    static_configs:
+      - targets: ['chain-debug-system:8030']
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+
+  - job_name: 'ai-chain-analytics'
+    static_configs:
+      - targets: ['ai-chain-analytics:8031']
+    metrics_path: '/metrics'
+    scrape_interval: 15s
+
+  # Database Exporters
+  - job_name: 'postgres-exporter'
+    static_configs:
+      - targets: ['postgres:5432']
+    metrics_path: '/metrics'
+    scrape_interval: 30s
+
+  - job_name: 'clickhouse-exporter'
+    static_configs:
+      - targets: ['clickhouse:8123']
+    metrics_path: '/metrics'
+    scrape_interval: 30s
+
+  # Infrastructure
+  - job_name: 'nginx'
+    static_configs:
+      - targets: ['nginx:80']
+    metrics_path: '/nginx_status'
+    scrape_interval: 30s
+
+  # Node Exporter (if available)
+  - job_name: 'node'
+    static_configs:
+      - targets: ['localhost:9100']
+    scrape_interval: 30s
+
+# Alerting configuration
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          # - alertmanager:9093
+
+# Remote write configuration (optional)
+# remote_write:
+#   - url: "https://your-remote-storage/api/v1/write"
+
+# Remote read configuration (optional)
+# remote_read:
+#   - url: "https://your-remote-storage/api/v1/read"

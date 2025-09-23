@@ -1,0 +1,95 @@
+{
+  "name": "@aitrading/ai-orchestration",
+  "version": "1.0.0",
+  "description": "A flexible AI model provider framework supporting multiple AI services via API integration",
+  "main": "index.js",
+  "scripts": {
+    "test": "jest --coverage",
+    "test:unit": "jest tests/unit",
+    "test:integration": "jest tests/integration",
+    "test:watch": "jest --watch",
+    "dev": "nodemon examples/usage-examples.js",
+    "start": "node index.js",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "docs": "jsdoc -c jsdoc.conf.json",
+    "build": "echo 'No build step required'",
+    "clean": "rm -rf coverage/ docs/ node_modules/.cache"
+  },
+  "keywords": [
+    "ai",
+    "orchestration",
+    "openai",
+    "anthropic",
+    "google-ai",
+    "llm",
+    "provider",
+    "multi-tenant",
+    "cost-tracking",
+    "rate-limiting",
+    "failover",
+    "monitoring"
+  ],
+  "author": "AI Trading System",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2",
+    "node-fetch": "^3.3.2"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "nodemon": "^3.0.1",
+    "eslint": "^8.52.0",
+    "jsdoc": "^4.0.2",
+    "supertest": "^6.3.3"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aitrading/ai-orchestration"
+  },
+  "bugs": {
+    "url": "https://github.com/aitrading/ai-orchestration/issues"
+  },
+  "homepage": "https://github.com/aitrading/ai-orchestration#readme",
+  "jest": {
+    "testEnvironment": "node",
+    "collectCoverageFrom": [
+      "**/*.js",
+      "!**/node_modules/**",
+      "!**/coverage/**",
+      "!**/examples/**",
+      "!jest.config.js"
+    ],
+    "coverageReporters": [
+      "text",
+      "lcov",
+      "html"
+    ],
+    "testMatch": [
+      "**/tests/**/*.test.js"
+    ],
+    "setupFilesAfterEnv": [],
+    "testTimeout": 30000
+  },
+  "eslintConfig": {
+    "env": {
+      "node": true,
+      "es2021": true,
+      "jest": true
+    },
+    "extends": [
+      "eslint:recommended"
+    ],
+    "parserOptions": {
+      "ecmaVersion": 12,
+      "sourceType": "module"
+    },
+    "rules": {
+      "no-unused-vars": ["error", { "argsIgnorePattern": "^_" }],
+      "no-console": "off"
+    }
+  }
+}

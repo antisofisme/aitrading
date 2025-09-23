@@ -1,0 +1,945 @@
+version: '3.8'
+
+networks:
+  ai-trading-network:
+    external: true
+
+volumes:
+  # Primary Databases
+  postgres_data:
+  dragonfly_data:
+  clickhouse_data:
+  weaviate_data:
+  arangodb_data:
+  arangodb_apps:
+  # Streaming & Messaging
+  redpanda_data:
+  # Monitoring
+  prometheus_data:
+  grafana_data:
+
+services:
+  # ==================== DATABASE SERVICES ====================
+
+  # PostgreSQL - Primary OLTP Database
+  postgres:
+    image: postgres:15
+    container_name: ai-trading-postgres
+    environment:
+      POSTGRES_DB: ai_trading
+      POSTGRES_USER: ai_trading_user
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ai_trading_secure_pass_2024}
+      POSTGRES_MULTIPLE_DATABASES: "ai_trading,aitrading_users,aitrading_config,aitrading_analytics"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/database-service/schemas:/docker-entrypoint-initdb.d
+    ports:
+      - "5432:5432"
+    networks:
+      - ai-trading-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ai_trading_user -d ai_trading"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  # DragonflyDB - High-Performance Cache (Redis replacement)
+  dragonflydb:
+    image: docker.dragonflydb.io/dragonflydb/dragonfly:latest
+    container_name: ai-trading-dragonflydb
+    ports:
+      - "6379:6379"
+    environment:
+      - DFLY_PASSWORD=${DRAGONFLY_PASSWORD:-}
+    command: dragonfly --requirepass "${DRAGONFLY_PASSWORD:-}" --alsologtostderr --maxmemory=2gb
+    volumes:
+      - dragonfly_data:/data
+    networks:
+      - ai-trading-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${DRAGONFLY_PASSWORD:-}", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
+
+  # Weaviate - Vector/AI Database
+  weaviate:
+    image: semitechnologies/weaviate:latest
+    container_name: ai-trading-weaviate
+    ports:
+      - "8080:8080"
+    environment:
+      - QUERY_DEFAULTS_LIMIT=25
+      - AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true
+      - PERSISTENCE_DATA_PATH=/var/lib/weaviate
+      - DEFAULT_VECTORIZER_MODULE=none
+      - ENABLE_MODULES=text2vec-cohere,text2vec-huggingface,text2vec-openai,generative-openai,ref2vec-centroid
+      - CLUSTER_HOSTNAME=node1
+      - ASYNC_INDEXING=true
+    volumes:
+      - weaviate_data:/var/lib/weaviate
+    networks:
+      - ai-trading-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/v1/.well-known/ready"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  # ArangoDB - Graph Database
+  arangodb:
+    image: arangodb:latest
+    container_name: ai-trading-arangodb
+    ports:
+      - "8529:8529"
+    environment:
+      - ARANGO_ROOT_PASSWORD=${ARANGO_PASSWORD:-ai_trading_graph_pass_2024}
+      - ARANGO_STORAGE_ENGINE=rocksdb
+    volumes:
+      - arangodb_data:/var/lib/arangodb3
+      - arangodb_apps:/var/lib/arangodb3-apps
+    networks:
+      - ai-trading-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8529/_api/version"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  # ClickHouse - OLAP/Analytics Database
+  clickhouse:
+    image: clickhouse/clickhouse-server:latest
+    container_name: ai-trading-clickhouse
+    environment:
+      CLICKHOUSE_DB: ${CLICKHOUSE_DB:-aitrading_analytics}
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-default}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-clickhouse_secure_pass_2024}
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - ./backend/database-service/schemas/clickhouse:/docker-entrypoint-initdb.d
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    networks:
+      - ai-trading-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8123/ping"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  # Redpanda - Streaming Platform (Kafka replacement)
+  redpanda:
+    image: redpandadata/redpanda:latest
+    container_name: ai-trading-redpanda
+    command:
+      - redpanda
+      - start
+      - --kafka-addr=internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr=internal://redpanda:9092,external://localhost:19092
+      - --pandaproxy-addr=internal://0.0.0.0:8082,external://0.0.0.0:18082
+      - --advertise-pandaproxy-addr=internal://redpanda:8082,external://localhost:18082
+      - --schema-registry-addr=internal://0.0.0.0:8081,external://0.0.0.0:18081
+      - --rpc-addr=redpanda:33145
+      - --advertise-rpc-addr=redpanda:33145
+      - --smp=1
+      - --memory=1G
+      - --overprovisioned
+      - --node-id=0
+      - --check=false
+    ports:
+      - "18081:18081"
+      - "18082:18082"
+      - "19092:19092"
+      - "19644:9644"
+    volumes:
+      - redpanda_data:/var/lib/redpanda/data
+    networks:
+      - ai-trading-network
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster info"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+
+  # ==================== CORE SERVICES ====================
+
+  # Configuration Service - Must start first
+  configuration-service:
+    build: ./backend/configuration-service
+    container_name: ai-trading-configuration-service
+    environment:
+      CONFIG_SERVICE_PORT: 8012
+      NODE_ENV: ${NODE_ENV:-development}
+      # Database connections
+      POSTGRES_URL: postgresql://ai_trading_user:${POSTGRES_PASSWORD:-ai_trading_secure_pass_2024}@postgres:5432/ai_trading
+      DRAGONFLY_HOST: dragonflydb
+      DRAGONFLY_PORT: 6379
+      DRAGONFLY_URL: redis://dragonflydb:6379
+      CLICKHOUSE_HOST: clickhouse
+      CLICKHOUSE_PORT: 8123
+      CLICKHOUSE_DB: ${CLICKHOUSE_DB:-aitrading_analytics}
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-default}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-clickhouse_secure_pass_2024}
+      CLICKHOUSE_URL: http://clickhouse:8123
+      WEAVIATE_HOST: weaviate
+      WEAVIATE_PORT: 8080
+      WEAVIATE_URL: http://weaviate:8080
+      ARANGO_URL: http://arangodb:8529
+      ARANGO_DB: ${ARANGO_DB:-aitrading_graph}
+      ARANGO_PASSWORD: ${ARANGO_PASSWORD:-ai_trading_graph_pass_2024}
+      # Streaming
+      REDPANDA_BROKERS: redpanda:9092
+      REDPANDA_SCHEMA_REGISTRY: http://redpanda:8081
+      # Service config
+      FLOW_REGISTRY_ENABLED: "true"
+      JWT_SECRET: ${JWT_SECRET:-ai_trading_jwt_super_secret_key_change_in_production_2024}
+    ports:
+      - "8012:8012"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      dragonflydb:
+        condition: service_healthy
+    networks:
+      - ai-trading-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8012/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  # API Gateway - Central routing
+  api-gateway:
+    build: ./backend/api-gateway
+    container_name: ai-trading-api-gateway
+    environment:
+      PORT: 3001
+      NODE_ENV: ${NODE_ENV:-development}
+      # Database connections (same pattern as configuration-service)
+      POSTGRES_URL: postgresql://ai_trading_user:${POSTGRES_PASSWORD:-ai_trading_secure_pass_2024}@postgres:5432/ai_trading
+      DRAGONFLY_HOST: dragonflydb
+      DRAGONFLY_PORT: 6379
+      DRAGONFLY_PASSWORD: ${DRAGONFLY_PASSWORD:-}
+      DRAGONFLY_URL: redis://dragonflydb:6379
+      CLICKHOUSE_HOST: clickhouse
+      CLICKHOUSE_PORT: 8123
+      CLICKHOUSE_DB: ${CLICKHOUSE_DB:-aitrading_analytics}
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-default}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-clickhouse_secure_pass_2024}
+      CLICKHOUSE_URL: http://clickhouse:8123
+      WEAVIATE_HOST: weaviate
+      WEAVIATE_PORT: 8080
+      WEAVIATE_URL: http://weaviate:8080
+      ARANGO_URL: http://arangodb:8529
+      ARANGO_DB: ${ARANGO_DB:-aitrading_graph}
+      ARANGO_PASSWORD: ${ARANGO_PASSWORD:-ai_trading_graph_pass_2024}
+      REDPANDA_BROKERS: redpanda:9092
+      REDPANDA_SCHEMA_REGISTRY: http://redpanda:8081
+      FLOW_REGISTRY_URL: http://configuration-service:8012
+    ports:
+      - "3001:3001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      dragonflydb:
+        condition: service_healthy
+      configuration-service:
+        condition: service_healthy
+    networks:
+      - ai-trading-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  # Database Service - Data abstraction layer
+  database-service:
+    build: ./backend/database-service
+    container_name: ai-trading-database-service
+    environment:
+      PORT: 8008
+      NODE_ENV: ${NODE_ENV:-development}
+      # All database connections
+      POSTGRES_URL: postgresql://ai_trading_user:${POSTGRES_PASSWORD:-ai_trading_secure_pass_2024}@postgres:5432/ai_trading
+      DRAGONFLY_HOST: dragonflydb
+      DRAGONFLY_PORT: 6379
+      DRAGONFLY_PASSWORD: ${DRAGONFLY_PASSWORD:-}
+      DRAGONFLY_URL: redis://dragonflydb:6379
+      CLICKHOUSE_HOST: clickhouse
+      CLICKHOUSE_PORT: 8123
+      CLICKHOUSE_DB: ${CLICKHOUSE_DB:-aitrading_analytics}
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-default}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-clickhouse_secure_pass_2024}
+      CLICKHOUSE_URL: http://clickhouse:8123
+      WEAVIATE_HOST: weaviate
+      WEAVIATE_PORT: 8080
+      WEAVIATE_URL: http://weaviate:8080
+      ARANGO_URL: http://arangodb:8529
+      ARANGO_DB: ${ARANGO_DB:-aitrading_graph}
+      ARANGO_PASSWORD: ${ARANGO_PASSWORD:-ai_trading_graph_pass_2024}
+      REDPANDA_BROKERS: redpanda:9092
+      REDPANDA_SCHEMA_REGISTRY: http://redpanda:8081
+      FLOW_REGISTRY_URL: http://configuration-service:8012
+    ports:
+      - "8008:8008"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      dragonflydb:
+        condition: service_healthy
+      weaviate:
+        condition: service_healthy
+      arangodb:
+        condition: service_healthy
+      configuration-service:
+        condition: service_healthy
+    networks:
+      - ai-trading-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8008/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 45s
+    restart: unless-stopped
+
+  # ==================== TRADING SERVICES ====================
+
+  # AI Orchestrator - Level 4 coordination
+  ai-orchestrator:
+    build: ./backend/ai-orchestrator
+    container_name: ai-trading-ai-orchestrator
+    environment:
+      LEVEL4_ORCHESTRATOR_PORT: 8020
+      NODE_ENV: ${NODE_ENV:-development}
+      POSTGRES_URL: postgresql://ai_trading_user:${POSTGRES_PASSWORD:-ai_trading_secure_pass_2024}@postgres:5432/ai_trading
+      DRAGONFLY_URL: redis://dragonflydb:6379
+      CLICKHOUSE_URL: http://clickhouse:8123
+      WEAVIATE_URL: http://weaviate:8080
+      ARANGO_URL: http://arangodb:8529
+      ARANGO_DB: ${ARANGO_DB:-aitrading_graph}
+      ARANGO_PASSWORD: ${ARANGO_PASSWORD:-ai_trading_graph_pass_2024}
+      REDPANDA_BROKERS: redpanda:9092
+      FLOW_REGISTRY_URL: http://configuration-service:8012
+    ports:
+      - "8020:8020"
+    depends_on:
+      database-service:
+        condition: service_healthy
+      configuration-service:
+        condition: service_healthy
+    networks:
+      - ai-trading-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8020/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+    restart: unless-stopped
+
+  # Trading Engine - Core trading logic
+  trading-engine:
+    build: ./backend/trading-engine
+    container_name: ai-trading-trading-engine
+    environment:
+      PORT: 9000
+      NODE_ENV: ${NODE_ENV:-development}
+      POSTGRES_URL: postgresql://ai_trading_user:${POSTGRES_PASSWORD:-ai_trading_secure_pass_2024}@postgres:5432/ai_trading
+      DRAGONFLY_URL: redis://dragonflydb:6379
+      CLICKHOUSE_URL: http://clickhouse:8123
+      WEAVIATE_URL: http://weaviate:8080
+      ARANGO_URL: http://arangodb:8529
+      ARANGO_DB: ${ARANGO_DB:-aitrading_graph}
+      ARANGO_PASSWORD: ${ARANGO_PASSWORD:-ai_trading_graph_pass_2024}
+      REDPANDA_BROKERS: redpanda:9092
+      FLOW_REGISTRY_URL: http://configuration-service:8012
+      # Trading specific
+      BINANCE_API_KEY: ${BINANCE_API_KEY:-}
+      BINANCE_SECRET_KEY: ${BINANCE_SECRET_KEY:-}
+      COINBASE_API_KEY: ${COINBASE_API_KEY:-}
+      COINBASE_SECRET_KEY: ${COINBASE_SECRET_KEY:-}
+    ports:
+      - "9000:9000"
+    depends_on:
+      database-service:
+        condition: service_healthy
+      ai-orchestrator:
+        condition: service_healthy
+    networks:
+      - ai-trading-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+    restart: unless-stopped
+
+  # ML Predictor Service
+  ml-predictor:
+    build: ./backend/ml-automl
+    container_name: ai-trading-ml-predictor
+    environment:
+      PORT: 8021
+      NODE_ENV: ${NODE_ENV:-development}
+      POSTGRES_URL: postgresql://ai_trading_user:${POSTGRES_PASSWORD:-ai_trading_secure_pass_2024}@postgres:5432/ai_trading
+      DRAGONFLY_URL: redis://dragonflydb:6379
+      CLICKHOUSE_URL: http://clickhouse:8123
+      WEAVIATE_URL: http://weaviate:8080
+      ARANGO_URL: http://arangodb:8529
+      ARANGO_DB: ${ARANGO_DB:-aitrading_graph}
+      ARANGO_PASSWORD: ${ARANGO_PASSWORD:-ai_trading_graph_pass_2024}
+      REDPANDA_BROKERS: redpanda:9092
+      FLOW_REGISTRY_URL: http://configuration-service:8012
+    ports:
+      - "8021:8021"
+    depends_on:
+      database-service:
+        condition: service_healthy
+    networks:
+      - ai-trading-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8021/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+    restart: unless-stopped
+
+  # Risk Analyzer Service
+  risk-analyzer:
+    build: ./backend/risk-analyzer
+    container_name: ai-trading-risk-analyzer
+    environment:
+      PORT: 8022
+      NODE_ENV: ${NODE_ENV:-development}
+      POSTGRES_URL: postgresql://ai_trading_user:${POSTGRES_PASSWORD:-ai_trading_secure_pass_2024}@postgres:5432/ai_trading
+      DRAGONFLY_URL: redis://dragonflydb:6379
+      CLICKHOUSE_URL: http://clickhouse:8123
+      WEAVIATE_URL: http://weaviate:8080
+      ARANGO_URL: http://arangodb:8529
+      ARANGO_DB: ${ARANGO_DB:-aitrading_graph}
+      ARANGO_PASSWORD: ${ARANGO_PASSWORD:-ai_trading_graph_pass_2024}
+      REDPANDA_BROKERS: redpanda:9092
+      FLOW_REGISTRY_URL: http://configuration-service:8012
+    ports:
+      - "8022:8022"
+    depends_on:
+      database-service:
+        condition: service_healthy
+    networks:
+      - ai-trading-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8022/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+    restart: unless-stopped
+
+  # Portfolio Manager Service
+  portfolio-manager:
+    build: ./backend/portfolio-manager
+    container_name: ai-trading-portfolio-manager
+    environment:
+      PORT: 9001
+      NODE_ENV: ${NODE_ENV:-development}
+      POSTGRES_URL: postgresql://ai_trading_user:${POSTGRES_PASSWORD:-ai_trading_secure_pass_2024}@postgres:5432/ai_trading
+      DRAGONFLY_URL: redis://dragonflydb:6379
+      CLICKHOUSE_URL: http://clickhouse:8123
+      WEAVIATE_URL: http://weaviate:8080
+      ARANGO_URL: http://arangodb:8529
+      ARANGO_DB: ${ARANGO_DB:-aitrading_graph}
+      ARANGO_PASSWORD: ${ARANGO_PASSWORD:-ai_trading_graph_pass_2024}
+      REDPANDA_BROKERS: redpanda:9092
+      FLOW_REGISTRY_URL: http://configuration-service:8012
+    ports:
+      - "9001:9001"
+    depends_on:
+      trading-engine:
+        condition: service_healthy
+    networks:
+      - ai-trading-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9001/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+    restart: unless-stopped
+
+  # Order Management Service
+  order-management:
+    build: ./backend/order-management
+    container_name: ai-trading-order-management
+    environment:
+      PORT: 9002
+      NODE_ENV: ${NODE_ENV:-development}
+      POSTGRES_URL: postgresql://ai_trading_user:${POSTGRES_PASSWORD:-ai_trading_secure_pass_2024}@postgres:5432/ai_trading
+      DRAGONFLY_URL: redis://dragonflydb:6379
+      CLICKHOUSE_URL: http://clickhouse:8123
+      WEAVIATE_URL: http://weaviate:8080
+      ARANGO_URL: http://arangodb:8529
+      ARANGO_DB: ${ARANGO_DB:-aitrading_graph}
+      ARANGO_PASSWORD: ${ARANGO_PASSWORD:-ai_trading_graph_pass_2024}
+      REDPANDA_BROKERS: redpanda:9092
+      FLOW_REGISTRY_URL: http://configuration-service:8012
+    ports:
+      - "9002:9002"
+    depends_on:
+      trading-engine:
+        condition: service_healthy
+    networks:
+      - ai-trading-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9002/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+    restart: unless-stopped
+
+  # ==================== SUPPORT SERVICES ====================
+
+  # Data Bridge Service
+  data-bridge:
+    build: ./backend/data-bridge
+    container_name: ai-trading-data-bridge
+    environment:
+      PORT: 5001
+      NODE_ENV: ${NODE_ENV:-development}
+      POSTGRES_URL: postgresql://ai_trading_user:${POSTGRES_PASSWORD:-ai_trading_secure_pass_2024}@postgres:5432/ai_trading
+      DRAGONFLY_URL: redis://dragonflydb:6379
+      CLICKHOUSE_URL: http://clickhouse:8123
+      WEAVIATE_URL: http://weaviate:8080
+      ARANGO_URL: http://arangodb:8529
+      ARANGO_DB: ${ARANGO_DB:-aitrading_graph}
+      ARANGO_PASSWORD: ${ARANGO_PASSWORD:-ai_trading_graph_pass_2024}
+      REDPANDA_BROKERS: redpanda:9092
+      FLOW_REGISTRY_URL: http://configuration-service:8012
+    ports:
+      - "5001:5001"
+    depends_on:
+      database-service:
+        condition: service_healthy
+    networks:
+      - ai-trading-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+    restart: unless-stopped
+
+  # Central Hub Service
+  central-hub:
+    build: ./backend/central-hub
+    container_name: ai-trading-central-hub
+    environment:
+      PORT: 7000
+      NODE_ENV: ${NODE_ENV:-development}
+      POSTGRES_URL: postgresql://ai_trading_user:${POSTGRES_PASSWORD:-ai_trading_secure_pass_2024}@postgres:5432/ai_trading
+      DRAGONFLY_URL: redis://dragonflydb:6379
+      CLICKHOUSE_URL: http://clickhouse:8123
+      WEAVIATE_URL: http://weaviate:8080
+      ARANGO_URL: http://arangodb:8529
+      ARANGO_DB: ${ARANGO_DB:-aitrading_graph}
+      ARANGO_PASSWORD: ${ARANGO_PASSWORD:-ai_trading_graph_pass_2024}
+      REDPANDA_BROKERS: redpanda:9092
+      FLOW_REGISTRY_URL: http://configuration-service:8012
+    ports:
+      - "7000:7000"
+    depends_on:
+      configuration-service:
+        condition: service_healthy
+    networks:
+      - ai-trading-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7000/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+    restart: unless-stopped
+
+  # Notification Service
+  notification-service:
+    build: ./backend/notification-service
+    container_name: ai-trading-notification-service
+    environment:
+      PORT: 9003
+      NODE_ENV: ${NODE_ENV:-development}
+      POSTGRES_URL: postgresql://ai_trading_user:${POSTGRES_PASSWORD:-ai_trading_secure_pass_2024}@postgres:5432/ai_trading
+      DRAGONFLY_URL: redis://dragonflydb:6379
+      REDPANDA_BROKERS: redpanda:9092
+      FLOW_REGISTRY_URL: http://configuration-service:8012
+      # Notification specific
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+      SMTP_HOST: ${SMTP_HOST:-smtp.gmail.com}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+    ports:
+      - "9003:9003"
+    depends_on:
+      configuration-service:
+        condition: service_healthy
+      redpanda:
+        condition: service_healthy
+    networks:
+      - ai-trading-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9003/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+    restart: unless-stopped
+
+  # ==================== ANALYTICS SERVICES ====================
+
+  # Performance Analytics Service
+  performance-analytics:
+    build: ./backend/performance-analytics
+    container_name: ai-trading-performance-analytics
+    environment:
+      PORT: 9100
+      NODE_ENV: ${NODE_ENV:-development}
+      POSTGRES_URL: postgresql://ai_trading_user:${POSTGRES_PASSWORD:-ai_trading_secure_pass_2024}@postgres:5432/ai_trading
+      DRAGONFLY_URL: redis://dragonflydb:6379
+      CLICKHOUSE_URL: http://clickhouse:8123
+      WEAVIATE_URL: http://weaviate:8080
+      ARANGO_URL: http://arangodb:8529
+      ARANGO_DB: ${ARANGO_DB:-aitrading_graph}
+      ARANGO_PASSWORD: ${ARANGO_PASSWORD:-ai_trading_graph_pass_2024}
+      REDPANDA_BROKERS: redpanda:9092
+      FLOW_REGISTRY_URL: http://configuration-service:8012
+    ports:
+      - "9100:9100"
+    depends_on:
+      database-service:
+        condition: service_healthy
+    networks:
+      - ai-trading-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9100/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+    restart: unless-stopped
+
+  # Usage Monitoring Service
+  usage-monitoring:
+    build: ./backend/usage-monitoring
+    container_name: ai-trading-usage-monitoring
+    environment:
+      PORT: 9101
+      NODE_ENV: ${NODE_ENV:-development}
+      POSTGRES_URL: postgresql://ai_trading_user:${POSTGRES_PASSWORD:-ai_trading_secure_pass_2024}@postgres:5432/ai_trading
+      DRAGONFLY_URL: redis://dragonflydb:6379
+      CLICKHOUSE_URL: http://clickhouse:8123
+      REDPANDA_BROKERS: redpanda:9092
+      FLOW_REGISTRY_URL: http://configuration-service:8012
+    ports:
+      - "9101:9101"
+    depends_on:
+      database-service:
+        condition: service_healthy
+    networks:
+      - ai-trading-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9101/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+    restart: unless-stopped
+
+  # Revenue Analytics Service
+  revenue-analytics:
+    build: ./backend/revenue-analytics
+    container_name: ai-trading-revenue-analytics
+    environment:
+      PORT: 9102
+      NODE_ENV: ${NODE_ENV:-development}
+      POSTGRES_URL: postgresql://ai_trading_user:${POSTGRES_PASSWORD:-ai_trading_secure_pass_2024}@postgres:5432/ai_trading
+      DRAGONFLY_URL: redis://dragonflydb:6379
+      CLICKHOUSE_URL: http://clickhouse:8123
+      REDPANDA_BROKERS: redpanda:9092
+      FLOW_REGISTRY_URL: http://configuration-service:8012
+    ports:
+      - "9102:9102"
+    depends_on:
+      database-service:
+        condition: service_healthy
+    networks:
+      - ai-trading-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9102/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+    restart: unless-stopped
+
+  # ==================== ERROR HANDLING & DEBUG ====================
+
+  # Chain Debug System
+  chain-debug-system:
+    build: ./backend/chain-debug-system
+    container_name: ai-trading-chain-debug-system
+    environment:
+      PORT: 8030
+      NODE_ENV: ${NODE_ENV:-development}
+      POSTGRES_URL: postgresql://ai_trading_user:${POSTGRES_PASSWORD:-ai_trading_secure_pass_2024}@postgres:5432/ai_trading
+      DRAGONFLY_URL: redis://dragonflydb:6379
+      CLICKHOUSE_URL: http://clickhouse:8123
+      WEAVIATE_URL: http://weaviate:8080
+      ARANGO_URL: http://arangodb:8529
+      ARANGO_DB: ${ARANGO_DB:-aitrading_graph}
+      ARANGO_PASSWORD: ${ARANGO_PASSWORD:-ai_trading_graph_pass_2024}
+      REDPANDA_BROKERS: redpanda:9092
+      FLOW_REGISTRY_URL: http://configuration-service:8012
+    ports:
+      - "8030:8030"
+    depends_on:
+      database-service:
+        condition: service_healthy
+    networks:
+      - ai-trading-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8030/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+    restart: unless-stopped
+
+  # AI Chain Analytics
+  ai-chain-analytics:
+    build: ./backend/ai-chain-analytics
+    container_name: ai-trading-ai-chain-analytics
+    environment:
+      PORT: 8031
+      NODE_ENV: ${NODE_ENV:-development}
+      POSTGRES_URL: postgresql://ai_trading_user:${POSTGRES_PASSWORD:-ai_trading_secure_pass_2024}@postgres:5432/ai_trading
+      DRAGONFLY_URL: redis://dragonflydb:6379
+      CLICKHOUSE_URL: http://clickhouse:8123
+      WEAVIATE_URL: http://weaviate:8080
+      ARANGO_URL: http://arangodb:8529
+      ARANGO_DB: ${ARANGO_DB:-aitrading_graph}
+      ARANGO_PASSWORD: ${ARANGO_PASSWORD:-ai_trading_graph_pass_2024}
+      REDPANDA_BROKERS: redpanda:9092
+      FLOW_REGISTRY_URL: http://configuration-service:8012
+    ports:
+      - "8031:8031"
+    depends_on:
+      database-service:
+        condition: service_healthy
+    networks:
+      - ai-trading-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8031/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+    restart: unless-stopped
+
+  # ==================== ADDITIONAL SERVICES ====================
+
+  # User Management Service
+  user-management:
+    build: ./backend/user-management
+    container_name: ai-trading-user-management
+    environment:
+      PORT: 8010
+      NODE_ENV: ${NODE_ENV:-development}
+      POSTGRES_URL: postgresql://ai_trading_user:${POSTGRES_PASSWORD:-ai_trading_secure_pass_2024}@postgres:5432/ai_trading
+      DRAGONFLY_URL: redis://dragonflydb:6379
+      FLOW_REGISTRY_URL: http://configuration-service:8012
+      JWT_SECRET: ${JWT_SECRET:-ai_trading_jwt_super_secret_key_change_in_production_2024}
+    ports:
+      - "8010:8010"
+    depends_on:
+      configuration-service:
+        condition: service_healthy
+    networks:
+      - ai-trading-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8010/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+    restart: unless-stopped
+
+  # Billing Service
+  billing-service:
+    build: ./backend/billing-service
+    container_name: ai-trading-billing-service
+    environment:
+      PORT: 8011
+      NODE_ENV: ${NODE_ENV:-development}
+      POSTGRES_URL: postgresql://ai_trading_user:${POSTGRES_PASSWORD:-ai_trading_secure_pass_2024}@postgres:5432/ai_trading
+      DRAGONFLY_URL: redis://dragonflydb:6379
+      FLOW_REGISTRY_URL: http://configuration-service:8012
+    ports:
+      - "8011:8011"
+    depends_on:
+      user-management:
+        condition: service_healthy
+    networks:
+      - ai-trading-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8011/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+    restart: unless-stopped
+
+  # Payment Service
+  payment-service:
+    build: ./backend/payment-service
+    container_name: ai-trading-payment-service
+    environment:
+      PORT: 8013
+      NODE_ENV: ${NODE_ENV:-development}
+      POSTGRES_URL: postgresql://ai_trading_user:${POSTGRES_PASSWORD:-ai_trading_secure_pass_2024}@postgres:5432/ai_trading
+      DRAGONFLY_URL: redis://dragonflydb:6379
+      FLOW_REGISTRY_URL: http://configuration-service:8012
+    ports:
+      - "8013:8013"
+    depends_on:
+      billing-service:
+        condition: service_healthy
+    networks:
+      - ai-trading-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8013/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+    restart: unless-stopped
+
+  # Compliance Monitor Service
+  compliance-monitor:
+    build: ./backend/compliance-monitor
+    container_name: ai-trading-compliance-monitor
+    environment:
+      PORT: 8014
+      NODE_ENV: ${NODE_ENV:-development}
+      POSTGRES_URL: postgresql://ai_trading_user:${POSTGRES_PASSWORD:-ai_trading_secure_pass_2024}@postgres:5432/ai_trading
+      DRAGONFLY_URL: redis://dragonflydb:6379
+      CLICKHOUSE_URL: http://clickhouse:8123
+      FLOW_REGISTRY_URL: http://configuration-service:8012
+    ports:
+      - "8014:8014"
+    depends_on:
+      trading-engine:
+        condition: service_healthy
+    networks:
+      - ai-trading-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8014/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+    restart: unless-stopped
+
+  # Backtesting Engine
+  backtesting-engine:
+    build: ./backend/backtesting-engine
+    container_name: ai-trading-backtesting-engine
+    environment:
+      PORT: 8015
+      NODE_ENV: ${NODE_ENV:-development}
+      POSTGRES_URL: postgresql://ai_trading_user:${POSTGRES_PASSWORD:-ai_trading_secure_pass_2024}@postgres:5432/ai_trading
+      DRAGONFLY_URL: redis://dragonflydb:6379
+      CLICKHOUSE_URL: http://clickhouse:8123
+      FLOW_REGISTRY_URL: http://configuration-service:8012
+    ports:
+      - "8015:8015"
+    depends_on:
+      ml-predictor:
+        condition: service_healthy
+    networks:
+      - ai-trading-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8015/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+    restart: unless-stopped
+
+  # ==================== MONITORING & OBSERVABILITY ====================
+
+  # Prometheus - Metrics collection
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: ai-trading-prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    networks:
+      - ai-trading-network
+    restart: unless-stopped
+
+  # Grafana - Visualization
+  grafana:
+    image: grafana/grafana:latest
+    container_name: ai-trading-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin123}
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./config/grafana/dashboards:/var/lib/grafana/dashboards
+    networks:
+      - ai-trading-network
+    restart: unless-stopped
+
+  # ==================== LOAD BALANCER ====================
+
+  # Nginx - Load balancer and reverse proxy
+  nginx:
+    image: nginx:alpine
+    container_name: ai-trading-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./config/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./config/nginx/ssl:/etc/ssl/nginx:ro
+    depends_on:
+      - api-gateway
+      - configuration-service
+    networks:
+      - ai-trading-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped

@@ -1,7 +1,7 @@
 {
   "name": "configuration-service",
   "version": "1.0.0",
-  "description": "Level 4 Configuration Service - Per-user config management with enterprise multi-tenancy",
+  "description": "Level 4 Configuration Service - Per-user config management with Plan2 multi-database architecture",
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
@@ -21,8 +21,11 @@
     "bcryptjs": "^2.4.3",
     "jsonwebtoken": "^9.0.2",
     "node-cron": "^3.0.3",
-    "redis": "^4.6.10",
+    "ioredis": "^5.3.2",
     "pg": "^8.11.3",
+    "@clickhouse/client": "^0.2.6",
+    "weaviate-ts-client": "^1.4.0",
+    "arangojs": "^8.8.1",
     "crypto": "^1.0.1",
     "axios": "^1.6.0",
     "uuid": "^9.0.1",

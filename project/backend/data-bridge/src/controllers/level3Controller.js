@@ -4,6 +4,7 @@
  */
 
 const logger = require('../utils/logger');
+const Level3DataBridge = require('../services/Level3DataBridge');
 
 class Level3Controller {
   constructor(dataBridgeServer) {
