@@ -1,68 +1,24 @@
 {
   "name": "@aitrading/chain-debug-system",
   "version": "1.0.0",
-  "description": "Chain-Aware Debugging Architecture for AI Trading Platform",
-  "main": "src/index.js",
-  "type": "module",
+  "description": "Chain Debug System service for AI Trading Platform",
+  "main": "src/server.js",
   "scripts": {
-    "start": "node src/index.js",
-    "dev": "nodemon src/index.js",
-    "test": "jest --experimental-vm-modules",
-    "test:watch": "jest --watch --experimental-vm-modules",
-    "test:coverage": "jest --coverage --experimental-vm-modules",
-    "lint": "eslint src/",
-    "lint:fix": "eslint src/ --fix",
-    "build": "npm run lint && npm run test",
-    "docker:build": "docker build -t chain-debug-system .",
-    "docker:run": "docker run -p 8025:8025 chain-debug-system"
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js",
+    "health-check": "curl -f http://localhost:8030/health || exit 1"
   },
   "dependencies": {
     "express": "^4.18.2",
-    "winston": "^3.10.0",
-    "lodash": "^4.17.21",
-    "axios": "^1.5.0",
-    "uuid": "^9.0.0",
     "cors": "^2.8.5",
-    "helmet": "^7.0.0",
-    "compression": "^1.7.4",
-    "express-rate-limit": "^6.10.0",
-    "networkx": "^0.1.1",
-    "ml-matrix": "^6.10.4",
-    "ml-regression": "^2.0.1",
-    "node-cron": "^3.0.2",
-    "ioredis": "^5.3.2",
-    "pg": "^8.11.3",
-    "ws": "^8.13.0",
-    "prometheus-client": "^14.2.0",
-    "eventemitter3": "^5.0.1",
-    "ajv": "^8.12.0",
-    "jsonwebtoken": "^9.0.2",
-    "bcryptjs": "^2.4.3",
+    "helmet": "^7.1.0",
     "dotenv": "^16.3.1",
-    "node-cache": "^5.1.2",
-    "async": "^3.2.4"
+    "winston": "^3.11.0",
+    "opentracing": "^0.14.7"
   },
   "devDependencies": {
-    "jest": "^29.6.2",
-    "nodemon": "^3.0.1",
-    "eslint": "^8.47.0",
-    "supertest": "^6.3.3",
-    "@types/jest": "^29.5.4",
-    "eslint-config-airbnb-base": "^15.0.0",
-    "eslint-plugin-import": "^2.28.1"
+    "nodemon": "^3.0.1"
   },
-  "keywords": [
-    "chain-debugging",
-    "ai-trading",
-    "anomaly-detection",
-    "root-cause-analysis",
-    "automated-recovery",
-    "dependency-analysis",
-    "performance-monitoring"
-  ],
-  "author": "AI Trading Platform Team",
-  "license": "MIT",
-  "engines": {
-    "node": ">=18.0.0"
-  }
+  "private": true,
+  "license": "MIT"
 }

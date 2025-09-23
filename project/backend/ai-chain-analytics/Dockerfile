@@ -1,26 +1,56 @@
-FROM node:18-alpine
+# Multi-stage build for production optimization
+FROM node:18-alpine AS builder
 
 # Set working directory
 WORKDIR /app
 
-# Install dependencies
+# Copy package files
 COPY package*.json ./
-RUN npm install --production
 
-# Copy source code
-COPY . .
+# Install dependencies
+RUN npm install --only=production && npm cache clean --force
 
-# Create non-root user
-RUN addgroup -g 1001 -S nodejs && adduser -S appuser -u 1001 -G nodejs
-RUN chown -R appuser:nodejs /app
-USER appuser
+# Production stage
+FROM node:18-alpine AS production
+
+# Install dumb-init for proper signal handling
+RUN apk add --no-cache dumb-init
+
+# Create app user for security
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S -u 1001 -G nodejs nodejs
+
+# Set working directory
+WORKDIR /app
+
+# Copy built dependencies
+COPY --from=builder --chown=nodejs:nodejs /app/node_modules ./node_modules
+
+# Copy application code
+COPY --chown=nodejs:nodejs . .
+
+# Create logs directory
+RUN mkdir -p logs && chown nodejs:nodejs logs
 
 # Expose port
 EXPOSE 8031
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8031/health || exit 1
+  CMD curl -f http://localhost:8031/health || exit 1
 
-# Start application
+# Switch to non-root user
+USER nodejs
+
+# Set NODE_ENV
+ENV NODE_ENV=production
+
+# Start application with dumb-init
+ENTRYPOINT ["dumb-init", "--"]
 CMD ["node", "src/server.js"]
+
+# Labels for better container management
+LABEL name="ai-trading-ai-chain-analytics" \
+      version="1.0.0" \
+      description="ai-chain-analytics for AI Trading Platform" \
+      maintainer="AI Trading Platform Team"

@@ -1,43 +1,56 @@
-# Central Hub Service Dockerfile
-# Phase 1 Infrastructure Migration
-
-FROM python:3.11-slim
+# Multi-stage build for production optimization
+FROM node:18-alpine AS builder
 
 # Set working directory
 WORKDIR /app
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    gcc \
-    g++ \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
+# Copy package files
+COPY package*.json ./
 
-# Copy requirements first for better caching
-COPY requirements.txt .
+# Install dependencies
+RUN npm install --only=production && npm cache clean --force
 
-# Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+# Production stage
+FROM node:18-alpine AS production
+
+# Install dumb-init for proper signal handling
+RUN apk add --no-cache dumb-init
+
+# Create app user for security
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S -u 1001 -G nodejs nodejs
+
+# Set working directory
+WORKDIR /app
+
+# Copy built dependencies
+COPY --from=builder --chown=nodejs:nodejs /app/node_modules ./node_modules
 
 # Copy application code
-COPY . .
+COPY --chown=nodejs:nodejs . .
 
 # Create logs directory
-RUN mkdir -p logs
-
-# Create non-root user
-RUN useradd -m -u 1000 centralhub && \
-    chown -R centralhub:centralhub /app
-
-# Switch to non-root user
-USER centralhub
+RUN mkdir -p logs && chown nodejs:nodejs logs
 
 # Expose port
-EXPOSE 8010
+EXPOSE 7000
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8010/health || exit 1
+  CMD curl -f http://localhost:7000/health || exit 1
 
-# Run the application
-CMD ["python", "main.py"]
+# Switch to non-root user
+USER nodejs
+
+# Set NODE_ENV
+ENV NODE_ENV=production
+
+# Start application with dumb-init
+ENTRYPOINT ["dumb-init", "--"]
+CMD ["node", "src/server.js"]
+
+# Labels for better container management
+LABEL name="ai-trading-central-hub" \
+      version="1.0.0" \
+      description="central-hub for AI Trading Platform" \
+      maintainer="AI Trading Platform Team"

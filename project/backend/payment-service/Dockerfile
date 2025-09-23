@@ -1,54 +1,56 @@
-# Use official Node.js runtime as base image
-FROM node:18-alpine
+# Multi-stage build for production optimization
+FROM node:18-alpine AS builder
 
 # Set working directory
 WORKDIR /app
-
-# Install system dependencies for security and performance
-RUN apk add --no-cache \
-    dumb-init \
-    curl \
-    && rm -rf /var/cache/apk/*
-
-# Create non-root user for security (PCI DSS requirement)
-RUN addgroup -g 1001 -S payment && \
-    adduser -S payment -u 1001 -G payment
 
 # Copy package files
 COPY package*.json ./
 
 # Install dependencies
-RUN npm ci --only=production && \
-    npm cache clean --force
+RUN npm install --only=production && npm cache clean --force
+
+# Production stage
+FROM node:18-alpine AS production
+
+# Install dumb-init for proper signal handling
+RUN apk add --no-cache dumb-init
+
+# Create app user for security
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S -u 1001 -G nodejs nodejs
+
+# Set working directory
+WORKDIR /app
+
+# Copy built dependencies
+COPY --from=builder --chown=nodejs:nodejs /app/node_modules ./node_modules
 
 # Copy application code
-COPY src/ ./src/
-COPY .env.example .env
+COPY --chown=nodejs:nodejs . .
 
 # Create logs directory
-RUN mkdir -p logs && \
-    chown -R payment:payment /app && \
-    chmod -R 755 /app
-
-# Switch to non-root user
-USER payment
+RUN mkdir -p logs && chown nodejs:nodejs logs
 
 # Expose port
-EXPOSE 3003
+EXPOSE 8013
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:3003/health || exit 1
+  CMD curl -f http://localhost:8013/health || exit 1
 
-# Use dumb-init for proper signal handling
+# Switch to non-root user
+USER nodejs
+
+# Set NODE_ENV
+ENV NODE_ENV=production
+
+# Start application with dumb-init
 ENTRYPOINT ["dumb-init", "--"]
+CMD ["node", "src/server.js"]
 
-# Start application
-CMD ["node", "src/app.js"]
-
-# Labels for metadata
-LABEL maintainer="Neliti AI Trading Team"
-LABEL version="1.0.0"
-LABEL description="Unified payment service with Midtrans integration"
-LABEL security.scan="required"
-LABEL compliance="PCI-DSS"
+# Labels for better container management
+LABEL name="ai-trading-payment-service" \
+      version="1.0.0" \
+      description="payment-service for AI Trading Platform" \
+      maintainer="AI Trading Platform Team"
