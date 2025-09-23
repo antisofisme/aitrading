@@ -225,23 +225,67 @@ User Level (Individual):
 **Async (Non-Critical)**: User activity logging, performance metrics, config updates
 **Caching**: Authentication, service endpoints, user permissions (local cache)
 
-### **Input Contracts (dari Central-Hub):**
-- **Service Discovery**: Available service endpoints dan health status
-- **Health Monitoring**: Real-time service health untuk load balancing
-- **Dynamic Config**: Runtime configuration updates
-- **Auth Cache**: User authentication data untuk fast lookup
+### **Input Contracts:**
 
-### **Output Contracts (ke Central-Hub & Kafka):**
-- **Service Registration**: Register API Gateway dengan Central-Hub
-- **Performance Metrics**: Latency, throughput, error rates (async Kafka)
-- **User Activity Events**: Login, data usage, subscription events (async Kafka)
-- **Filtered Data**: Routed ke multiple Kafka topics (tick-data, user-events, trading-signals)
+**From External Sources:**
+- **from-client-mt5**: WebSocket tick data dengan MessageEnvelope
+- **from-frontend**: HTTP API requests, WebSocket subscriptions
+- **from-central-hub-discovery**: Service endpoints dan health status
+- **from-central-hub-config**: Dynamic configuration updates
+- **from-payment-webhook**: Midtrans payment status updates
+
+**From Processing Services:**
+- **from-trading-engine**: Trading signals, auto execution commands
+- **from-ml-processing**: AI predictions, confidence scores, market analysis
+- **from-notification-hub**: Notifications yang perlu diroute ke channels
+- **from-analytics-service**: Dashboard data, performance metrics, user analytics
+- **from-user-management**: User status changes, subscription updates
+
+### **Output Contracts:**
+
+**To External Destinations:**
+- **to-client-mt5-execution**: Auto execution commands via WebSocket
+- **to-frontend-websocket**: Real-time dashboard updates, trading status
+- **to-telegram-webhook**: Trading signals, alerts, notifications
+- **to-midtrans-api**: Payment processing requests
+
+**To Processing Services:**
+- **to-kafka-topics**: Filtered data untuk processing pipeline
+  - tick-data → Data-Bridge consumers
+  - user-events → User-Management consumers
+  - trading-signals → Trading-Engine consumers
+  - notifications → Notification-Hub consumers
+- **to-central-hub-register**: Service registration dan health reporting
+- **to-central-hub-metrics**: Performance metrics (async)
 
 ### **Internal Processing:**
-- **Local Caching**: Service endpoints (30s TTL), user auth (5min TTL)
-- **Sync/Async Routing**: Critical path sync, monitoring async
-- **Fallback Mechanisms**: Cache-first when Central-Hub unavailable
-- **Performance Optimization**: <1ms coordination overhead target
+- **bidirectional-routing**: Input → Process → Output logic untuk all data flows
+- **websocket-management**: Manage multiple WebSocket connections (MT5, Frontend)
+- **output-formatting**: Format data per destination (JSON untuk Frontend, Protocol Buffers untuk services)
+- **caching-strategy**: Service endpoints (30s TTL), user auth (5min TTL)
+- **sync-async-routing**: Critical path sync, monitoring async
+- **fallback-mechanisms**: Cache-first when services unavailable
+- **performance-optimization**: <1ms coordination overhead target
+
+### **Bidirectional Data Flow:**
+```
+Input Sources → API Gateway → Processing Pipeline → Output Destinations
+     ↓              ↓                    ↓                 ↓
+Client-MT5     Route & Filter      Data Processing    Auto Execution
+Frontend       Auth & Validate     AI Analysis        Dashboard Updates
+Services       Cache & Transform   Trading Decisions  Notifications
+External       Security Check      Real-time Metrics  Multi-channel
+```
+
+**Complete Flow Example:**
+```
+1. Client-MT5 → tick data → API Gateway → Kafka (tick-data topic)
+2. Data-Bridge → Feature-Engineering → ML-Processing → Trading-Engine
+3. Trading-Engine → signal → API Gateway → route to:
+   ├── Client-MT5 (auto execution)
+   ├── Frontend (dashboard update)
+   └── Telegram (user notification)
+```
 
 ### **Payment Gateway Integration (Midtrans):**
 
