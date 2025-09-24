@@ -186,12 +186,13 @@ extern "C" {
 // Internal Implementation
 class ProtobufManager {
 public:
-    bool SerializeBatchData(const std::vector<TickData>& ticks, std::string& output);
+    bool SerializeMarketDataStream(const std::vector<trading::v1::TickData>& ticks, std::string& output);
     bool SendToWebSocket(const std::string& binary_data);
     bool ValidateConnection();
 private:
     std::unique_ptr<WebSocketClient> ws_client_;
-    BatchTickData current_batch_;
+    trading::v1::MarketDataStream current_stream_;
+    common::v1::UserContext user_context_;
 };
 ```
 
@@ -251,6 +252,7 @@ void OnTick() {
 
             // Send batch when buffer is full (5 ticks) or timeout (100ms)
             if(buffer_count >= 5 || ShouldFlushBuffer()) {
+                // Use server schema registry format
                 SendTickBatch(SYMBOLS, tick_buffer_bids, tick_buffer_asks,
                              tick_buffer_timestamps, buffer_count);
                 buffer_count = 0;
@@ -278,16 +280,38 @@ MT5 Integration Performance:
 
 ### **DLL Dependencies**:
 - **Protocol Buffers C++**: libprotobuf.lib
+- **Generated Schema Files**:
+  - trading/market_data.pb.h/.cc
+  - common/base.pb.h/.cc
 - **WebSocket Client**: websocketpp atau similar
 - **MT5 Terminal API**: Compatible dengan MT5 build 3000+
 - **Threading Support**: Multi-threaded tick processing
+- **Schema Registry**: Sync dengan backend/central-hub/shared/proto/
 
 ### **Installation Process**:
-1. Compile TradingProtobuf.dll dengan Protocol Buffers support
-2. Place DLL di MT5 Terminal/MQL5/Libraries/ folder
-3. Install Expert Advisor di MT5 Terminal/MQL5/Experts/
-4. Configure WebSocket endpoint dan authentication dalam EA settings
-5. Enable DLL imports dalam MT5 Terminal options
+1. **Generate Protocol Buffers Code**:
+   ```bash
+   # From backend schema registry
+   cd backend/01-core-infrastructure/central-hub/shared/proto
+   protoc --cpp_out=../../../../client-mt5/03-communication/protobuf/generated/ \
+          trading/market_data.proto common/base.proto
+   ```
+
+2. **Compile TradingProtobuf.dll**:
+   - Include generated .pb.h/.pb.cc files
+   - Link dengan libprotobuf.lib
+   - Build untuk MT5-compatible architecture
+
+3. **Deploy to MT5**:
+   - Place DLL di MT5 Terminal/MQL5/Libraries/ folder
+   - Install Expert Advisor di MT5 Terminal/MQL5/Experts/
+   - Configure WebSocket endpoint dan authentication dalam EA settings
+   - Enable DLL imports dalam MT5 Terminal options
+
+4. **Schema Sync Process**:
+   - Monitor backend schema registry untuk updates
+   - Regenerate client protobuf code saat schema changes
+   - Rebuild dan redeploy DLL saat diperlukan
 
 ---
 
@@ -509,46 +533,61 @@ correlation_data = {
 
 #### **Schema Source**:
 ```
-Source: ../backend/01-core-infrastructure/central-hub/shared/proto/common/tick-data.proto
+Source: ../backend/01-core-infrastructure/central-hub/shared/proto/trading/market_data.proto
+Common: ../backend/01-core-infrastructure/central-hub/shared/proto/common/base.proto
 Generated: client-mt5/03-communication/protobuf/generated/
 ```
 
-#### **BatchTickData Protocol Buffers Message**:
+#### **MarketDataStream Protocol Buffers Message** (From Server Schema Registry):
 ```protobuf
-message BatchTickData {
-  repeated TickData ticks = 1;         // Pre-processed tick data
-  string user_id = 2;                  // User identifier
-  int32 batch_id = 3;                  // Batch sequence number
-  int64 batch_timestamp = 4;           // Batch creation time (Unix ms)
-  QualityMetrics quality = 5;          // Client-side quality metrics
-  string company_id = 6;               // Multi-tenant company ID
-  SubscriptionTier tier = 7;           // User subscription tier
+// From: trading/market_data.proto
+message MarketDataStream {
+  repeated TickData ticks = 1;          // MT5-compatible tick data
+  repeated OHLCVBar bars = 2;           // OHLCV bar data (optional)
+  MarketDepth depth = 3;                // Market depth (optional)
+  string source = 4;                    // Data source ("MT5")
+  int64 batch_sequence = 5;             // Batch sequence number
+  int64 batch_time = 6;                 // Unix timestamp
+  int64 batch_time_msc = 7;             // Unix timestamp with milliseconds
+  string tenant_id = 8;                 // Multi-tenant isolation
 }
 
+// MT5 API Compatible Structure
 message TickData {
-  string symbol = 1;                   // Trading pair ("EURUSD")
-  double bid = 2;                      // Bid price
-  double ask = 3;                      // Ask price
-  int64 timestamp = 4;                 // Tick timestamp (Unix ms)
-  int32 volume = 5;                    // Tick volume
-  double spread = 6;                   // Calculated spread
-  TechnicalIndicators indicators = 7;  // Local-computed indicators
+  string symbol = 1;                    // Trading symbol (EURUSD, etc)
+
+  // Official MT5 API fields
+  double bid = 2;                       // Bid price
+  double ask = 3;                       // Ask price
+  double last = 4;                      // Last trade price
+  int64 volume = 5;                     // Tick volume (MT5 integer)
+  int64 time = 6;                       // Unix timestamp
+  int64 time_msc = 7;                   // Unix timestamp with milliseconds
+  int32 flags = 8;                      // MT5 tick flags
+  double volume_real = 9;               // Real volume
+
+  // Additional system fields
+  string tenant_id = 10;                // Multi-tenant isolation
+  int64 sequence_number = 11;           // Gap detection
+  string source = 12;                   // Data source ("MT5")
+  double spread = 13;                   // Calculated spread
 }
 
-message TechnicalIndicators {
-  double sma_20 = 1;                   // Simple Moving Average
-  double ema_20 = 2;                   // Exponential Moving Average
-  double rsi_14 = 3;                   // Relative Strength Index
-  double bb_upper = 4;                 // Bollinger Band Upper
-  double bb_lower = 5;                 // Bollinger Band Lower
+// From: common/base.proto
+message UserContext {
+  string user_id = 1;
+  string tenant_id = 2;                 // Company/tenant identifier
+  string session_id = 3;
+  repeated string roles = 4;
+  map<string, string> permissions = 5;
 }
 
-message QualityMetrics {
-  int32 validation_passed = 1;         // Successfully validated ticks
-  int32 validation_failed = 2;         // Failed validation ticks
-  double processing_time_ms = 3;       // Local processing time
-  double confidence_score = 4;         // Overall data confidence (0.0-1.0)
-  int32 missed_ticks = 5;              // Number of missed ticks
+message BaseMessage {
+  string tenant_id = 1;                 // Required for multi-tenant isolation
+  Timestamp timestamp = 2;             // Message creation time
+  string correlation_id = 3;           // Request tracing ID
+  string source_service = 4;           // "client-mt5"
+  string message_version = 5;          // Schema version
 }
 ```
 
@@ -571,29 +610,36 @@ Network Benefits:
 // MT5 Expert Advisor Integration
 #include "BatchTickData.pb.h"
 
-// Create protobuf message
-BatchTickData batch;
-batch.set_user_id("user123");
-batch.set_batch_id(456);
-batch.set_batch_timestamp(GetTickCount64());
+// Create protobuf message using server schema registry
+#include "trading/market_data.pb.h"
+#include "common/base.pb.h"
 
-// Add tick data
-TickData* tick = batch.add_ticks();
+// Create market data stream
+trading::v1::MarketDataStream stream;
+stream.set_source("MT5");
+stream.set_batch_sequence(456);
+stream.set_batch_time(GetTickCount());
+stream.set_batch_time_msc(GetTickCount64());
+stream.set_tenant_id("company_abc");
+
+// Add MT5-compatible tick data
+trading::v1::TickData* tick = stream.add_ticks();
 tick->set_symbol("EURUSD");
 tick->set_bid(1.08945);
 tick->set_ask(1.08948);
-tick->set_volume(150);
-tick->set_timestamp(GetTickCount64());
-
-// Add technical indicators
-TechnicalIndicators* indicators = tick->mutable_indicators();
-indicators->set_sma_20(1.08950);
-indicators->set_ema_20(1.08947);
-indicators->set_rsi_14(65.4);
+tick->set_last(1.08946);          // MT5 last price
+tick->set_volume(150);             // MT5 tick volume
+tick->set_time(GetTickCount());    // MT5 time field
+tick->set_time_msc(GetTickCount64()); // MT5 time_msc field
+tick->set_flags(0x06);             // MT5 flags (bid+ask)
+tick->set_tenant_id("company_abc");
+tick->set_sequence_number(sequence++);
+tick->set_source("MT5");
+tick->set_spread(tick->ask() - tick->bid());
 
 // Serialize to binary
 std::string binary_data;
-batch.SerializeToString(&binary_data);
+stream.SerializeToString(&binary_data);
 
 // Send via WebSocket
 websocket_client->send_binary(binary_data);
