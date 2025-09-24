@@ -1,36 +1,36 @@
 # Data Bridge Service
 
 ## 🎯 Purpose
-**WebSocket server dan data processing gateway** yang menerima pre-processed tick data dari client-mt5, melakukan advanced validation, dan forward ke database service menggunakan Protocol Buffers untuk optimal performance.
+**WebSocket server dan data processing service** yang menerima pre-processed tick data dari client-mt5, melakukan advanced validation, dan stores directly ke database service menggunakan Protocol Buffers untuk optimal performance.
 
 ---
 
 ## 📊 ChainFlow Diagram
 
 ```
-Client-MT5 → API Gateway → Data Bridge → Database Service → Multi-Database Storage
-    ↓           ↓           ↓              ↓                 ↓
-WebSocket   Auth/Route   Advanced      Protobuf Binary    PostgreSQL
-Processed   Rate Limit   Validation    Serialization      ClickHouse
-Data        User Context  Data Enrich   10x Faster        DragonflyDB
-50+ ticks   Multi-tenant  Quality Check  60% Smaller      Weaviate/Arango
+Client-MT5 → API Gateway (Auth Only) → Data Bridge → Database Service → Multi-Database Storage
+    ↓           ↓                        ↓              ↓                 ↓
+WebSocket   JWT Validation            Advanced      Protobuf Binary    PostgreSQL
+Processed   User Context             Validation    Serialization      ClickHouse
+Data        Rate Limits              Data Enrich   10x Faster        DragonflyDB
+50+ ticks   Direct Forward           Quality Check  60% Smaller      Weaviate/Arango
 ```
 
 ---
 
 ## 🏗️ Service Architecture
 
-### **Input Flow**: Pre-processed tick data dari API Gateway (WebSocket)
-**Data Source**: Client-MT5 → API Gateway → Data Bridge
-**Format**: Protocol Buffers (BatchTickData)
+### **Input Flow**: Pre-processed tick data dari Client-MT5 via API Gateway coordination
+**Data Source**: Client-MT5 → Data Bridge (direct WebSocket after API Gateway auth)
+**Format**: Protocol Buffers (BatchTickData) dengan authenticated user context
 **Frequency**: 50+ ticks/second across 10 trading pairs
-**Performance Target**: <3ms data validation dan routing
+**Performance Target**: <3ms data validation dan routing (part of <30ms total system budget)
 
 ### **Output Flow**: Validated, enriched data ke Database Service
 **Destination**: Database Service (direct connection)
 **Format**: Protocol Buffers (EnrichedBatchData)
 **Processing**: Advanced validation + data enrichment
-**Performance Target**: <3ms processing per batch
+**Performance Target**: <3ms processing per batch (within <30ms total system budget)
 
 ---
 
@@ -40,21 +40,50 @@ Data        User Context  Data Enrich   10x Faster        DragonflyDB
 
 #### **Kategori A: High Volume + Mission Critical**
 - **Primary Transport**: WebSocket Binary + Protocol Buffers
-- **Backup Transport**: HTTP/2 streaming for fallback
+- **Backup Transport**: HTTP/2 streaming for fallback (standardized across all services)
 - **Failover**: Automatic connection recovery
 - **Services**: API Gateway → Data Bridge (tick data streaming)
 - **Performance**: <3ms data validation dan routing
 
 #### **Kategori B: Medium Volume + Important**
 - **Transport**: HTTP + Protocol Buffers
-- **Connection**: Connection pooling
-- **Services**: Data Bridge → Database Service (enriched data)
+- **Connection**: Direct connection pooling
+- **Services**: Data Bridge → Database Service (enriched data storage)
+
+### **⚠️ Service Communication Pattern**
+
+**Data Bridge uses DIRECT service calls:**
+
+```
+✅ CORRECT Flow:
+1. Client-MT5 → API Gateway (authenticate & get WebSocket token)
+2. Client-MT5 → Data Bridge (direct WebSocket with JWT token)
+3. Data Bridge → Database Service (direct multi-database storage)
+4. Data Bridge → Central Hub (register health & metrics)
+
+✅ Service Discovery:
+- Data Bridge queries Central Hub untuk Database Service endpoint
+- Direct connection to Database Service (no proxy through Central Hub)
+- Authentication token validated independently
+
+❌ WRONG Flow:
+1. Client-MT5 → API Gateway → Data Bridge
+   (API Gateway should NOT proxy data streams)
+2. Data Bridge → Central Hub → Database Service
+   (Central Hub should NOT proxy database operations)
+```
+
+**Data Bridge Role:**
+- ✅ **Data Processor**: Validate dan enrich tick data dari Client-MT5
+- ✅ **Direct Database Client**: Store processed data directly ke Database Service
+- ✅ **Service Discovery Client**: Query Central Hub untuk service endpoints
+- ❌ **API Gateway Proxy**: TIDAK receive data through API Gateway proxy
 
 ### **Schema Dependencies & Contracts**:
 ```python
 # Import from centralized schemas
 import sys
-sys.path.append('../../../01-core-infrastructure/central-hub/static/generated/python')
+sys.path.append('../../../01-core-infrastructure/central-hub/shared/generated/python')
 
 from common.tick_data_pb2 import BatchTickData, TickData, QualityMetrics
 from common.user_context_pb2 import UserContext, SubscriptionTier
@@ -156,15 +185,15 @@ async def enrich_tick_data(self, tick: TickData, user_context: UserContext) -> E
 # Input Contract: API Gateway → Data Bridge
 
 ## Protocol Buffer Schema
-- **Source**: `central-hub/static/proto/common/tick-data.proto`
+- **Source**: `central-hub/shared/proto/common/tick-data.proto`
 - **Message Type**: `BatchTickData`
 - **Transport**: WebSocket Binary
 
 ## Data Flow
-1. Client-MT5 sends processed data to API Gateway
-2. API Gateway authenticates and adds user context
-3. API Gateway forwards to Data Bridge via WebSocket
-4. Data Bridge receives BatchTickData protobuf message
+1. Client-MT5 authenticates dengan API Gateway (JWT validation)
+2. API Gateway provides authenticated WebSocket endpoint untuk Data Bridge
+3. Client-MT5 connects directly to Data Bridge dengan authenticated context
+4. Data Bridge receives BatchTickData protobuf message dengan validated user context
 
 ## Schema Reference
 ```protobuf
@@ -189,7 +218,7 @@ message BatchTickData {
 # Output Contract: Data Bridge → Database Service
 
 ## Protocol Buffer Schema
-- **Source**: `central-hub/static/proto/trading/enriched-data.proto`
+- **Source**: `central-hub/shared/proto/trading/enriched-data.proto`
 - **Message Type**: `EnrichedBatchData`
 - **Transport**: HTTP Binary (direct service call)
 
@@ -330,14 +359,22 @@ class DatabaseConnectionManager:
 ### **Health Checks**:
 ```python
 async def health_check():
-    """Service health assessment"""
+    """Service health assessment (standardized format)"""
     return {
+        "service_name": "data-bridge",
         "status": "healthy",
-        "processing_latency_ms": await get_avg_latency(),
-        "throughput_tps": await get_current_throughput(),
-        "quality_score": await get_avg_quality_score(),
-        "active_connections": get_active_websocket_count(),
-        "protobuf_performance": await get_protobuf_metrics()
+        "timestamp": datetime.utcnow().isoformat(),
+        "performance_metrics": {
+            "processing_latency_ms": await get_avg_latency(),
+            "throughput_tps": await get_current_throughput(),
+            "quality_score": await get_avg_quality_score(),
+            "active_connections": get_active_websocket_count(),
+            "protobuf_performance": await get_protobuf_metrics()
+        },
+        "system_resources": {
+            "cpu_usage": await get_cpu_usage(),
+            "memory_usage": await get_memory_usage()
+        }
     }
 ```
 
