@@ -1,166 +1,248 @@
-# Client-MT5 - Hybrid Local Processing
+# Client-MT5 - Data Subscriber Client
 
 ## 🎯 Purpose
-**Hybrid preprocessing layer** yang handle MT5 integration dengan local processing untuk optimal <5ms latency, lalu streaming Protocol Buffers optimized data ke backend untuk AI analysis.
+**Data subscriber client** yang menggunakan WebSocket connection ke server untuk menerima processed market data dan indicators dari server-side data ingestion system, menggantikan direct MT5 streaming untuk maximum efficiency.
 
 ---
 
-## 📊 ChainFlow Diagram
+## 📊 Architecture Revolution
 
+### **Old Architecture (Inefficient)**:
 ```
-MT5 (10 Pairs) → Local Processing → Micro-batch → WebSocket → Backend Data Bridge
-     ↓               ↓                ↓              ↓              ↓
-Multi-threaded    Validation      5 ticks/100ms   Primary/Backup   Server AI
-Symbol Monitor    Basic Indicators  Protobuf Binary Triple Failover   Decision Engine
-50+ ticks/sec     SMA/EMA/RSI      Memory Buffer   Connection Pool   <15ms Response
-                  Quality Metrics   60% Smaller    10x Faster       Optimized I/O
-```
-
----
-
-## 🏗️ Service Structure Overview
-
-### **01-mt5-integration/ (2 modules)**
-
-#### **api-connector/**
-**Input Flow**: MT5 Terminal connection parameters
-**Output Flow**: Raw tick streams untuk 10 major pairs
-**Function**:
-- MT5Handler initialization dengan login, password, server
-- Multi-threaded symbol monitoring (10 pairs simultaneously)
-- Connection management dan auto-reconnection
-- Performance: 50+ ticks/second total (5 ticks/sec per pair)
-
-#### **data-normalizer/**
-**Input Flow**: Raw MT5 tick data dari multiple pairs
-**Output Flow**: Normalized, validated tick data
-**Function**:
-- Tick validation (bid > 0, ask > bid, reasonable spread, volume > 0)
-- Data normalization (timestamp UTC, decimal precision)
-- Quality control dan error detection
-- Performance: <1ms per tick processing
-
----
-
-### **02-local-processing/ (3 modules)**
-
-#### **data-validator/**
-**Input Flow**: Normalized tick data dari data-normalizer
-**Output Flow**: Validated ticks dengan quality metrics
-**Function**:
-- Real-time validation rules enforcement
-- Spread validation (<100 points for major pairs)
-- Timestamp validation (max 5 second delay)
-- Volume validation dan outlier detection
-- Quality scoring per tick dan symbol
-
-#### **technical-indicators/**
-**Input Flow**: Validated ticks dari data-validator
-**Output Flow**: Basic indicators calculated locally
-**Function**:
-- **Local Indicators**: SMA(20,50), EMA(20,50), RSI(14)
-- **Memory Management**: Keep 200 recent ticks per pair (40 minutes M1 data)
-- **Multi-timeframe**: Real-time calculation untuk fast response
-- **Performance**: <2ms indicator calculation per tick
-
-#### **error-handler/**
-**Input Flow**: Errors dari semua local processing modules
-**Output Flow**: Handled errors, recovery actions, alerts
-**Function**:
-- ErrorDNA client implementation (dari ai_trading pattern)
-- Connection lost recovery dan reconnection logic
-- Data quality error handling dan alerting
-- Performance degradation detection
-
----
-
-### **03-communication/ (2 modules)**
-
-#### **websocket-client/**
-**Input Flow**: Processed tick data dengan indicators
-**Output Flow**: WebSocket connection ke backend data-bridge
-**Function**:
-- **Primary Connection**: ws://backend:8001/api/v1/ws/mt5
-- **Backup Connection**: ws://backup:8001/api/v1/ws/mt5
-- JWT authentication untuk multi-user support
-- Connection pooling dan load balancing
-
-#### **data-streamer/**
-**Input Flow**: Validated ticks dengan indicators dari local processing
-**Output Flow**: Micro-batched Protocol Buffers binary data streams
-**Function**:
-- **Micro-batching**: 5 ticks per batch, max 100ms timeout
-- **Protocol Buffers Format**: Binary structured data dengan type safety
-- **Quality Metrics**: Processing time, validation stats
-- **Performance**: 10 batches/second (50 ticks/second total)
-
----
-
-## 🔄 Data Flow Chains
-
-### **Chain 1: Real-time Multi-Pair Monitoring**
-```
-MT5 Terminal → API Connector (threaded) → Data Normalizer → Validator
-    ↓              ↓                         ↓               ↓
-10 Symbols     Async monitoring          UTC timestamps    Quality check
-Live ticks     50+ ticks/second          Decimal norm      Error detection
+1000 Clients × Direct MT5 Connections = 3000 broker connections
+Each client processes raw tick data individually
+Redundant calculations: 1000× indicator processing
+Resource waste: 99.9% redundant processing
 ```
 
-### **Chain 2: Local Processing Pipeline**
+### **New Architecture (Optimal)**:
 ```
-Validated Ticks → Technical Indicators → Local Memory → Data Streamer
-       ↓                ↓                    ↓              ↓
-Quality scored    SMA/EMA/RSI calc     200 ticks buffer   Micro-batching
-Error flagged     <2ms processing      Per-pair storage   Protobuf binary
-```
-
-### **Chain 3: WebSocket Streaming dengan Failover**
-```
-Micro-batches → WebSocket Client → Primary Connection → Backend Data Bridge
-      ↓               ↓                ↓                      ↓
-5 ticks/batch    JWT auth         Connection pool         Server processing
-100ms timeout    Load balancing   Health monitoring       AI analysis
-      ↓               ↓                ↓                      ↓
-Local Buffer ← Backup Connection ← Connection Lost ← Failover Detection
+Server-Side Data Ingestion:
+├── 00-data-ingestion: 3 broker connections → serve 1000+ clients
+├── Server-side indicators: Process once, serve many
+├── Client-MT5: Data subscriber + local display
+└── 99.9% Resource Reduction: 3000 → 3 connections
 ```
 
 ---
 
-## ⚡ Performance Targets & Achievements
+## 🔄 Client Data Flow
 
-### **Real-time Processing Performance**
-- **Multi-pair Monitoring**: 50+ ticks/second (10 pairs × 5 ticks/sec)
-- **Local Processing**: <5ms total (validation + indicators + batching)
-- **WebSocket Streaming**: <100ms batch delivery
-- **Memory Usage**: <50MB total client footprint
+### **Data Subscription Model**:
+```
+Client-MT5 → API Gateway → Data Bridge → Database Service → Processed Data
+     ↓              ↓              ↓               ↓              ↓
+WebSocket       JWT Auth      Subscription      Multi-DB     Real-time
+Subscribe       User Context   Tier Filtering    Storage      Market Data
+Real-time       Rate Limits    Data Access      Historical    + Indicators
+Display         Multi-tenant   Validation       Analytics     Ready to Use
+```
 
-### **Reliability Targets**
-- **Connection Uptime**: 99.9% dengan triple failover
-- **Data Quality**: >99.5% valid ticks processed
-- **Processing Success**: >99.8% successful local processing
-- **Recovery Time**: <5 seconds untuk connection restoration
+### **Client Responsibilities** (Simplified):
+1. **Authentication**: JWT-based login dengan subscription tier
+2. **WebSocket Subscription**: Connect to server data streams
+3. **Data Reception**: Receive processed market data + indicators
+4. **Local Display**: Show charts, indicators, trading interface
+5. **Trade Execution**: Send orders via API Gateway to trading service
 
 ---
 
-## 🔧 Key Technologies
+## 🚀 Protocol Buffer Integration
 
-### **MT5 Integration**
-- **MetaTrader5 Python API**: Direct terminal integration
-- **Custom C++ DLL**: Protocol Buffers serialization wrapper
-- **Threading**: Async symbol monitoring untuk performance
-- **Connection Pool**: Multiple MT5 connections untuk stability
+### **Schema Import** (from Server Registry):
+```cpp
+// Import from centralized server schemas
+#include "central-hub/shared/proto/trading/market_data.proto"
+#include "central-hub/shared/proto/common/user_context.proto"
+#include "central-hub/shared/proto/indicators/technical_analysis.proto"
+```
 
-### **Local Processing**
-- **NumPy/Pandas**: Fast numerical computation
-- **TA-Lib**: Technical analysis indicators
-- **Asyncio**: Concurrent processing pipeline
+### **Data Reception Messages**:
+```protobuf
+message ClientMarketData {
+  string symbol = 1;                    // Trading pair
+  double bid = 2;                      // Current bid price
+  double ask = 3;                      // Current ask price
+  int64 timestamp = 4;                 // Server timestamp
+  SubscriptionTier user_tier = 5;      // User access level
+  TechnicalIndicators indicators = 6;   // Server-calculated indicators
+  MarketSession session = 7;           // Market session info
+}
 
-### **Communication**
-- **WebSocket**: Real-time bidirectional communication
-- **Protocol Buffers**: Binary optimized data format (60% smaller, 10x faster)
-- **Custom DLL Integration**: C++ wrapper untuk MT5 → Protobuf serialization
-- **Schema Consistency**: Shared proto definitions dengan backend services
-- **JWT**: Secure authentication dengan backend
+message TechnicalIndicators {
+  double sma_20 = 1;                   // Simple Moving Average 20
+  double sma_50 = 2;                   // Simple Moving Average 50
+  double ema_12 = 3;                   // Exponential Moving Average 12
+  double ema_26 = 4;                   // Exponential Moving Average 26
+  double macd_line = 5;                // MACD Line
+  double macd_signal = 6;              // MACD Signal
+  double rsi = 7;                      // Relative Strength Index
+  double bollinger_upper = 8;          // Bollinger Band Upper
+  double bollinger_middle = 9;         // Bollinger Band Middle
+  double bollinger_lower = 10;         // Bollinger Band Lower
+}
+```
+
+## 📱 Client Implementation
+
+### **WebSocket Client (C++/MQL5)**:
+```cpp
+// WebSocket client for data subscription
+class MarketDataSubscriber {
+private:
+    WebSocketClient ws_client;
+    ProtocolBufferParser pb_parser;
+    string jwt_token;
+    string user_id;
+
+public:
+    bool ConnectToServer(string server_url, string auth_token) {
+        // Connect via API Gateway WebSocket endpoint
+        string ws_url = "wss://api.gateway.com/ws/market-data";
+
+        // Add authentication headers
+        map<string, string> headers;
+        headers["Authorization"] = "Bearer " + auth_token;
+        headers["x-user-id"] = user_id;
+
+        return ws_client.Connect(ws_url, headers);
+    }
+
+    void SubscribeToSymbols(vector<string> symbols) {
+        // Send subscription request
+        for (string symbol : symbols) {
+            SubscriptionRequest request;
+            request.symbol = symbol;
+            request.data_type = "real_time_with_indicators";
+
+            string binary_data = request.SerializeAsString();
+            ws_client.Send(binary_data);
+        }
+    }
+
+    void OnDataReceived(string binary_data) {
+        // Parse Protocol Buffer data
+        ClientMarketData market_data;
+        market_data.ParseFromString(binary_data);
+
+        // Update local charts and displays
+        UpdateChart(market_data);
+        UpdateIndicators(market_data.indicators);
+    }
+};
+```
+
+### **MQL5 Expert Advisor Integration**:
+```mql5
+//+------------------------------------------------------------------+
+//| Client-MT5 Data Subscriber EA                                    |
+//+------------------------------------------------------------------+
+
+#include "WebSocketClient.mqh"
+#include "ProtocolBuffer.mqh"
+
+input string ServerURL = "wss://api.gateway.com/ws/market-data";
+input string AuthToken = "your_jwt_token_here";
+input string SubscribeSymbols = "EURUSD,GBPUSD,USDJPY";
+
+MarketDataSubscriber subscriber;
+
+int OnInit() {
+    // Initialize WebSocket connection
+    if (!subscriber.ConnectToServer(ServerURL, AuthToken)) {
+        Print("Failed to connect to market data server");
+        return INIT_FAILED;
+    }
+
+    // Subscribe to symbols
+    string symbols[];
+    StringSplit(SubscribeSymbols, ',', symbols);
+    subscriber.SubscribeToSymbols(symbols);
+
+    Print("Client-MT5 Data Subscriber initialized");
+    return INIT_SUCCEEDED;
+}
+
+void OnTick() {
+    // Handle incoming WebSocket data
+    subscriber.ProcessIncomingData();
+
+    // Local trading logic using server-provided indicators
+    ProcessTradingSignals();
+}
+
+void OnDeinit(const int reason) {
+    subscriber.Disconnect();
+    Print("Client-MT5 Data Subscriber stopped");
+}
+
+void ProcessTradingSignals() {
+    // Use server-calculated indicators for trading decisions
+    ClientMarketData current_data = subscriber.GetLatestData("EURUSD");
+
+    if (current_data.indicators.rsi < 30) {
+        // RSI oversold - potential buy signal
+        // Send order via API Gateway
+        PlaceOrder("EURUSD", ORDER_TYPE_BUY, 0.1);
+    }
+    else if (current_data.indicators.rsi > 70) {
+        // RSI overbought - potential sell signal
+        // Send order via API Gateway
+        PlaceOrder("EURUSD", ORDER_TYPE_SELL, 0.1);
+    }
+}
+
+void PlaceOrder(string symbol, int order_type, double volume) {
+    // Send order via API Gateway to Trading Service
+    OrderRequest request;
+    request.symbol = symbol;
+    request.order_type = order_type;
+    request.volume = volume;
+    request.user_id = subscriber.GetUserId();
+
+    // Send via HTTP API
+    HTTPClient http_client;
+    http_client.Post("https://api.gateway.com/api/v1/orders", request);
+}
+```
+
+---
+
+## 🔗 Integration Points
+
+### **Server Dependencies**:
+- **API Gateway**: WebSocket authentication + data streaming
+- **Data Bridge**: Real-time market data distribution
+- **00-data-ingestion**: Server-side broker data collection
+- **Indicators Service**: Server-calculated technical indicators
+- **Trading Service**: Order placement and management
+
+### **Client Features**:
+- **Real-time Charts**: Display server-streamed data
+- **Technical Indicators**: Show server-calculated indicators
+- **Trading Interface**: Place orders via API Gateway
+- **Subscription Management**: Handle different tier access
+- **Offline Mode**: Cache data for temporary disconnections
+
+---
+
+## 📊 Performance Benefits
+
+### **Client-Side Efficiency**:
+```
+Resource Savings per Client:
+- No MT5 connection needed: 100% connection overhead eliminated
+- No indicator calculations: 95% CPU usage reduction
+- No data processing: 90% memory usage reduction
+- Bandwidth optimized: 60% smaller Protocol Buffer data
+```
+
+### **Network Optimization**:
+```
+Data Transfer Comparison (1000 clients):
+Traditional: 1000 × full tick streams = 1000× bandwidth
+New Model: 1 processed stream → 1000 clients = 99.9% reduction
+```
 
 ---
 

@@ -1,36 +1,40 @@
 # Data Bridge Service
 
 ## 🎯 Purpose
-**WebSocket server dan data processing service** yang menerima pre-processed tick data dari client-mt5, melakukan advanced validation, dan stores directly ke database service menggunakan Protocol Buffers untuk optimal performance.
+**Data distribution hub dan subscription management service** yang menerima aggregated market data dari 00-data-ingestion service, melakukan subscription-based filtering, dan distribusi real-time data ke client subscribers dengan advanced validation dan database storage.
 
 ---
 
 ## 📊 ChainFlow Diagram
 
 ```
-Client-MT5 → API Gateway → Data Bridge → Database Service → Multi-Database Storage
-    ↓           ↓              ↓              ↓                 ↓
-WebSocket   JWT Validation   Advanced      Protobuf Binary    PostgreSQL
-Processed   User Context     Validation    Serialization      ClickHouse
-Data        Rate Limits      Data Enrich   10x Faster        DragonflyDB
-50+ ticks   WebSocket Proxy  Quality Check  60% Smaller      Weaviate/Arango
+00-Data-Ingestion → NATS → Data Bridge ← API Gateway ← Client-MT5 Subscribers
+        ↓            ↓         ↓           ↓              ↓
+3 Broker Data   Stream   Subscription  WebSocket      Real-time
+Aggregation     Queue    Management    Proxy         Market Data
+99.9% Efficient Message  Filter/Route  JWT Auth      + Indicators
+Server-side     Bus      Quality Check Rate Limits   60% Smaller
+        ↓            ↓         ↓           ↓              ↓
+Database Service ← Enriched Data ← Data Bridge → Client Distribution
 ```
 
 ---
 
 ## 🏗️ Service Architecture
 
-### **Input Flow**: Pre-processed tick data dari Client-MT5 melalui API Gateway WebSocket proxy
-**Data Source**: Client-MT5 → API Gateway → Data Bridge (WebSocket proxied through API Gateway)
-**Format**: Protocol Buffers (BatchTickData) dengan authenticated user context
-**Frequency**: 50+ ticks/second across 10 trading pairs
-**Performance Target**: <3ms data validation dan routing (part of <30ms total system budget)
+### **Input Flow**: Server-processed market data + client subscription requests
+**Data Source 1**: 00-data-ingestion → NATS → Data Bridge (aggregated broker data)
+**Data Source 2**: Client-MT5 → API Gateway → Data Bridge (subscription requests)
+**Format**: Protocol Buffers (MarketDataStream from ingestion, SubscriptionRequest from clients)
+**Frequency**: 50+ ticks/second dari server ingestion, subscription management dari clients
+**Performance Target**: <3ms data distribution dan filtering (part of <30ms total system budget)
 
-### **Output Flow**: Validated, enriched data ke Database Service
-**Destination**: Database Service (direct connection)
-**Format**: Protocol Buffers (EnrichedBatchData)
-**Processing**: Advanced validation + data enrichment
-**Performance Target**: <3ms processing per batch (within <30ms total system budget)
+### **Output Flow**: Real-time market data distribution + database storage
+**Destination 1**: Client-MT5 subscribers via API Gateway WebSocket proxy (real-time streaming)
+**Destination 2**: Database Service (direct connection for storage)
+**Format**: Protocol Buffers (ClientMarketData to clients, EnrichedMarketData to database)
+**Processing**: Subscription filtering + data enrichment + real-time distribution
+**Performance Target**: <3ms distribution per batch (within <30ms total system budget)
 
 ---
 
@@ -39,11 +43,11 @@ Data        Rate Limits      Data Enrich   10x Faster        DragonflyDB
 ### **Transport Decision Matrix Applied**:
 
 #### **Kategori A: High Volume + Mission Critical**
-- **Primary Transport**: WebSocket Binary + Protocol Buffers
-- **Backup Transport**: HTTP/2 streaming for fallback (standardized across all services)
-- **Failover**: Automatic connection recovery
-- **Services**: Client-MT5 → API Gateway → Data Bridge (tick data streaming via WebSocket proxy)
-- **Performance**: <3ms data validation dan routing
+- **Primary Transport**: NATS + Protocol Buffers (00-data-ingestion → Data Bridge)
+- **Secondary Transport**: WebSocket Binary + Protocol Buffers (Data Bridge → Client subscribers)
+- **Backup Transport**: HTTP/2 streaming for fallback
+- **Services**: Data ingestion streaming + real-time client distribution
+- **Performance**: <3ms data filtering dan distribution
 
 #### **Kategori B: Medium Volume + Important**
 - **Transport**: HTTP + Protocol Buffers
