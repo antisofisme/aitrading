@@ -1,40 +1,40 @@
 # Data Ingestion Service
 
 ## 🎯 Purpose
-**Server-side market data collection service** yang mengumpulkan real-time tick data dari multiple MT5 brokers dengan single connection per broker untuk melayani ribuan users secara efisien dengan <1ms data distribution.
+**Server-side market data collection dan AI trading decision service** yang mengumpulkan real-time tick data dari approved brokers, melakukan ML/AI analysis internal, dan mengirimkan trading execution commands ke client MT5 terminals.
 
 ---
 
 ## 📊 ChainFlow Diagram
 
 ```
-4-Category Input Sources → Supporting Services → Data Distribution → All Users
+4-Category Input Sources → Supporting Services → ML/AI Analysis → Trading Execution
             ↓                     ↓                     ↓               ↓
-MT5-Brokers (IC Markets)    Ingestion Gateway     NATS Streaming    1000+ Users
-API-Brokers (FXCM)         Market Aggregator     Protocol Buffers   99.9% Less
-External-Data (News)       Stream Orchestrator   <1ms Latency      Resources
-Historical-Broker          Service Discovery     Quality Control    Maximum Efficiency
+Broker-MT5 (IC Markets)     Ingestion Gateway    AI Trading Engine  Client-MT5
+Broker-API (FXCM)          Market Aggregator    ML Prediction     Execution Commands
+External-Data (News)       Stream Orchestrator  Decision Making   Account Management
+Historical-Broker          Service Discovery    Risk Assessment   99.9% Efficiency
 ```
 
 ---
 
 ## 🏗️ Service Architecture
 
-### **Input Flow**: 4-category data collection from multiple sources
+### **Input Flow**: 4-category data collection for internal AI processing
 **Data Sources**:
-- MT5-Brokers: IC Markets, Pepperstone (MetaTrader5 API)
-- API-Brokers: FXCM, OANDA (Native REST/WebSocket APIs)
+- Broker-MT5: IC Markets, Pepperstone (MetaTrader5 API) - approved brokers only
+- Broker-API: FXCM, OANDA (Native REST/WebSocket APIs) - approved brokers only
 - External-Data: News, economic calendar, sentiment analysis
-- Historical-Broker: Bulk historical data, gap filling
-**Format**: Mixed formats converted to Protocol Buffers
-**Frequency**: Real-time (50+ ticks/sec) + scheduled + batch
-**Performance Target**: <5ms total processing dengan supporting services
+- Historical-Broker: Bulk historical data untuk ML training
+**Format**: Protocol Buffers untuk internal processing
+**Frequency**: Real-time (50+ ticks/sec) untuk AI analysis
+**Performance Target**: <10ms AI analysis + decision making
 
-### **Output Flow**: Aggregated market data stream ke Data Bridge
-**Destination**: Data Bridge via NATS/Kafka (Category A transport)
-**Format**: Protocol Buffers (MarketDataStream)
-**Processing**: Aggregation, deduplication, quality control
-**Performance Target**: <1ms distribution latency
+### **Output Flow**: Trading execution commands ke Client-MT5
+**Destination**: Client-MT5 terminals via API Gateway
+**Format**: Trading execution commands (Protocol Buffers)
+**Processing**: ML/AI analysis → Trading decisions → Risk management
+**Performance Target**: <5ms execution command delivery
 
 ---
 
@@ -50,25 +50,27 @@ CPU: 3000x duplicate processing
 Memory: 3000x data buffers
 ```
 
-#### **Data Ingestion Architecture (Optimal):**
+#### **AI Trading Architecture (Optimal):**
 ```
-4-Category Data Collection + Supporting Services:
-- MT5-Brokers: 2 connections (IC Markets, Pepperstone)
-- API-Brokers: 2 connections (FXCM, OANDA)
+4-Category Data Collection + AI Engine + Supporting Services:
+- Broker-MT5: 2 connections (approved brokers only)
+- Broker-API: 2 connections (approved brokers only)
 - External-Data: Multiple API connections (news, calendar, sentiment)
+- AI Trading Engine: ML analysis + decision making
 - Supporting Services: Gateway + Aggregator + Orchestrator
-Total: ~10 connections serve 1000+ users (99.9% reduction)
+Total: Server-side processing → Trading commands to 1000+ clients
 ```
 
-### **Performance Benefits:**
+### **AI Trading Benefits:**
 ```
-Resource Savings with 4-Category Architecture:
-- Connections: 3000 → ~10 total (99.7% reduction)
-- Bandwidth: 3000x → 10x (99.7% reduction)
-- Processing: 3000x → 15x (99.5% reduction)
-- Memory: 3000x → 20x (99.3% reduction)
-- Cost: 3000x → 20x (99.3% cost reduction)
-- Added Value: News + Economic + Sentiment data included
+Resource & Intelligence Optimization:
+- Client Connections: 1000+ clients → Server handles broker connections
+- Data Processing: Server-side AI analysis (no client processing)
+- Trading Intelligence: ML/AI decisions with multi-source data
+- Risk Management: Centralized risk assessment and control
+- Broker Policy: Only approved, regulated brokers accepted
+- Cost Efficiency: 99.3% reduction vs traditional client-broker model
+- Added Intelligence: AI + News + Economic + Sentiment analysis
 ```
 
 ---

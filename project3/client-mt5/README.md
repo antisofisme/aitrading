@@ -1,49 +1,49 @@
-# Client-MT5 - Data Subscriber Client
+# Client-MT5 - Account Profile & Trading Execution Client
 
 ## 🎯 Purpose
-**Data subscriber client** yang menggunakan WebSocket connection ke server untuk menerima processed market data dan indicators dari server-side data ingestion system, menggantikan direct MT5 streaming untuk maximum efficiency.
+**MT5 trading execution client** yang mengirimkan account profile dan financial status ke server, kemudian menerima AI-generated trading execution commands untuk automated trading di MT5 terminal.
 
 ---
 
 ## 📊 Architecture Revolution
 
-### **Old Architecture (Inefficient)**:
+### **Old Architecture (Client-Side Processing)**:
 ```
 1000 Clients × Direct MT5 Connections = 3000 broker connections
-Each client processes raw tick data individually
-Redundant calculations: 1000× indicator processing
-Resource waste: 99.9% redundant processing
+Each client processes tick data and makes trading decisions
+Redundant AI processing: 1000× duplicate analysis
+Risk: Uncontrolled client-side trading decisions
 ```
 
-### **New Architecture (Optimal)**:
+### **New Architecture (Server-Side AI)**:
 ```
-Server-Side Data Ingestion:
-├── 00-data-ingestion: 3 broker connections → serve 1000+ clients
-├── Server-side indicators: Process once, serve many
-├── Client-MT5: Data subscriber + local display
-└── 99.9% Resource Reduction: 3000 → 3 connections
+Server-Side AI Trading System:
+├── Approved Brokers: Server collects from regulated brokers only
+├── AI Analysis: Server processes data with ML/AI models
+├── Trading Commands: Server generates optimized execution orders
+└── Client-MT5: Receives commands + executes trades safely
 ```
 
 ---
 
 ## 🔄 Client Data Flow
 
-### **Data Subscription Model**:
+### **Account Profile & Execution Model**:
 ```
-Client-MT5 → API Gateway → Data Bridge → Database Service → Processed Data
-     ↓              ↓              ↓               ↓              ↓
-WebSocket       JWT Auth      Subscription      Multi-DB     Real-time
-Subscribe       User Context   Tier Filtering    Storage      Market Data
-Real-time       Rate Limits    Data Access      Historical    + Indicators
-Display         Multi-tenant   Validation       Analytics     Ready to Use
+Client-MT5 → API Gateway → Server AI Analysis → Trading Commands → Client-MT5
+     ↓              ↓               ↓                 ↓               ↓
+Account Info   JWT Auth      ML/AI Engine      Risk Assessment  Auto Execution
+Profile Data   User Context  Market Analysis   Position Sizing  MT5 Terminal
+Financial      Rate Limits   News Integration  Stop Loss       Trade Management
+Status         Multi-tenant  Sentiment AI      Take Profit     Performance
 ```
 
-### **Client Responsibilities** (Simplified):
-1. **Authentication**: JWT-based login dengan subscription tier
-2. **WebSocket Subscription**: Connect to server data streams
-3. **Data Reception**: Receive processed market data + indicators
-4. **Local Display**: Show charts, indicators, trading interface
-5. **Trade Execution**: Send orders via API Gateway to trading service
+### **Client Responsibilities** (Transformed):
+1. **Account Registration**: Send MT5 account details dan broker info
+2. **Profile Management**: Provide risk tolerance dan trading preferences
+3. **Financial Status**: Report account balance, equity, margin status
+4. **Command Execution**: Execute AI-generated trading commands di MT5
+5. **Status Reporting**: Send execution confirmations back to server
 
 ---
 
@@ -52,53 +52,95 @@ Display         Multi-tenant   Validation       Analytics     Ready to Use
 ### **Schema Import** (from Server Registry):
 ```cpp
 // Import from centralized server schemas
-#include "central-hub/shared/proto/trading/market_data.proto"
+#include "central-hub/shared/proto/trading/account_profile.proto"
+#include "central-hub/shared/proto/trading/execution_commands.proto"
 #include "central-hub/shared/proto/common/user_context.proto"
-#include "central-hub/shared/proto/indicators/technical_analysis.proto"
 ```
 
-### **Data Reception Messages**:
+### **Account Profile Messages** (Client to Server):
 ```protobuf
-message ClientMarketData {
-  string symbol = 1;                    // Trading pair
-  double bid = 2;                      // Current bid price
-  double ask = 3;                      // Current ask price
-  int64 timestamp = 4;                 // Server timestamp
-  SubscriptionTier user_tier = 5;      // User access level
-  TechnicalIndicators indicators = 6;   // Server-calculated indicators
-  MarketSession session = 7;           // Market session info
+message AccountProfile {
+  string user_id = 1;                     // User identifier
+  string account_number = 2;              // MT5 account number
+  string broker_name = 3;                 // Broker name (must be approved)
+  string server_name = 4;                 // MT5 server name
+  AccountType account_type = 5;           // DEMO/LIVE
+  string base_currency = 6;               // Account base currency
+  double balance = 7;                     // Current account balance
+  double equity = 8;                      // Current equity
+  double margin_used = 9;                 // Used margin
+  double margin_free = 10;                // Free margin
+  RiskProfile risk_profile = 11;          // Risk tolerance settings
+  TradingPreferences preferences = 12;    // Trading preferences
 }
 
-message TechnicalIndicators {
-  double sma_20 = 1;                   // Simple Moving Average 20
-  double sma_50 = 2;                   // Simple Moving Average 50
-  double ema_12 = 3;                   // Exponential Moving Average 12
-  double ema_26 = 4;                   // Exponential Moving Average 26
-  double macd_line = 5;                // MACD Line
-  double macd_signal = 6;              // MACD Signal
-  double rsi = 7;                      // Relative Strength Index
-  double bollinger_upper = 8;          // Bollinger Band Upper
-  double bollinger_middle = 9;         // Bollinger Band Middle
-  double bollinger_lower = 10;         // Bollinger Band Lower
+message RiskProfile {
+  double max_risk_per_trade = 1;          // Maximum risk % per trade
+  double max_daily_loss = 2;              // Maximum daily loss limit
+  double max_drawdown = 3;                // Maximum account drawdown
+  bool allow_news_trading = 4;            // Allow trading during news
+  repeated string allowed_symbols = 5;    // Allowed trading symbols
+}
+
+message TradingPreferences {
+  double preferred_lot_size = 1;          // Preferred position size
+  int32 max_open_positions = 2;          // Maximum simultaneous positions
+  bool auto_close_friday = 3;            // Auto-close before weekend
+  bool conservative_mode = 4;             // Conservative trading mode
+}
+```
+
+### **Trading Execution Commands** (Server to Client):
+```protobuf
+message TradingCommand {
+  string command_id = 1;                  // Unique command identifier
+  string user_id = 2;                     // Target user
+  CommandType type = 3;                   // OPEN_POSITION/CLOSE_POSITION/MODIFY
+  string symbol = 4;                      // Trading symbol
+  OrderType order_type = 5;               // BUY/SELL
+  double lot_size = 6;                    // Position size
+  double entry_price = 7;                 // Entry price (0 for market)
+  double stop_loss = 8;                   // Stop loss level
+  double take_profit = 9;                 // Take profit level
+  string reason = 10;                     // AI decision reason
+  double confidence_score = 11;           // AI confidence (0.0-1.0)
+  int64 expires_at = 12;                  // Command expiration time
+}
+
+enum CommandType {
+  OPEN_POSITION = 0;
+  CLOSE_POSITION = 1;
+  MODIFY_POSITION = 2;
+  CLOSE_ALL = 3;
+}
+
+enum OrderType {
+  BUY = 0;
+  SELL = 1;
+  BUY_LIMIT = 2;
+  SELL_LIMIT = 3;
+  BUY_STOP = 4;
+  SELL_STOP = 5;
 }
 ```
 
 ## 📱 Client Implementation
 
-### **WebSocket Client (C++/MQL5)**:
+### **Account Profile Client (C++/MQL5)**:
 ```cpp
-// WebSocket client for data subscription
-class MarketDataSubscriber {
+// Account profile and trading execution client
+class MT5TradingClient {
 private:
     WebSocketClient ws_client;
     ProtocolBufferParser pb_parser;
     string jwt_token;
     string user_id;
+    AccountProfile account_profile;
 
 public:
     bool ConnectToServer(string server_url, string auth_token) {
         // Connect via API Gateway WebSocket endpoint
-        string ws_url = "wss://api.gateway.com/ws/market-data";
+        string ws_url = "wss://api.gateway.com/ws/trading-client";
 
         // Add authentication headers
         map<string, string> headers;
@@ -108,26 +150,42 @@ public:
         return ws_client.Connect(ws_url, headers);
     }
 
-    void SubscribeToSymbols(vector<string> symbols) {
-        // Send subscription request
-        for (string symbol : symbols) {
-            SubscriptionRequest request;
-            request.symbol = symbol;
-            request.data_type = "real_time_with_indicators";
+    bool SendAccountProfile() {
+        // Collect current account information
+        account_profile.account_number = AccountInfoString(ACCOUNT_LOGIN);
+        account_profile.broker_name = AccountInfoString(ACCOUNT_COMPANY);
+        account_profile.server_name = AccountInfoString(ACCOUNT_SERVER);
+        account_profile.balance = AccountInfoDouble(ACCOUNT_BALANCE);
+        account_profile.equity = AccountInfoDouble(ACCOUNT_EQUITY);
+        account_profile.margin_used = AccountInfoDouble(ACCOUNT_MARGIN);
+        account_profile.margin_free = AccountInfoDouble(ACCOUNT_MARGIN_FREE);
 
-            string binary_data = request.SerializeAsString();
-            ws_client.Send(binary_data);
-        }
+        // Serialize and send to server
+        string binary_data = account_profile.SerializeAsString();
+        return ws_client.Send(binary_data);
     }
 
-    void OnDataReceived(string binary_data) {
-        // Parse Protocol Buffer data
-        ClientMarketData market_data;
-        market_data.ParseFromString(binary_data);
+    void OnTradingCommand(string binary_data) {
+        // Parse trading command from server
+        TradingCommand command;
+        command.ParseFromString(binary_data);
 
-        // Update local charts and displays
-        UpdateChart(market_data);
-        UpdateIndicators(market_data.indicators);
+        // Execute trading command in MT5
+        ExecuteTradingCommand(command);
+    }
+
+    bool ExecuteTradingCommand(TradingCommand command) {
+        // Execute AI-generated trading command
+        switch(command.type) {
+            case CommandType::OPEN_POSITION:
+                return OpenPosition(command);
+            case CommandType::CLOSE_POSITION:
+                return ClosePosition(command);
+            case CommandType::MODIFY_POSITION:
+                return ModifyPosition(command);
+            default:
+                return false;
+        }
     }
 };
 ```
@@ -135,75 +193,55 @@ public:
 ### **MQL5 Expert Advisor Integration**:
 ```mql5
 //+------------------------------------------------------------------+
-//| Client-MT5 Data Subscriber EA                                    |
+//| Client-MT5 Trading Execution EA                                  |
 //+------------------------------------------------------------------+
 
 #include "WebSocketClient.mqh"
 #include "ProtocolBuffer.mqh"
 
-input string ServerURL = "wss://api.gateway.com/ws/market-data";
+input string ServerURL = "wss://api.gateway.com/ws/trading-client";
 input string AuthToken = "your_jwt_token_here";
-input string SubscribeSymbols = "EURUSD,GBPUSD,USDJPY";
+input double MaxRiskPerTrade = 2.0;  // Maximum risk % per trade
+input bool AutoTrading = true;       // Enable auto trading
 
-MarketDataSubscriber subscriber;
+MT5TradingClient trading_client;
 
 int OnInit() {
     // Initialize WebSocket connection
-    if (!subscriber.ConnectToServer(ServerURL, AuthToken)) {
-        Print("Failed to connect to market data server");
+    if (!trading_client.ConnectToServer(ServerURL, AuthToken)) {
+        Print("Failed to connect to trading server");
         return INIT_FAILED;
     }
 
-    // Subscribe to symbols
-    string symbols[];
-    StringSplit(SubscribeSymbols, ',', symbols);
-    subscriber.SubscribeToSymbols(symbols);
+    // Send account profile to server
+    if (!trading_client.SendAccountProfile()) {
+        Print("Failed to send account profile");
+        return INIT_FAILED;
+    }
 
-    Print("Client-MT5 Data Subscriber initialized");
+    Print("Client-MT5 Trading Client initialized");
     return INIT_SUCCEEDED;
 }
 
 void OnTick() {
-    // Handle incoming WebSocket data
-    subscriber.ProcessIncomingData();
+    // Update account status periodically
+    static datetime last_update = 0;
+    if (TimeCurrent() - last_update > 60) {  // Every minute
+        trading_client.SendAccountProfile();
+        last_update = TimeCurrent();
+    }
 
-    // Local trading logic using server-provided indicators
-    ProcessTradingSignals();
+    // Process incoming trading commands
+    trading_client.ProcessIncomingCommands();
 }
 
 void OnDeinit(const int reason) {
-    subscriber.Disconnect();
-    Print("Client-MT5 Data Subscriber stopped");
+    trading_client.Disconnect();
+    Print("Client-MT5 Trading Client stopped");
 }
 
-void ProcessTradingSignals() {
-    // Use server-calculated indicators for trading decisions
-    ClientMarketData current_data = subscriber.GetLatestData("EURUSD");
-
-    if (current_data.indicators.rsi < 30) {
-        // RSI oversold - potential buy signal
-        // Send order via API Gateway
-        PlaceOrder("EURUSD", ORDER_TYPE_BUY, 0.1);
-    }
-    else if (current_data.indicators.rsi > 70) {
-        // RSI overbought - potential sell signal
-        // Send order via API Gateway
-        PlaceOrder("EURUSD", ORDER_TYPE_SELL, 0.1);
-    }
-}
-
-void PlaceOrder(string symbol, int order_type, double volume) {
-    // Send order via API Gateway to Trading Service
-    OrderRequest request;
-    request.symbol = symbol;
-    request.order_type = order_type;
-    request.volume = volume;
-    request.user_id = subscriber.GetUserId();
-
-    // Send via HTTP API
-    HTTPClient http_client;
-    http_client.Post("https://api.gateway.com/api/v1/orders", request);
-}
+// NO MORE INDICATOR CALCULATIONS - ALL DONE ON SERVER
+// Client only executes commands from AI trading engine
 ```
 
 ---
@@ -218,11 +256,11 @@ void PlaceOrder(string symbol, int order_type, double volume) {
 - **Trading Service**: Order placement and management
 
 ### **Client Features**:
-- **Real-time Charts**: Display server-streamed data
-- **Technical Indicators**: Show server-calculated indicators
-- **Trading Interface**: Place orders via API Gateway
-- **Subscription Management**: Handle different tier access
-- **Offline Mode**: Cache data for temporary disconnections
+- **Account Monitoring**: Real-time account balance and equity tracking
+- **Trading Execution**: Automated execution of AI-generated commands
+- **Risk Management**: Client-side risk controls and validation
+- **Status Reporting**: Real-time position and execution status
+- **Connection Management**: Reliable WebSocket connection with failover
 
 ---
 
@@ -230,18 +268,21 @@ void PlaceOrder(string symbol, int order_type, double volume) {
 
 ### **Client-Side Efficiency**:
 ```
-Resource Savings per Client:
-- No MT5 connection needed: 100% connection overhead eliminated
-- No indicator calculations: 95% CPU usage reduction
-- No data processing: 90% memory usage reduction
-- Bandwidth optimized: 60% smaller Protocol Buffer data
+Resource Optimization per Client:
+- No tick data processing: 95% CPU usage reduction
+- No indicator calculations: 90% memory usage reduction
+- No market analysis: 85% processing overhead eliminated
+- Focused execution: Only trading command processing
+- Minimal bandwidth: Account updates + trading commands only
 ```
 
 ### **Network Optimization**:
 ```
 Data Transfer Comparison (1000 clients):
-Traditional: 1000 × full tick streams = 1000× bandwidth
-New Model: 1 processed stream → 1000 clients = 99.9% reduction
+Traditional: 1000 × tick data processing = 1000× bandwidth
+New Model: 1000 × account profiles + trading commands = 99.5% reduction
+- Client → Server: Account info only (minimal data)
+- Server → Client: Trading commands only (targeted instructions)
 ```
 
 ---
