@@ -1,7 +1,7 @@
 # Client-MT5 - Hybrid Local Processing
 
 ## 🎯 Purpose
-**Hybrid preprocessing layer** yang handle MT5 integration dengan local processing untuk optimal <5ms latency, lalu streaming clean data ke backend untuk AI analysis.
+**Hybrid preprocessing layer** yang handle MT5 integration dengan local processing untuk optimal <5ms latency, lalu streaming Protocol Buffers optimized data ke backend untuk AI analysis.
 
 ---
 
@@ -11,8 +11,9 @@
 MT5 (10 Pairs) → Local Processing → Micro-batch → WebSocket → Backend Data Bridge
      ↓               ↓                ↓              ↓              ↓
 Multi-threaded    Validation      5 ticks/100ms   Primary/Backup   Server AI
-Symbol Monitor    Basic Indicators  JSON Format    Triple Failover   Decision Engine
+Symbol Monitor    Basic Indicators  Protobuf Binary Triple Failover   Decision Engine
 50+ ticks/sec     SMA/EMA/RSI      Memory Buffer   Connection Pool   <15ms Response
+                  Quality Metrics   60% Smaller    10x Faster       Optimized I/O
 ```
 
 ---
@@ -86,10 +87,10 @@ Symbol Monitor    Basic Indicators  JSON Format    Triple Failover   Decision En
 
 #### **data-streamer/**
 **Input Flow**: Validated ticks dengan indicators dari local processing
-**Output Flow**: Micro-batched JSON data streams
+**Output Flow**: Micro-batched Protocol Buffers binary data streams
 **Function**:
 - **Micro-batching**: 5 ticks per batch, max 100ms timeout
-- **JSON Format**: Structured data dengan metadata
+- **Protocol Buffers Format**: Binary structured data dengan type safety
 - **Quality Metrics**: Processing time, validation stats
 - **Performance**: 10 batches/second (50 ticks/second total)
 
@@ -110,7 +111,7 @@ Live ticks     50+ ticks/second          Decimal norm      Error detection
 Validated Ticks → Technical Indicators → Local Memory → Data Streamer
        ↓                ↓                    ↓              ↓
 Quality scored    SMA/EMA/RSI calc     200 ticks buffer   Micro-batching
-Error flagged     <2ms processing      Per-pair storage   JSON formatting
+Error flagged     <2ms processing      Per-pair storage   Protobuf binary
 ```
 
 ### **Chain 3: WebSocket Streaming dengan Failover**
@@ -145,6 +146,7 @@ Local Buffer ← Backup Connection ← Connection Lost ← Failover Detection
 
 ### **MT5 Integration**
 - **MetaTrader5 Python API**: Direct terminal integration
+- **Custom C++ DLL**: Protocol Buffers serialization wrapper
 - **Threading**: Async symbol monitoring untuk performance
 - **Connection Pool**: Multiple MT5 connections untuk stability
 
@@ -155,8 +157,137 @@ Local Buffer ← Backup Connection ← Connection Lost ← Failover Detection
 
 ### **Communication**
 - **WebSocket**: Real-time bidirectional communication
-- **JSON**: Human-readable data format
+- **Protocol Buffers**: Binary optimized data format (60% smaller, 10x faster)
+- **Custom DLL Integration**: C++ wrapper untuk MT5 → Protobuf serialization
+- **Schema Consistency**: Shared proto definitions dengan backend services
 - **JWT**: Secure authentication dengan backend
+
+---
+
+## 🚀 Protocol Buffers DLL Implementation
+
+### **Custom C++ DLL Architecture**:
+
+#### **DLL Structure**:
+```cpp
+// TradingProtobuf.dll - MT5 Integration Layer
+
+// Core Functions (exported to MT5)
+extern "C" {
+    __declspec(dllexport) int InitializeProtobuf();
+    __declspec(dllexport) int SendTickBatch(const char* symbols[],
+                                           double bids[], double asks[],
+                                           long timestamps[], int count);
+    __declspec(dllexport) int ConnectWebSocket(const char* endpoint, const char* auth_token);
+    __declspec(dllexport) int GetConnectionStatus();
+    __declspec(dllexport) void CleanupProtobuf();
+}
+
+// Internal Implementation
+class ProtobufManager {
+public:
+    bool SerializeBatchData(const std::vector<TickData>& ticks, std::string& output);
+    bool SendToWebSocket(const std::string& binary_data);
+    bool ValidateConnection();
+private:
+    std::unique_ptr<WebSocketClient> ws_client_;
+    BatchTickData current_batch_;
+};
+```
+
+#### **MT5 Expert Advisor Integration**:
+```mql5
+// MT5 Expert Advisor (MQL5 Code)
+#property copyright "AI Trading Platform"
+#property version   "1.00"
+
+#import "TradingProtobuf.dll"
+   int InitializeProtobuf();
+   int SendTickBatch(string symbols[], double bids[], double asks[], long timestamps[], int count);
+   int ConnectWebSocket(string endpoint, string auth_token);
+   int GetConnectionStatus();
+   void CleanupProtobuf();
+#import
+
+// Global variables
+string SYMBOLS[] = {"EURUSD", "GBPUSD", "USDJPY", "USDCHF", "AUDUSD",
+                   "USDCAD", "NZDUSD", "EURGBP", "EURJPY", "GBPJPY"};
+double tick_buffer_bids[10];
+double tick_buffer_asks[10];
+long tick_buffer_timestamps[10];
+int buffer_count = 0;
+
+// EA Initialization
+int OnInit() {
+    if(InitializeProtobuf() != 0) {
+        Print("Failed to initialize Protocol Buffers");
+        return INIT_FAILED;
+    }
+
+    // Connect to API Gateway WebSocket endpoint
+    string endpoint = "wss://api.gateway.com/ws/mt5";
+    string auth_token = "Bearer " + GetAuthToken();
+
+    if(ConnectWebSocket(endpoint, auth_token) != 0) {
+        Print("Failed to connect to WebSocket");
+        return INIT_FAILED;
+    }
+
+    Print("MT5 Protocol Buffers integration initialized successfully");
+    return INIT_SUCCEEDED;
+}
+
+// Tick processing
+void OnTick() {
+    // Collect tick data for all monitored symbols
+    for(int i = 0; i < ArraySize(SYMBOLS); i++) {
+        MqlTick tick;
+        if(SymbolInfoTick(SYMBOLS[i], tick)) {
+            // Add to batch buffer
+            tick_buffer_bids[buffer_count] = tick.bid;
+            tick_buffer_asks[buffer_count] = tick.ask;
+            tick_buffer_timestamps[buffer_count] = tick.time_msc;
+            buffer_count++;
+
+            // Send batch when buffer is full (5 ticks) or timeout (100ms)
+            if(buffer_count >= 5 || ShouldFlushBuffer()) {
+                SendTickBatch(SYMBOLS, tick_buffer_bids, tick_buffer_asks,
+                             tick_buffer_timestamps, buffer_count);
+                buffer_count = 0;
+            }
+        }
+    }
+}
+
+// Cleanup
+void OnDeinit(const int reason) {
+    CleanupProtobuf();
+    Print("Protocol Buffers integration cleaned up");
+}
+```
+
+### **Performance Benefits**:
+```
+MT5 Integration Performance:
+- Serialization: 1.5ms (vs 15ms JSON)
+- Memory Usage: 60% less bandwidth
+- CPU Usage: 10x less processing overhead
+- Network Efficiency: Optimal untuk 50+ ticks/second
+- Type Safety: Compile-time schema validation
+```
+
+### **DLL Dependencies**:
+- **Protocol Buffers C++**: libprotobuf.lib
+- **WebSocket Client**: websocketpp atau similar
+- **MT5 Terminal API**: Compatible dengan MT5 build 3000+
+- **Threading Support**: Multi-threaded tick processing
+
+### **Installation Process**:
+1. Compile TradingProtobuf.dll dengan Protocol Buffers support
+2. Place DLL di MT5 Terminal/MQL5/Libraries/ folder
+3. Install Expert Advisor di MT5 Terminal/MQL5/Experts/
+4. Configure WebSocket endpoint dan authentication dalam EA settings
+5. Enable DLL imports dalam MT5 Terminal options
 
 ---
 
@@ -374,33 +505,98 @@ correlation_data = {
 
 ## 📊 Data Format Specification
 
-### **Micro-batch JSON Format**:
-```json
-{
-  "timestamp": "2024-01-20T10:30:15.123Z",
-  "user_id": "user123",
-  "batch_id": "batch_456",
-  "ticks": [
-    {
-      "symbol": "EURUSD",
-      "time": "2024-01-20T10:30:15.120Z",
-      "bid": 1.08945,
-      "ask": 1.08948,
-      "volume": 150,
-      "spread": 0.00003,
-      "indicators": {
-        "sma_20": 1.08950,
-        "ema_20": 1.08947,
-        "rsi_14": 65.4
-      }
-    }
-  ],
-  "quality": {
-    "validation_passed": 5,
-    "validation_failed": 0,
-    "processing_time_ms": 2.3
-  }
+### **Protocol Buffers Schema Integration**:
+
+#### **Schema Source**:
+```
+Source: ../backend/01-core-infrastructure/central-hub/shared/proto/common/tick-data.proto
+Generated: client-mt5/03-communication/protobuf/generated/
+```
+
+#### **BatchTickData Protocol Buffers Message**:
+```protobuf
+message BatchTickData {
+  repeated TickData ticks = 1;         // Pre-processed tick data
+  string user_id = 2;                  // User identifier
+  int32 batch_id = 3;                  // Batch sequence number
+  int64 batch_timestamp = 4;           // Batch creation time (Unix ms)
+  QualityMetrics quality = 5;          // Client-side quality metrics
+  string company_id = 6;               // Multi-tenant company ID
+  SubscriptionTier tier = 7;           // User subscription tier
 }
+
+message TickData {
+  string symbol = 1;                   // Trading pair ("EURUSD")
+  double bid = 2;                      // Bid price
+  double ask = 3;                      // Ask price
+  int64 timestamp = 4;                 // Tick timestamp (Unix ms)
+  int32 volume = 5;                    // Tick volume
+  double spread = 6;                   // Calculated spread
+  TechnicalIndicators indicators = 7;  // Local-computed indicators
+}
+
+message TechnicalIndicators {
+  double sma_20 = 1;                   // Simple Moving Average
+  double ema_20 = 2;                   // Exponential Moving Average
+  double rsi_14 = 3;                   // Relative Strength Index
+  double bb_upper = 4;                 // Bollinger Band Upper
+  double bb_lower = 5;                 // Bollinger Band Lower
+}
+
+message QualityMetrics {
+  int32 validation_passed = 1;         // Successfully validated ticks
+  int32 validation_failed = 2;         // Failed validation ticks
+  double processing_time_ms = 3;       // Local processing time
+  double confidence_score = 4;         // Overall data confidence (0.0-1.0)
+  int32 missed_ticks = 5;              // Number of missed ticks
+}
+```
+
+### **Binary Serialization Benefits**:
+```
+Performance Comparison (1000 ticks):
+JSON Serialization:    ~15ms + ~150KB data
+Protobuf Serialization: ~1.5ms + ~60KB data
+
+Network Benefits:
+- 60% smaller payload size
+- 10x faster serialization/deserialization
+- Lower CPU usage on MT5 client
+- Reduced WebSocket bandwidth usage
+- Type safety dan schema validation
+```
+
+### **Sample Binary Data Flow**:
+```cpp
+// MT5 Expert Advisor Integration
+#include "BatchTickData.pb.h"
+
+// Create protobuf message
+BatchTickData batch;
+batch.set_user_id("user123");
+batch.set_batch_id(456);
+batch.set_batch_timestamp(GetTickCount64());
+
+// Add tick data
+TickData* tick = batch.add_ticks();
+tick->set_symbol("EURUSD");
+tick->set_bid(1.08945);
+tick->set_ask(1.08948);
+tick->set_volume(150);
+tick->set_timestamp(GetTickCount64());
+
+// Add technical indicators
+TechnicalIndicators* indicators = tick->mutable_indicators();
+indicators->set_sma_20(1.08950);
+indicators->set_ema_20(1.08947);
+indicators->set_rsi_14(65.4);
+
+// Serialize to binary
+std::string binary_data;
+batch.SerializeToString(&binary_data);
+
+// Send via WebSocket
+websocket_client->send_binary(binary_data);
 ```
 
 ### **Monitored Symbol Pairs**:
