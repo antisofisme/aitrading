@@ -1,0 +1,378 @@
+syntax = "proto3";
+
+package business.v1;
+
+import "common/base.proto";
+
+option go_package = "github.com/aitrading/proto/business/v1";
+option java_package = "com.aitrading.proto.business.v1";
+option csharp_namespace = "AiTrading.Proto.Business.V1";
+
+// Chart timeframes
+enum ChartTimeframe {
+  CHART_TIMEFRAME_UNSPECIFIED = 0;
+  CHART_TIMEFRAME_1M = 1;
+  CHART_TIMEFRAME_5M = 2;
+  CHART_TIMEFRAME_15M = 3;
+  CHART_TIMEFRAME_30M = 4;
+  CHART_TIMEFRAME_1H = 5;
+  CHART_TIMEFRAME_4H = 6;
+  CHART_TIMEFRAME_1D = 7;
+  CHART_TIMEFRAME_1W = 8;
+  CHART_TIMEFRAME_1MO = 9;
+}
+
+// Report types
+enum ReportType {
+  REPORT_TYPE_UNSPECIFIED = 0;
+  REPORT_TYPE_PERFORMANCE = 1;
+  REPORT_TYPE_RISK = 2;
+  REPORT_TYPE_TRADE_HISTORY = 3;
+  REPORT_TYPE_AI_ANALYSIS = 4;
+  REPORT_TYPE_PORTFOLIO_SUMMARY = 5;
+}
+
+// Chart data types
+enum ChartDataType {
+  CHART_DATA_TYPE_UNSPECIFIED = 0;
+  CHART_DATA_TYPE_CANDLESTICK = 1;
+  CHART_DATA_TYPE_LINE = 2;
+  CHART_DATA_TYPE_VOLUME = 3;
+  CHART_DATA_TYPE_INDICATOR = 4;
+}
+
+// Analytics data point - Category B: Medium Volume + Important
+// Transport: gRPC with Protocol Buffers
+// Performance target: <50ms response time
+message ChartDataPoint {
+  common.v1.Timestamp timestamp = 1;
+  double open = 2;
+  double high = 3;
+  double low = 4;
+  double close = 5;
+  double volume = 6;
+  map<string, double> indicators = 7;    // Technical indicators
+  map<string, double> custom_data = 8;   // Custom analytics data
+}
+
+// Chart data response
+message ChartData {
+  string symbol = 1;
+  string tenant_id = 2;
+  ChartTimeframe timeframe = 3;
+  ChartDataType data_type = 4;
+  repeated ChartDataPoint data_points = 5;
+  common.v1.Timestamp from = 6;
+  common.v1.Timestamp to = 7;
+  int32 total_points = 8;
+  string data_source = 9;
+  common.v1.Timestamp last_updated = 10;
+}
+
+// Performance analytics
+message PerformanceAnalytics {
+  string portfolio_id = 1;
+  string tenant_id = 2;
+  common.v1.Timestamp period_start = 3;
+  common.v1.Timestamp period_end = 4;
+
+  // Return metrics
+  double total_return = 5;
+  double annualized_return = 6;
+  double daily_return = 7;
+  double weekly_return = 8;
+  double monthly_return = 9;
+  double quarterly_return = 10;
+
+  // Risk metrics
+  double volatility = 11;
+  double sharpe_ratio = 12;
+  double sortino_ratio = 13;
+  double max_drawdown = 14;
+  double calmar_ratio = 15;
+
+  // Trading metrics
+  double win_rate = 16;
+  double profit_factor = 17;
+  double average_win = 18;
+  double average_loss = 19;
+  int32 total_trades = 20;
+  int32 winning_trades = 21;
+  int32 losing_trades = 22;
+
+  // Advanced metrics
+  double beta = 23;
+  double alpha = 24;
+  double information_ratio = 25;
+  double tracking_error = 26;
+
+  repeated PerformanceDataPoint time_series = 27;
+}
+
+// Performance time series data
+message PerformanceDataPoint {
+  common.v1.Timestamp timestamp = 1;
+  double cumulative_return = 2;
+  double daily_return = 3;
+  common.v1.Money portfolio_value = 4;
+  double drawdown = 5;
+  double volatility = 6;           // Rolling volatility
+  double sharpe_ratio = 7;         // Rolling Sharpe ratio
+}
+
+// AI analytics insights
+message AIAnalytics {
+  string tenant_id = 1;
+  string symbol = 2;
+  common.v1.Timestamp analysis_time = 3;
+
+  // Model performance
+  repeated ModelPerformanceMetric model_metrics = 4;
+
+  // Prediction accuracy
+  double overall_accuracy = 5;
+  double recent_accuracy = 6;      // Last 30 days
+  double trend_accuracy = 7;       // Trend direction accuracy
+  double price_accuracy = 8;       // Price level accuracy
+
+  // Feature importance
+  map<string, double> feature_importance = 9;
+
+  // Market regime analysis
+  string current_regime = 10;      // "trending", "ranging", "volatile"
+  double regime_confidence = 11;
+
+  // AI trading metrics
+  double ai_win_rate = 12;
+  double ai_profit_factor = 13;
+  common.v1.Money ai_total_pnl = 14;
+  int32 ai_total_trades = 15;
+
+  repeated AIInsight insights = 16;
+}
+
+// Individual AI insights
+message AIInsight {
+  string insight_id = 1;
+  string insight_type = 2;         // "pattern", "anomaly", "opportunity"
+  string title = 3;
+  string description = 4;
+  double confidence = 5;           // 0-1
+  string severity = 6;             // "low", "medium", "high"
+  common.v1.Timestamp detected_at = 7;
+  common.v1.Timestamp expires_at = 8;
+  map<string, string> metadata = 9;
+  bool is_actionable = 10;
+}
+
+// Risk analytics
+message RiskAnalytics {
+  string portfolio_id = 1;
+  string tenant_id = 2;
+  common.v1.Timestamp analysis_time = 3;
+
+  // Value at Risk
+  double var_95 = 4;               // 95% confidence VaR
+  double var_99 = 5;               // 99% confidence VaR
+  double expected_shortfall = 6;   // Conditional VaR
+
+  // Risk decomposition
+  map<string, double> symbol_risk_contribution = 7;
+  map<string, double> sector_risk_contribution = 8;
+
+  // Concentration risk
+  double concentration_index = 9;   // Herfindahl index
+  double max_position_weight = 10;
+  string most_concentrated_symbol = 11;
+
+  // Correlation analysis
+  double portfolio_correlation = 12; // Average correlation
+  repeated CorrelationPair correlations = 13;
+
+  // Stress testing
+  repeated StressTestResult stress_tests = 14;
+
+  // Risk warnings
+  repeated RiskWarning warnings = 15;
+}
+
+// Correlation between assets
+message CorrelationPair {
+  string symbol_1 = 1;
+  string symbol_2 = 2;
+  double correlation = 3;
+  int32 observation_days = 4;
+  common.v1.Timestamp calculated_at = 5;
+}
+
+// Stress test results
+message StressTestResult {
+  string scenario_name = 1;        // "market_crash", "currency_crisis", etc
+  string description = 2;
+  double portfolio_impact = 3;     // Percentage impact
+  common.v1.Money value_impact = 4; // Absolute value impact
+  map<string, double> position_impacts = 5; // Impact per position
+  double probability = 6;          // Scenario probability
+}
+
+// Risk warnings
+message RiskWarning {
+  string warning_id = 1;
+  string warning_type = 2;         // "concentration", "correlation", "leverage"
+  string title = 3;
+  string message = 4;
+  string severity = 5;             // "low", "medium", "high", "critical"
+  common.v1.Timestamp detected_at = 6;
+  bool is_acknowledged = 7;
+  map<string, string> details = 8;
+}
+
+// Get chart data request
+message GetChartDataRequest {
+  common.v1.BaseMessage base = 1;
+  string symbol = 2;
+  ChartTimeframe timeframe = 3;
+  common.v1.Timestamp from = 4;
+  common.v1.Timestamp to = 5;
+  repeated string indicators = 6;   // Technical indicators to include
+  ChartDataType data_type = 7;
+}
+
+message GetChartDataResponse {
+  common.v1.Response response = 1;
+  ChartData chart_data = 2;
+}
+
+// Get performance analytics
+message GetPerformanceAnalyticsRequest {
+  common.v1.BaseMessage base = 1;
+  string portfolio_id = 2;
+  common.v1.Timestamp period_start = 3;
+  common.v1.Timestamp period_end = 4;
+  string benchmark_symbol = 5;     // Optional benchmark
+  bool include_time_series = 6;
+}
+
+message GetPerformanceAnalyticsResponse {
+  common.v1.Response response = 1;
+  PerformanceAnalytics analytics = 2;
+  PerformanceAnalytics benchmark = 3; // If benchmark requested
+}
+
+// Get AI analytics
+message GetAIAnalyticsRequest {
+  common.v1.BaseMessage base = 1;
+  string symbol = 2;                // Optional symbol filter
+  string portfolio_id = 3;          // Optional portfolio filter
+  common.v1.Timestamp from = 4;
+  common.v1.Timestamp to = 5;
+  bool include_insights = 6;
+}
+
+message GetAIAnalyticsResponse {
+  common.v1.Response response = 1;
+  AIAnalytics analytics = 2;
+}
+
+// Get risk analytics
+message GetRiskAnalyticsRequest {
+  common.v1.BaseMessage base = 1;
+  string portfolio_id = 2;
+  bool include_stress_tests = 3;
+  bool include_correlations = 4;
+  int32 correlation_days = 5;       // Lookback period for correlations
+}
+
+message GetRiskAnalyticsResponse {
+  common.v1.Response response = 1;
+  RiskAnalytics analytics = 2;
+}
+
+// Generate report request
+message GenerateReportRequest {
+  common.v1.BaseMessage base = 1;
+  ReportType report_type = 2;
+  string portfolio_id = 3;
+  common.v1.Timestamp period_start = 4;
+  common.v1.Timestamp period_end = 5;
+  string format = 6;                // "pdf", "csv", "json"
+  map<string, string> parameters = 7; // Report-specific parameters
+}
+
+message GenerateReportResponse {
+  common.v1.Response response = 1;
+  string report_id = 2;
+  string download_url = 3;
+  string report_format = 4;
+  int64 file_size_bytes = 5;
+  common.v1.Timestamp generated_at = 6;
+  common.v1.Timestamp expires_at = 7;
+}
+
+// Market analytics and insights
+message MarketAnalytics {
+  string symbol = 1;
+  string tenant_id = 2;
+  common.v1.Timestamp analysis_time = 3;
+
+  // Market sentiment
+  double sentiment_score = 4;       // -1 to 1 (bearish to bullish)
+  string sentiment_label = 5;       // "bearish", "neutral", "bullish"
+
+  // Volatility analysis
+  double implied_volatility = 6;
+  double historical_volatility = 7;
+  double volatility_percentile = 8; // Current vol vs historical
+
+  // Trend analysis
+  string trend_direction = 9;       // "up", "down", "sideways"
+  double trend_strength = 10;       // 0-1
+  double trend_duration_days = 11;
+
+  // Support/resistance levels
+  repeated PriceLevel support_levels = 12;
+  repeated PriceLevel resistance_levels = 13;
+
+  // Volume analysis
+  double average_volume = 14;
+  double volume_trend = 15;         // Current vs average
+  bool unusual_volume = 16;
+
+  // Market regime
+  string market_regime = 17;        // "trending", "ranging", "breakout"
+  double regime_confidence = 18;
+}
+
+// Price levels (support/resistance)
+message PriceLevel {
+  double price = 1;
+  double strength = 2;              // 0-1, how strong the level is
+  int32 touches = 3;                // How many times price hit this level
+  common.v1.Timestamp last_test = 4; // Last time price tested this level
+  string level_type = 5;            // "support", "resistance"
+}
+
+// Get market analytics
+message GetMarketAnalyticsRequest {
+  common.v1.BaseMessage base = 1;
+  string symbol = 2;
+  int32 lookback_days = 3;          // Analysis period
+  bool include_levels = 4;          // Include support/resistance
+}
+
+message GetMarketAnalyticsResponse {
+  common.v1.Response response = 1;
+  MarketAnalytics analytics = 2;
+}
+
+// Real-time analytics updates
+// Used for Category B transport (gRPC streaming)
+message AnalyticsUpdateStream {
+  string tenant_id = 1;
+  repeated ChartDataPoint chart_updates = 2;
+  repeated PerformanceDataPoint performance_updates = 3;
+  repeated AIInsight ai_insights = 4;
+  repeated RiskWarning risk_alerts = 5;
+  common.v1.Timestamp stream_timestamp = 6;
+  string update_type = 7;           // "price", "performance", "risk", "ai"
+}

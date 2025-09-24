@@ -34,9 +34,29 @@ Feature-Engineering → ML-Processing → Trading-Engine → Risk-Management
 
 ---
 
-## 🔧 Protocol Buffers Integration
+## 🚀 Transport Architecture & Contract Integration
+
+### **Transport Decision Matrix Applied**:
+
+#### **Kategori A: High Volume + Mission Critical**
+- **Primary Transport**: NATS + Protocol Buffers (<1ms latency)
+- **Backup Transport**: Kafka + Protocol Buffers (guaranteed delivery)
+- **Failover**: Automatic dengan sequence tracking
+- **Services**: Feature Engineering → ML Processing, ML → Trading Engine
+- **Performance**: <15ms AI inference (critical path requirement)
+
+#### **Kategori B: Medium Volume + Important**
+- **Transport**: gRPC (HTTP/2 + Protocol Buffers)
+- **Connection**: Pooling + circuit breaker
+- **Services**: Model management, performance monitoring
+
+#### **Kategori C: Low Volume + Standard**
+- **Transport**: HTTP REST + JSON via Kong Gateway
+- **Backup**: Redis Queue for reliability
+- **Services**: AI configuration, model deployment
 
 ### **Global Decisions Applied**:
+✅ **Multi-Transport Architecture**: NATS+Kafka for inference, gRPC for management, HTTP for config
 ✅ **Protocol Buffers Communication**: 60% smaller model payloads, 10x faster serialization
 ✅ **Multi-Tenant Architecture**: Company/user-level model isolation and access control
 ✅ **Request Tracing**: Complete correlation ID tracking through AI pipeline
@@ -641,6 +661,20 @@ async def health_check():
 
 ---
 
+## 🔗 Service Contract Specifications
+
+### **ML Processing Proto Contracts**:
+- **Input Contract**: Feature Vectors via NATS/Kafka dari Feature Engineering
+- **Output Contract**: ML Predictions via NATS/Kafka ke Trading Engine
+- **Model Management**: gRPC service untuk model deployment dan monitoring
+
+### **Critical Path Integration**:
+- **Feature-Engineering → ML-Processing**: NATS primary, Kafka backup
+- **ML-Processing → Trading-Engine**: NATS primary, Kafka backup
+- **Multi-Model Ensemble**: LSTM + CNN + XGBoost dengan intelligent routing
+
+---
+
 **Input Flow**: Feature-Engineering (feature vectors) → ML-Processing (AI inference)
 **Output Flow**: ML-Processing → Trading-Engine (actionable predictions)
-**Key Innovation**: Sub-15ms multi-model AI inference dengan real-time pattern recognition dan subscription-based model access untuk optimal trading performance.
+**Key Innovation**: Sub-15ms multi-model AI inference dengan multi-transport architecture, real-time pattern recognition dan subscription-based model access untuk optimal trading performance.

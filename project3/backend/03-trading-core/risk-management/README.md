@@ -34,9 +34,29 @@ User Preferences  Drawdown Control  Risk Metrics     Capital Protection
 
 ---
 
-## 🔧 Protocol Buffers Integration
+## 🚀 Transport Architecture & Contract Integration
+
+### **Transport Decision Matrix Applied**:
+
+#### **Kategori A: High Volume + Mission Critical**
+- **Primary Transport**: NATS + Protocol Buffers (<1ms latency)
+- **Backup Transport**: Kafka + Protocol Buffers (guaranteed delivery)
+- **Failover**: Automatic dengan sequence tracking
+- **Services**: Trading Signals → Risk Assessment, Risk → Approved Signals
+- **Performance**: <4ms risk calculation (critical path)
+
+#### **Kategori B: Medium Volume + Important**
+- **Transport**: gRPC (HTTP/2 + Protocol Buffers)
+- **Connection**: Pooling + circuit breaker
+- **Services**: Portfolio management, risk reporting
+
+#### **Kategori C: Low Volume + Standard**
+- **Transport**: HTTP REST + JSON via Kong Gateway
+- **Backup**: Redis Queue for reliability
+- **Services**: Risk configuration, compliance monitoring
 
 ### **Global Decisions Applied**:
+✅ **Multi-Transport Architecture**: NATS+Kafka for risk assessment, gRPC for management, HTTP for config
 ✅ **Protocol Buffers Communication**: 60% smaller risk payloads, 10x faster serialization
 ✅ **Multi-Tenant Architecture**: Company/user-level risk parameter isolation
 ✅ **Request Tracing**: Complete correlation ID tracking through risk pipeline
@@ -73,6 +93,103 @@ message RiskProcessingEnvelope {
   RiskProfile risk_profile = 9;      // User risk parameters
   AuthToken auth_token = 10;         // JWT + Protocol Buffers auth
 }
+```
+
+---
+
+## 📋 Standard Implementation Patterns
+
+### **BaseService Integration:**
+```python
+# Risk Management menggunakan Central Hub standardization
+from central_hub.static.utils import BaseService, ServiceConfig
+from central_hub.static.utils.patterns import (
+    StandardResponse, StandardDatabaseManager, StandardCacheManager,
+    RequestTracer, StandardCircuitBreaker, PerformanceTracker, ErrorDNA
+)
+
+class RiskManagementService(BaseService):
+    def __init__(self):
+        config = ServiceConfig(
+            service_name="risk-management",
+            version="3.5.0",
+            port=8005,
+            environment="production"
+        )
+        super().__init__(config)
+
+        # Service-specific components
+        self.var_calculator = None
+        self.position_sizer = None
+
+    async def custom_health_checks(self):
+        """Risk Management-specific health checks"""
+        return {
+            "risk_assessments_24h": await self.get_daily_assessment_count(),
+            "avg_risk_calc_time_ms": await self.get_avg_risk_time(),
+            "risk_approval_rate": await self.get_risk_approval_rate(),
+            "portfolio_var_compliance": await self.get_var_compliance_rate()
+        }
+```
+
+### **Standard Error Handling dengan ErrorDNA:**
+```python
+async def assess_trading_signals(self, signal_batch: TradingSignalBatch, correlation_id: str):
+    """Assess trading signals dengan standardized error handling"""
+    try:
+        return await self.process_with_tracing(
+            "risk_assessment",
+            self._assess_risk_batch,
+            correlation_id,
+            signal_batch
+        )
+    except Exception as e:
+        # ErrorDNA automatic analysis
+        error_analysis = self.error_analyzer.analyze_error(
+            error_message=str(e),
+            stack_trace=traceback.format_exc(),
+            correlation_id=correlation_id,
+            context={"operation": "risk_assessment", "batch_size": len(signal_batch.signals)}
+        )
+
+        self.logger.error(f"Risk assessment failed: {error_analysis.suggested_actions}")
+        return StandardResponse.error_response(str(e), correlation_id=correlation_id)
+```
+
+### **Standard Cache & Database Patterns:**
+```python
+# VaR calculation caching
+var_calculation = await self.cache.get_or_set(
+    f"var:{symbol}:{position_size}:{confidence_level}",
+    lambda: self.calculate_var(symbol, position_size, confidence_level),
+    ttl=300  # 5 minutes
+)
+
+# User risk profile caching
+risk_profile = await self.cache.get_or_set(
+    f"risk_profile:{user_id}",
+    lambda: self.db.fetch_one(
+        "SELECT * FROM user_risk_profiles WHERE user_id = $1",
+        {"user_id": user_id}
+    ),
+    ttl=3600  # 1 hour
+)
+```
+
+### **Circuit Breaker untuk Market Data:**
+```python
+# Market data service dengan circuit breaker protection
+if not await self.check_circuit_breaker("market_data"):
+    try:
+        volatility = await self.market_data_client.get_volatility(symbol)
+        await self.record_external_success("market_data")
+        return volatility
+    except Exception as e:
+        await self.record_external_failure("market_data")
+        # Fallback to cached historical volatility
+        return await self.get_cached_volatility(symbol)
+else:
+    return await self.get_cached_volatility(symbol)
 ```
 
 ---
@@ -787,6 +904,20 @@ class RiskComplianceMonitor:
 
 ---
 
+## 🔗 Service Contract Specifications
+
+### **Risk Management Proto Contracts**:
+- **Input Contract**: Trading Signals via NATS/Kafka from `/trading/trading_signals.proto`
+- **Output Contract**: Risk Assessments via NATS/Kafka to `/risk/risk_assessment.proto`
+- **Portfolio Management**: gRPC service for portfolio analysis dan compliance monitoring
+
+### **Critical Path Integration**:
+- **Trading-Engine → Risk-Management**: NATS primary, Kafka backup
+- **Risk-Management → API-Gateway**: NATS primary, Kafka backup
+- **Risk-Management → Analytics**: gRPC for risk metrics
+
+---
+
 **Input Flow**: Trading-Engine (trading signals) → Risk-Management (risk assessment)
 **Output Flow**: Risk-Management → API-Gateway → Client-MT5 (approved signals)
-**Key Innovation**: Sub-4ms comprehensive risk assessment dengan multi-tenant controls dan advanced portfolio protection untuk optimal capital preservation.
+**Key Innovation**: Sub-4ms comprehensive risk assessment dengan multi-transport architecture, multi-tenant controls dan advanced portfolio protection untuk optimal capital preservation.

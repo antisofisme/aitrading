@@ -1,0 +1,431 @@
+syntax = "proto3";
+
+package services.v1;
+
+import "common/base.proto";
+import "business/user_management.proto";
+
+option go_package = "github.com/aitrading/proto/services/v1";
+option java_package = "com.aitrading.proto.services.v1";
+option csharp_namespace = "AiTrading.Proto.Services.V1";
+
+// User Management Service - Category B: Medium Volume + Important
+// Transport: gRPC with Protocol Buffers
+// Performance target: <50ms response time
+// Connection pooling + circuit breaker
+service UserService {
+  // Authentication operations
+  rpc Authenticate(business.v1.AuthenticateRequest) returns (business.v1.AuthenticateResponse);
+  rpc RefreshToken(RefreshTokenRequest) returns (business.v1.AuthenticateResponse);
+  rpc Logout(LogoutRequest) returns (LogoutResponse);
+  rpc ValidateToken(ValidateTokenRequest) returns (ValidateTokenResponse);
+
+  // User registration and management
+  rpc RegisterUser(business.v1.RegisterUserRequest) returns (business.v1.RegisterUserResponse);
+  rpc UpdateUser(business.v1.UpdateUserRequest) returns (business.v1.UpdateUserResponse);
+  rpc GetUser(GetUserRequest) returns (GetUserResponse);
+  rpc DeleteUser(DeleteUserRequest) returns (DeleteUserResponse);
+  rpc ListUsers(business.v1.ListUsersRequest) returns (business.v1.ListUsersResponse);
+
+  // Password management
+  rpc ChangePassword(business.v1.ChangePasswordRequest) returns (business.v1.ChangePasswordResponse);
+  rpc ResetPassword(ResetPasswordRequest) returns (ResetPasswordResponse);
+  rpc VerifyPasswordReset(VerifyPasswordResetRequest) returns (VerifyPasswordResetResponse);
+
+  // Multi-factor authentication
+  rpc SetupMFA(business.v1.SetupMFARequest) returns (business.v1.SetupMFAResponse);
+  rpc VerifyMFA(VerifyMFARequest) returns (VerifyMFAResponse);
+  rpc DisableMFA(DisableMFARequest) returns (DisableMFAResponse);
+  rpc GenerateBackupCodes(GenerateBackupCodesRequest) returns (GenerateBackupCodesResponse);
+
+  // Session management
+  rpc GetUserSessions(business.v1.GetUserSessionsRequest) returns (business.v1.GetUserSessionsResponse);
+  rpc RevokeSession(business.v1.RevokeSessionRequest) returns (business.v1.RevokeSessionResponse);
+  rpc RevokeAllSessions(RevokeAllSessionsRequest) returns (RevokeAllSessionsResponse);
+
+  // User permissions and roles
+  rpc CheckPermission(business.v1.CheckPermissionRequest) returns (business.v1.CheckPermissionResponse);
+  rpc UpdateUserRole(UpdateUserRoleRequest) returns (UpdateUserRoleResponse);
+  rpc GetUserPermissions(GetUserPermissionsRequest) returns (GetUserPermissionsResponse);
+
+  // User preferences
+  rpc UpdatePreferences(UpdatePreferencesRequest) returns (UpdatePreferencesResponse);
+  rpc GetPreferences(GetPreferencesRequest) returns (GetPreferencesResponse);
+
+  // Email verification
+  rpc SendVerificationEmail(SendVerificationEmailRequest) returns (SendVerificationEmailResponse);
+  rpc VerifyEmail(VerifyEmailRequest) returns (VerifyEmailResponse);
+
+  // User activity and audit
+  rpc LogUserActivity(LogUserActivityRequest) returns (LogUserActivityResponse);
+  rpc GetUserActivity(GetUserActivityRequest) returns (GetUserActivityResponse);
+
+  // Tenant management (admin operations)
+  rpc CreateTenant(CreateTenantRequest) returns (CreateTenantResponse);
+  rpc UpdateTenant(UpdateTenantRequest) returns (UpdateTenantResponse);
+  rpc GetTenant(GetTenantRequest) returns (GetTenantResponse);
+  rpc ListTenants(ListTenantsRequest) returns (ListTenantsResponse);
+  rpc DeleteTenant(DeleteTenantRequest) returns (DeleteTenantResponse);
+
+  // User invitation system
+  rpc InviteUser(InviteUserRequest) returns (InviteUserResponse);
+  rpc AcceptInvitation(AcceptInvitationRequest) returns (AcceptInvitationResponse);
+  rpc ListInvitations(ListInvitationsRequest) returns (ListInvitationsResponse);
+  rpc RevokeInvitation(RevokeInvitationRequest) returns (RevokeInvitationResponse);
+}
+
+// Additional message types for gRPC service
+
+// Token refresh request
+message RefreshTokenRequest {
+  common.v1.BaseMessage base = 1;
+  string refresh_token = 2;
+  string device_id = 3;
+}
+
+// Logout request
+message LogoutRequest {
+  common.v1.BaseMessage base = 1;
+  string session_id = 2;
+  bool revoke_all_sessions = 3;
+}
+
+message LogoutResponse {
+  common.v1.Response response = 1;
+  bool logged_out = 2;
+}
+
+// Token validation
+message ValidateTokenRequest {
+  common.v1.BaseMessage base = 1;
+  string access_token = 2;
+  string required_permission = 3;        // Optional permission check
+}
+
+message ValidateTokenResponse {
+  common.v1.Response response = 1;
+  bool is_valid = 2;
+  business.v1.User user = 3;
+  repeated string permissions = 4;
+  common.v1.Timestamp expires_at = 5;
+}
+
+// Get user request
+message GetUserRequest {
+  common.v1.BaseMessage base = 1;
+  string user_id = 2;
+  bool include_permissions = 3;
+  bool include_preferences = 4;
+}
+
+message GetUserResponse {
+  common.v1.Response response = 1;
+  business.v1.User user = 2;
+  repeated string permissions = 3;
+}
+
+// Delete user request
+message DeleteUserRequest {
+  common.v1.BaseMessage base = 1;
+  string user_id = 2;
+  string deletion_reason = 3;
+  bool hard_delete = 4;                  // True = permanent deletion
+}
+
+message DeleteUserResponse {
+  common.v1.Response response = 1;
+  bool deleted = 2;
+}
+
+// Password reset
+message ResetPasswordRequest {
+  common.v1.BaseMessage base = 1;
+  string email = 2;
+  string callback_url = 3;               // URL for reset link
+}
+
+message ResetPasswordResponse {
+  common.v1.Response response = 1;
+  string reset_token = 2;                // For testing/dev environments
+  bool email_sent = 3;
+}
+
+message VerifyPasswordResetRequest {
+  common.v1.BaseMessage base = 1;
+  string reset_token = 2;
+  string new_password = 3;
+}
+
+message VerifyPasswordResetResponse {
+  common.v1.Response response = 1;
+  bool password_reset = 2;
+}
+
+// MFA operations
+message VerifyMFARequest {
+  common.v1.BaseMessage base = 1;
+  string mfa_token = 2;
+  string backup_code = 3;                // Alternative to mfa_token
+}
+
+message VerifyMFAResponse {
+  common.v1.Response response = 1;
+  bool verified = 2;
+}
+
+message DisableMFARequest {
+  common.v1.BaseMessage base = 1;
+  string password = 2;                   // Require password confirmation
+}
+
+message DisableMFAResponse {
+  common.v1.Response response = 1;
+  bool disabled = 2;
+}
+
+message GenerateBackupCodesRequest {
+  common.v1.BaseMessage base = 1;
+  string password = 2;                   // Require password confirmation
+}
+
+message GenerateBackupCodesResponse {
+  common.v1.Response response = 1;
+  repeated string backup_codes = 2;
+}
+
+// Session management
+message RevokeAllSessionsRequest {
+  common.v1.BaseMessage base = 1;
+  string user_id = 2;
+  string except_session_id = 3;          // Don't revoke this session
+}
+
+message RevokeAllSessionsResponse {
+  common.v1.Response response = 1;
+  int32 revoked_count = 2;
+}
+
+// Role and permissions
+message UpdateUserRoleRequest {
+  common.v1.BaseMessage base = 1;
+  string user_id = 2;
+  business.v1.UserRole new_role = 3;
+  string change_reason = 4;
+}
+
+message UpdateUserRoleResponse {
+  common.v1.Response response = 1;
+  business.v1.User updated_user = 2;
+}
+
+message GetUserPermissionsRequest {
+  common.v1.BaseMessage base = 1;
+  string user_id = 2;
+}
+
+message GetUserPermissionsResponse {
+  common.v1.Response response = 1;
+  repeated string permissions = 2;
+  map<string, string> permission_details = 3;
+}
+
+// User preferences
+message UpdatePreferencesRequest {
+  common.v1.BaseMessage base = 1;
+  business.v1.UserPreferences preferences = 2;
+}
+
+message UpdatePreferencesResponse {
+  common.v1.Response response = 1;
+  business.v1.UserPreferences updated_preferences = 2;
+}
+
+message GetPreferencesRequest {
+  common.v1.BaseMessage base = 1;
+  string user_id = 2;
+}
+
+message GetPreferencesResponse {
+  common.v1.Response response = 1;
+  business.v1.UserPreferences preferences = 2;
+}
+
+// Email verification
+message SendVerificationEmailRequest {
+  common.v1.BaseMessage base = 1;
+  string email = 2;
+  string callback_url = 3;
+}
+
+message SendVerificationEmailResponse {
+  common.v1.Response response = 1;
+  bool email_sent = 2;
+  string verification_token = 3;         // For testing/dev
+}
+
+message VerifyEmailRequest {
+  common.v1.BaseMessage base = 1;
+  string verification_token = 2;
+}
+
+message VerifyEmailResponse {
+  common.v1.Response response = 1;
+  bool email_verified = 2;
+  business.v1.User updated_user = 3;
+}
+
+// User activity logging
+message LogUserActivityRequest {
+  common.v1.BaseMessage base = 1;
+  business.v1.UserActivity activity = 2;
+}
+
+message LogUserActivityResponse {
+  common.v1.Response response = 1;
+  string activity_id = 2;
+}
+
+message GetUserActivityRequest {
+  common.v1.BaseMessage base = 1;
+  string user_id = 2;
+  string activity_type = 3;              // Optional filter
+  common.v1.Timestamp from = 4;
+  common.v1.Timestamp to = 5;
+  common.v1.Pagination pagination = 6;
+}
+
+message GetUserActivityResponse {
+  common.v1.Response response = 1;
+  repeated business.v1.UserActivity activities = 2;
+  common.v1.Pagination pagination = 3;
+}
+
+// Tenant management
+message CreateTenantRequest {
+  common.v1.BaseMessage base = 1;
+  business.v1.Tenant tenant = 2;
+  string admin_user_email = 3;           // First admin user
+  string admin_user_password = 4;
+}
+
+message CreateTenantResponse {
+  common.v1.Response response = 1;
+  business.v1.Tenant tenant = 2;
+  business.v1.User admin_user = 3;
+}
+
+message UpdateTenantRequest {
+  common.v1.BaseMessage base = 1;
+  business.v1.Tenant tenant = 2;
+  repeated string update_mask = 3;       // Fields to update
+}
+
+message UpdateTenantResponse {
+  common.v1.Response response = 1;
+  business.v1.Tenant updated_tenant = 2;
+}
+
+message GetTenantRequest {
+  common.v1.BaseMessage base = 1;
+  string tenant_id = 2;
+}
+
+message GetTenantResponse {
+  common.v1.Response response = 1;
+  business.v1.Tenant tenant = 2;
+}
+
+message ListTenantsRequest {
+  common.v1.BaseMessage base = 1;
+  business.v1.SubscriptionTier tier_filter = 2; // Optional filter
+  bool active_only = 3;
+  common.v1.Pagination pagination = 4;
+}
+
+message ListTenantsResponse {
+  common.v1.Response response = 1;
+  repeated business.v1.Tenant tenants = 2;
+  common.v1.Pagination pagination = 3;
+}
+
+message DeleteTenantRequest {
+  common.v1.BaseMessage base = 1;
+  string tenant_id = 2;
+  string deletion_reason = 3;
+  bool hard_delete = 4;
+}
+
+message DeleteTenantResponse {
+  common.v1.Response response = 1;
+  bool deleted = 2;
+}
+
+// User invitations
+message InviteUserRequest {
+  common.v1.BaseMessage base = 1;
+  string email = 2;
+  business.v1.UserRole role = 3;
+  string tenant_id = 4;
+  string message = 5;                    // Optional invitation message
+  common.v1.Timestamp expires_at = 6;    // Optional expiry
+}
+
+message InviteUserResponse {
+  common.v1.Response response = 1;
+  string invitation_id = 2;
+  string invitation_token = 3;
+  string invitation_url = 4;
+}
+
+message AcceptInvitationRequest {
+  common.v1.BaseMessage base = 1;
+  string invitation_token = 2;
+  string password = 3;
+  string full_name = 4;
+  string username = 5;
+}
+
+message AcceptInvitationResponse {
+  common.v1.Response response = 1;
+  business.v1.User user = 2;
+  business.v1.Tenant tenant = 3;
+  string access_token = 4;
+  string refresh_token = 5;
+}
+
+message ListInvitationsRequest {
+  common.v1.BaseMessage base = 1;
+  string tenant_id = 2;
+  bool pending_only = 3;
+  common.v1.Pagination pagination = 4;
+}
+
+message ListInvitationsResponse {
+  common.v1.Response response = 1;
+  repeated UserInvitation invitations = 2;
+  common.v1.Pagination pagination = 3;
+}
+
+message UserInvitation {
+  string invitation_id = 1;
+  string email = 2;
+  business.v1.UserRole role = 3;
+  string tenant_id = 4;
+  string invited_by = 5;                 // User ID who sent invitation
+  common.v1.Timestamp created_at = 6;
+  common.v1.Timestamp expires_at = 7;
+  bool is_accepted = 8;
+  common.v1.Timestamp accepted_at = 9;
+  string message = 10;
+}
+
+message RevokeInvitationRequest {
+  common.v1.BaseMessage base = 1;
+  string invitation_id = 2;
+  string revocation_reason = 3;
+}
+
+message RevokeInvitationResponse {
+  common.v1.Response response = 1;
+  bool revoked = 2;
+}

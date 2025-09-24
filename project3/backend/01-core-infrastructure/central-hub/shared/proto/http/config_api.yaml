@@ -1,0 +1,1204 @@
+openapi: 3.0.3
+info:
+  title: Configuration Management API
+  description: |
+    Category C: Low Volume + Standard
+    Transport: HTTP REST + JSON via Kong Gateway
+    Performance target: <500ms response time
+
+    Configuration management API for system-wide settings, tenant configurations,
+    and service parameters. Includes backup/restore, validation, and audit capabilities.
+  version: 1.0.0
+  contact:
+    name: AI Trading Platform
+    url: https://github.com/aitrading/platform
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: https://api.aitrading.platform/config/v1
+    description: Production API Gateway
+  - url: https://staging-api.aitrading.platform/config/v1
+    description: Staging API Gateway
+  - url: http://localhost:8000/config/v1
+    description: Local Development
+
+security:
+  - BearerAuth: []
+  - ApiKeyAuth: []
+
+paths:
+  /health:
+    get:
+      summary: Health check endpoint
+      description: Check configuration service health
+      tags: [Health]
+      security: []
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+        '503':
+          description: Service unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /configs:
+    get:
+      summary: List configurations
+      description: Get configurations with optional filtering
+      tags: [Configuration]
+      parameters:
+        - name: key_prefix
+          in: query
+          description: Filter by key prefix
+          schema:
+            type: string
+            example: "trading.risk"
+        - name: scope
+          in: query
+          description: Configuration scope filter
+          schema:
+            $ref: '#/components/schemas/ConfigScope'
+        - name: scope_id
+          in: query
+          description: Scope ID (tenant_id, user_id, service_name)
+          schema:
+            type: string
+        - name: group_name
+          in: query
+          description: Configuration group filter
+          schema:
+            type: string
+        - name: include_sensitive
+          in: query
+          description: Include sensitive configs (masked values)
+          schema:
+            type: boolean
+            default: false
+        - name: page
+          in: query
+          description: Page number
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          description: Items per page
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: List of configurations
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfigListResponse'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    post:
+      summary: Create/update configuration
+      description: Create new configuration or update existing one
+      tags: [Configuration]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateConfigRequest'
+      responses:
+        '201':
+          description: Configuration created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfigResponse'
+        '200':
+          description: Configuration updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfigResponse'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /configs/{key}:
+    get:
+      summary: Get configuration by key
+      description: Retrieve specific configuration value
+      tags: [Configuration]
+      parameters:
+        - name: key
+          in: path
+          required: true
+          description: Configuration key (dot notation)
+          schema:
+            type: string
+            example: "trading.risk.max_position_size"
+        - name: scope
+          in: query
+          description: Configuration scope
+          schema:
+            $ref: '#/components/schemas/ConfigScope'
+        - name: scope_id
+          in: query
+          description: Scope ID (tenant_id, user_id, service_name)
+          schema:
+            type: string
+        - name: include_defaults
+          in: query
+          description: Include default values if not set
+          schema:
+            type: boolean
+            default: true
+        - name: decrypt_sensitive
+          in: query
+          description: Decrypt sensitive values (requires admin permission)
+          schema:
+            type: boolean
+            default: false
+      responses:
+        '200':
+          description: Configuration found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfigResponse'
+        '404':
+          description: Configuration not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    put:
+      summary: Update configuration
+      description: Update existing configuration value
+      tags: [Configuration]
+      parameters:
+        - name: key
+          in: path
+          required: true
+          description: Configuration key
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateConfigRequest'
+      responses:
+        '200':
+          description: Configuration updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfigResponse'
+        '404':
+          description: Configuration not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    delete:
+      summary: Delete configuration
+      description: Remove configuration entry
+      tags: [Configuration]
+      parameters:
+        - name: key
+          in: path
+          required: true
+          description: Configuration key
+          schema:
+            type: string
+        - name: scope
+          in: query
+          description: Configuration scope
+          schema:
+            $ref: '#/components/schemas/ConfigScope'
+        - name: scope_id
+          in: query
+          description: Scope ID
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                deletion_reason:
+                  type: string
+                  description: Reason for deletion
+              required:
+                - deletion_reason
+      responses:
+        '200':
+          description: Configuration deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '404':
+          description: Configuration not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /configs/bulk:
+    post:
+      summary: Bulk configuration operations
+      description: Create, update, or delete multiple configurations
+      tags: [Configuration]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BulkConfigRequest'
+      responses:
+        '200':
+          description: Bulk operations completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BulkConfigResponse'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /configs/validate:
+    post:
+      summary: Validate configuration
+      description: Validate configuration value without saving
+      tags: [Configuration]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ValidateConfigRequest'
+      responses:
+        '200':
+          description: Validation result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationResponse'
+        '400':
+          description: Validation failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationResponse'
+
+  /configs/groups:
+    get:
+      summary: List configuration groups
+      description: Get all configuration groups
+      tags: [Groups]
+      responses:
+        '200':
+          description: List of configuration groups
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ConfigGroup'
+
+  /configs/groups/{groupName}:
+    get:
+      summary: Get configuration group
+      description: Get specific configuration group with its items
+      tags: [Groups]
+      parameters:
+        - name: groupName
+          in: path
+          required: true
+          description: Group name
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Configuration group
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfigGroup'
+        '404':
+          description: Group not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /configs/history/{key}:
+    get:
+      summary: Get configuration history
+      description: Get change history for specific configuration
+      tags: [Audit]
+      parameters:
+        - name: key
+          in: path
+          required: true
+          description: Configuration key
+          schema:
+            type: string
+        - name: scope
+          in: query
+          description: Configuration scope
+          schema:
+            $ref: '#/components/schemas/ConfigScope'
+        - name: scope_id
+          in: query
+          description: Scope ID
+          schema:
+            type: string
+        - name: from
+          in: query
+          description: Start date (ISO 8601)
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          description: End date (ISO 8601)
+          schema:
+            type: string
+            format: date-time
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: Configuration history
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfigHistoryResponse'
+
+  /configs/backup:
+    post:
+      summary: Create configuration backup
+      description: Create backup of configurations
+      tags: [Backup]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BackupRequest'
+      responses:
+        '201':
+          description: Backup created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BackupResponse'
+
+    get:
+      summary: List configuration backups
+      description: Get list of available backups
+      tags: [Backup]
+      responses:
+        '200':
+          description: List of backups
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/BackupInfo'
+
+  /configs/backup/{backupId}:
+    get:
+      summary: Download configuration backup
+      description: Download backup file
+      tags: [Backup]
+      parameters:
+        - name: backupId
+          in: path
+          required: true
+          description: Backup ID
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Backup file
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: Backup not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /configs/restore:
+    post:
+      summary: Restore configuration from backup
+      description: Restore configurations from backup file
+      tags: [Backup]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                backup_file:
+                  type: string
+                  format: binary
+                  description: Backup file to restore
+                overwrite_existing:
+                  type: boolean
+                  default: false
+                target_scope:
+                  $ref: '#/components/schemas/ConfigScope'
+                target_scope_id:
+                  type: string
+      responses:
+        '200':
+          description: Restore completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RestoreResponse'
+
+  /configs/reload/{serviceName}:
+    post:
+      summary: Reload service configuration
+      description: Trigger configuration reload for specific service
+      tags: [Service Management]
+      parameters:
+        - name: serviceName
+          in: path
+          required: true
+          description: Service name
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                force_reload:
+                  type: boolean
+                  default: false
+      responses:
+        '200':
+          description: Configuration reloaded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReloadResponse'
+
+  /configs/templates:
+    get:
+      summary: List configuration templates
+      description: Get available configuration templates
+      tags: [Templates]
+      parameters:
+        - name: category
+          in: query
+          description: Template category filter
+          schema:
+            type: string
+            enum: [trading, ai, security, system]
+      responses:
+        '200':
+          description: List of templates
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ConfigTemplate'
+
+  /configs/templates/{templateId}/apply:
+    post:
+      summary: Apply configuration template
+      description: Apply template to specific scope
+      tags: [Templates]
+      parameters:
+        - name: templateId
+          in: path
+          required: true
+          description: Template ID
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApplyTemplateRequest'
+      responses:
+        '200':
+          description: Template applied
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApplyTemplateResponse'
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+
+  schemas:
+    ConfigScope:
+      type: string
+      enum: [global, tenant, user, service]
+      description: Configuration scope level
+
+    ConfigValueType:
+      type: string
+      enum: [string, integer, float, boolean, json, array]
+      description: Configuration value data type
+
+    ConfigItem:
+      type: object
+      properties:
+        config_id:
+          type: string
+          description: Unique configuration ID
+        key:
+          type: string
+          description: Configuration key (dot notation)
+          example: "trading.risk.max_position_size"
+        value:
+          type: string
+          description: Configuration value (string representation)
+        value_type:
+          $ref: '#/components/schemas/ConfigValueType'
+        scope:
+          $ref: '#/components/schemas/ConfigScope'
+        scope_id:
+          type: string
+          description: Tenant ID, User ID, or Service name
+          nullable: true
+        description:
+          type: string
+          description: Human-readable description
+        is_sensitive:
+          type: boolean
+          description: Should be encrypted/masked
+        is_required:
+          type: boolean
+          description: Required for system operation
+        default_value:
+          type: string
+          description: Default value if not set
+          nullable: true
+        allowed_values:
+          type: array
+          items:
+            type: string
+          description: Valid values for validation
+        validation_regex:
+          type: string
+          description: Regex pattern for validation
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        created_by:
+          type: string
+          description: User who created this config
+        updated_by:
+          type: string
+          description: User who last updated
+        version:
+          type: integer
+          description: Configuration version
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+          description: Additional metadata
+      required:
+        - key
+        - value
+        - value_type
+        - scope
+
+    ConfigGroup:
+      type: object
+      properties:
+        group_id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        default_scope:
+          $ref: '#/components/schemas/ConfigScope'
+        is_system_group:
+          type: boolean
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ConfigItem'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+
+    ConfigHistory:
+      type: object
+      properties:
+        history_id:
+          type: string
+        config_key:
+          type: string
+        scope:
+          $ref: '#/components/schemas/ConfigScope'
+        scope_id:
+          type: string
+          nullable: true
+        old_value:
+          type: string
+          nullable: true
+        new_value:
+          type: string
+        changed_by:
+          type: string
+        changed_at:
+          type: string
+          format: date-time
+        change_reason:
+          type: string
+        change_type:
+          type: string
+          enum: [create, update, delete]
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+
+    ConfigTemplate:
+      type: object
+      properties:
+        template_id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        target_scope:
+          $ref: '#/components/schemas/ConfigScope'
+        template_items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ConfigItem'
+        is_system_template:
+          type: boolean
+        category:
+          type: string
+          enum: [trading, ai, security, system]
+        required_variables:
+          type: array
+          items:
+            type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        created_by:
+          type: string
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+
+    # Request/Response schemas
+    CreateConfigRequest:
+      type: object
+      properties:
+        config_item:
+          $ref: '#/components/schemas/ConfigItem'
+        create_if_not_exists:
+          type: boolean
+          default: true
+        encrypt_if_sensitive:
+          type: boolean
+          default: true
+        change_reason:
+          type: string
+      required:
+        - config_item
+
+    UpdateConfigRequest:
+      type: object
+      properties:
+        value:
+          type: string
+        description:
+          type: string
+        is_sensitive:
+          type: boolean
+        change_reason:
+          type: string
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+      required:
+        - value
+
+    BulkConfigRequest:
+      type: object
+      properties:
+        configs_to_set:
+          type: array
+          items:
+            $ref: '#/components/schemas/ConfigItem'
+        keys_to_delete:
+          type: array
+          items:
+            type: string
+        scope:
+          $ref: '#/components/schemas/ConfigScope'
+        scope_id:
+          type: string
+        change_reason:
+          type: string
+      required:
+        - change_reason
+
+    ValidateConfigRequest:
+      type: object
+      properties:
+        config_item:
+          $ref: '#/components/schemas/ConfigItem'
+        check_dependencies:
+          type: boolean
+          default: false
+      required:
+        - config_item
+
+    BackupRequest:
+      type: object
+      properties:
+        scope:
+          $ref: '#/components/schemas/ConfigScope'
+        scope_id:
+          type: string
+        backup_name:
+          type: string
+        include_sensitive:
+          type: boolean
+          default: false
+
+    ApplyTemplateRequest:
+      type: object
+      properties:
+        target_scope:
+          $ref: '#/components/schemas/ConfigScope'
+        target_scope_id:
+          type: string
+        variables:
+          type: object
+          additionalProperties:
+            type: string
+          description: Template variable values
+        overwrite_existing:
+          type: boolean
+          default: false
+      required:
+        - target_scope
+
+    # Response schemas
+    ConfigResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        config_item:
+          $ref: '#/components/schemas/ConfigItem'
+        using_default:
+          type: boolean
+          description: True if returning default value
+        message:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+
+    ConfigListResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        config_items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ConfigItem'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+        total_count:
+          type: integer
+        message:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+
+    BulkConfigResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        successful_sets:
+          type: integer
+        successful_deletes:
+          type: integer
+        failed_keys:
+          type: array
+          items:
+            type: string
+        error_messages:
+          type: array
+          items:
+            type: string
+        message:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+
+    ValidationResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        is_valid:
+          type: boolean
+        validation_errors:
+          type: array
+          items:
+            type: string
+        warnings:
+          type: array
+          items:
+            type: string
+        message:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+
+    ConfigHistoryResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        history:
+          type: array
+          items:
+            $ref: '#/components/schemas/ConfigHistory'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+        message:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+
+    BackupResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        backup_id:
+          type: string
+        backup_url:
+          type: string
+          description: Download URL
+        config_count:
+          type: integer
+        file_size_bytes:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+
+    BackupInfo:
+      type: object
+      properties:
+        backup_id:
+          type: string
+        backup_name:
+          type: string
+        scope:
+          $ref: '#/components/schemas/ConfigScope'
+        scope_id:
+          type: string
+        config_count:
+          type: integer
+        file_size_bytes:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+        created_by:
+          type: string
+
+    RestoreResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        restored_count:
+          type: integer
+        skipped_count:
+          type: integer
+        conflicts:
+          type: array
+          items:
+            type: string
+          description: Conflicting configuration keys
+        message:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+
+    ReloadResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        service_config:
+          type: object
+          properties:
+            service_name:
+              type: string
+            config_hash:
+              type: string
+            last_reload:
+              type: string
+              format: date-time
+            requires_restart:
+              type: boolean
+        config_changed:
+          type: boolean
+        restart_required:
+          type: boolean
+        reloaded_at:
+          type: string
+          format: date-time
+        message:
+          type: string
+
+    ApplyTemplateResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        applied_count:
+          type: integer
+        applied_keys:
+          type: array
+          items:
+            type: string
+        skipped_keys:
+          type: array
+          items:
+            type: string
+        message:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [healthy, degraded, unhealthy]
+        service_name:
+          type: string
+        version:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        details:
+          type: object
+          properties:
+            database_status:
+              type: string
+            cache_status:
+              type: string
+            config_count:
+              type: integer
+            last_backup:
+              type: string
+              format: date-time
+
+    SuccessResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+
+    ErrorResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+          description: Error code
+        message:
+          type: string
+          description: Human-readable error message
+        details:
+          type: object
+          description: Additional error details
+        timestamp:
+          type: string
+          format: date-time
+        request_id:
+          type: string
+          description: Unique request identifier for tracing
+
+    Pagination:
+      type: object
+      properties:
+        page:
+          type: integer
+          minimum: 1
+        limit:
+          type: integer
+          minimum: 1
+        total:
+          type: integer
+          minimum: 0
+        has_next:
+          type: boolean
+        has_previous:
+          type: boolean
+
+tags:
+  - name: Health
+    description: Service health and status
+  - name: Configuration
+    description: Configuration management operations
+  - name: Groups
+    description: Configuration group management
+  - name: Audit
+    description: Configuration history and audit
+  - name: Backup
+    description: Configuration backup and restore
+  - name: Service Management
+    description: Service configuration reload
+  - name: Templates
+    description: Configuration templates

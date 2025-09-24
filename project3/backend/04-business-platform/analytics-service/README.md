@@ -34,9 +34,28 @@ Trading Results   Pattern Detection   Automated Reports  Performance Optimizatio
 
 ---
 
-## 🔧 Protocol Buffers Integration
+## 🚀 Transport Architecture & Contract Integration
+
+### **Transport Decision Matrix Applied**:
+
+#### **Kategori A: High Volume + Mission Critical**
+- **Primary Transport**: NATS + Protocol Buffers (<1ms latency)
+- **Backup Transport**: Kafka + Protocol Buffers (guaranteed delivery)
+- **Failover**: Automatic dengan sequence tracking
+- **Services**: Real-time analytics streaming, performance metrics
+
+#### **Kategori B: Medium Volume + Important**
+- **Transport**: gRPC (HTTP/2 + Protocol Buffers)
+- **Connection**: Pooling + circuit breaker
+- **Services**: Business intelligence queries, report generation
+
+#### **Kategori C: Low Volume + Standard**
+- **Transport**: HTTP REST + JSON via Kong Gateway
+- **Backup**: Redis Queue for reliability
+- **Services**: Analytics configuration, dashboard management
 
 ### **Global Decisions Applied**:
+✅ **Multi-Transport Architecture**: NATS+Kafka for streaming, gRPC for queries, HTTP for config
 ✅ **Protocol Buffers Communication**: 60% smaller analytics payloads, 10x faster serialization
 ✅ **Multi-Tenant Architecture**: Company/user-level data isolation and access control
 ✅ **Request Tracing**: Complete correlation ID tracking through analytics pipeline
@@ -73,6 +92,101 @@ message AnalyticsProcessingEnvelope {
   DataClassification data_class = 9; // Data sensitivity classification
   AuthToken auth_token = 10;         // JWT + Protocol Buffers auth
 }
+```
+
+---
+
+## 📋 Standard Implementation Pattern
+
+### **BaseService Integration:**
+```python
+# Analytics Service implementation menggunakan Central Hub standards
+from central_hub.static.utils import BaseService, ServiceConfig
+from central_hub.static.utils.patterns import (
+    StandardResponse, StandardDatabaseManager, StandardCacheManager,
+    RequestTracer, StandardCircuitBreaker, PerformanceTracker, ErrorDNA
+)
+
+class AnalyticsService(BaseService):
+    def __init__(self):
+        config = ServiceConfig(
+            service_name="analytics-service",
+            version="4.0.0",
+            port=8003,
+            environment="production"
+        )
+        super().__init__(config)
+
+        # Service-specific initialization
+        self.performance_tracker = PerformanceTracker("analytics-service")
+        self.error_analyzer = ErrorDNA("analytics-service")
+
+    async def custom_health_checks(self):
+        """Analytics-specific health checks"""
+        return {
+            "analytics_queries_24h": await self.get_daily_query_count(),
+            "avg_dashboard_response_ms": await self.get_avg_dashboard_time(),
+            "data_processing_success_rate": await self.get_processing_success_rate()
+        }
+
+    async def process_analytics_request(self, request_data, correlation_id):
+        """Standard analytics processing with patterns"""
+        return await self.process_with_tracing(
+            "analytics_query",
+            self._execute_analytics_query,
+            correlation_id,
+            request_data
+        )
+```
+
+### **Standard Error Handling:**
+```python
+# ErrorDNA integration untuk intelligent error analysis
+try:
+    analytics_result = await self.process_business_intelligence(data)
+except Exception as e:
+    # Automatic error analysis dengan suggestions
+    error_analysis = self.error_analyzer.analyze_error(
+        error_message=str(e),
+        stack_trace=traceback.format_exc(),
+        correlation_id=correlation_id,
+        context={"operation": "business_intelligence", "user_id": user_id}
+    )
+
+    # Log dengan ErrorDNA insights
+    self.logger.error(f"Analytics processing failed: {error_analysis.suggested_actions}")
+
+    return StandardResponse.error_response(
+        error_message=str(e),
+        correlation_id=correlation_id,
+        service_name=self.service_name
+    )
+```
+
+### **Standard Performance Monitoring:**
+```python
+# Automatic performance tracking untuk all analytics operations
+with self.performance_tracker.measure("dashboard_generation", user_id=user_id):
+    dashboard_data = await self.generate_real_time_dashboard(request)
+
+# Get performance insights
+performance_summary = self.performance_tracker.get_performance_summary()
+```
+
+### **Standard Database & Cache Access:**
+```python
+# Consistent database patterns
+user_metrics = await self.db.fetch_many(
+    "SELECT * FROM user_analytics WHERE user_id = $1 AND date >= $2",
+    {"user_id": user_id, "date": start_date}
+)
+
+# Standard caching patterns
+cached_result = await self.cache.get_or_set(
+    f"analytics:dashboard:{user_id}",
+    lambda: self.generate_dashboard_data(user_id),
+    ttl=300  # 5 minutes
+)
 ```
 
 ---
@@ -691,6 +805,20 @@ async def health_check():
 
 ---
 
+## 🔗 Service Contract Specifications
+
+### **Analytics Service Proto Contract**:
+- **Service Definition**: `/01-core-infrastructure/central-hub/static/proto/services/analytics_service.proto`
+- **gRPC Methods**: 40+ RPCs for chart data, technical indicators, AI insights, market analytics
+- **Real-time Streaming**: GetChartDataStream(), GetTechnicalIndicatorStream(), GetMarketInsightStream()
+
+### **HTTP REST API Contract**:
+- **OpenAPI Specification**: `/01-core-infrastructure/central-hub/static/proto/http/analytics_api.yaml`
+- **Configuration Endpoints**: Analytics settings, dashboard management, report scheduling
+- **Kong Gateway Integration**: External API access dengan rate limiting dan authentication
+
+---
+
 **Input Flow**: All Services (performance data) → Analytics-Service (processing)
 **Output Flow**: Analytics-Service → Dashboards + Reports + Business Intelligence
-**Key Innovation**: Sub-5ms real-time business intelligence dengan comprehensive KPI tracking, AI-powered insights, dan multi-format reporting untuk data-driven decision making.
+**Key Innovation**: Sub-5ms real-time business intelligence dengan multi-transport architecture, comprehensive KPI tracking, AI-powered insights, dan multi-format reporting untuk data-driven decision making.

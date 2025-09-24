@@ -1,0 +1,287 @@
+syntax = "proto3";
+
+package business.v1;
+
+import "common/base.proto";
+import "trading/orders.proto";
+
+option go_package = "github.com/aitrading/proto/business/v1";
+option java_package = "com.aitrading.proto.business.v1";
+option csharp_namespace = "AiTrading.Proto.Business.V1";
+
+// Position status
+enum PositionStatus {
+  POSITION_STATUS_UNSPECIFIED = 0;
+  POSITION_STATUS_OPEN = 1;
+  POSITION_STATUS_CLOSED = 2;
+  POSITION_STATUS_PARTIALLY_CLOSED = 3;
+}
+
+// Portfolio type
+enum PortfolioType {
+  PORTFOLIO_TYPE_UNSPECIFIED = 0;
+  PORTFOLIO_TYPE_LIVE = 1;
+  PORTFOLIO_TYPE_DEMO = 2;
+  PORTFOLIO_TYPE_BACKTEST = 3;
+}
+
+// Trading position - Category B: Medium Volume + Important
+// Transport: gRPC with Protocol Buffers
+// Performance target: <50ms response time
+message Position {
+  string position_id = 1;
+  string tenant_id = 2;
+  string user_id = 3;
+  string symbol = 4;
+  trading.v1.OrderSide side = 5;         // Long or Short
+  double quantity = 6;                   // Current quantity
+  double average_open_price = 7;         // Average entry price
+  double current_price = 8;              // Current market price
+  common.v1.Money unrealized_pnl = 9;    // Unrealized P&L
+  common.v1.Money realized_pnl = 10;     // Realized P&L from partial closes
+  PositionStatus status = 11;
+  common.v1.Timestamp opened_at = 12;
+  common.v1.Timestamp updated_at = 13;
+  common.v1.Timestamp closed_at = 14;
+  string strategy_id = 15;               // AI strategy that opened position
+  double stop_loss = 16;                 // Stop loss level
+  double take_profit = 17;               // Take profit level
+  repeated string order_ids = 18;        // Orders that created this position
+  map<string, string> metadata = 19;
+}
+
+// Portfolio summary
+message Portfolio {
+  string portfolio_id = 1;
+  string tenant_id = 2;
+  string user_id = 3;
+  string portfolio_name = 4;
+  PortfolioType portfolio_type = 5;
+  common.v1.Money total_balance = 6;
+  common.v1.Money available_balance = 7;
+  common.v1.Money used_margin = 8;
+  common.v1.Money free_margin = 9;
+  common.v1.Money total_pnl = 10;        // Total unrealized P&L
+  common.v1.Money daily_pnl = 11;        // Today's P&L
+  double margin_level = 12;              // Margin level percentage
+  repeated Position positions = 13;
+  PortfolioMetrics metrics = 14;
+  common.v1.Timestamp last_updated = 15;
+  bool is_active = 16;
+  string base_currency = 17;
+}
+
+// Portfolio performance metrics
+message PortfolioMetrics {
+  double total_return = 1;               // Total return percentage
+  double daily_return = 2;               // Daily return percentage
+  double weekly_return = 3;              // Weekly return percentage
+  double monthly_return = 4;             // Monthly return percentage
+  double sharpe_ratio = 5;               // Risk-adjusted return
+  double max_drawdown = 6;               // Maximum drawdown
+  double win_rate = 7;                   // Winning trades percentage
+  double profit_factor = 8;              // Gross profit / gross loss
+  int32 total_trades = 9;
+  int32 winning_trades = 10;
+  int32 losing_trades = 11;
+  common.v1.Money largest_win = 12;
+  common.v1.Money largest_loss = 13;
+  double average_trade_duration_hours = 14;
+  common.v1.Timestamp metrics_period_start = 15;
+  common.v1.Timestamp metrics_period_end = 16;
+}
+
+// Portfolio balance history for charts
+message BalanceHistory {
+  string portfolio_id = 1;
+  string tenant_id = 2;
+  common.v1.Timestamp timestamp = 3;
+  common.v1.Money balance = 4;
+  common.v1.Money equity = 5;            // Balance + unrealized P&L
+  common.v1.Money free_margin = 6;
+  common.v1.Money used_margin = 7;
+  double drawdown = 8;                   // Current drawdown percentage
+}
+
+// Get portfolio summary
+message GetPortfolioRequest {
+  common.v1.BaseMessage base = 1;
+  string portfolio_id = 2;
+  bool include_positions = 3;
+  bool include_metrics = 4;
+}
+
+message GetPortfolioResponse {
+  common.v1.Response response = 1;
+  Portfolio portfolio = 2;
+}
+
+// List user portfolios
+message ListPortfoliosRequest {
+  common.v1.BaseMessage base = 1;
+  string user_id = 2;
+  PortfolioType portfolio_type = 3;      // Optional filter
+  bool active_only = 4;
+}
+
+message ListPortfoliosResponse {
+  common.v1.Response response = 1;
+  repeated Portfolio portfolios = 2;
+}
+
+// Get position details
+message GetPositionRequest {
+  common.v1.BaseMessage base = 1;
+  string position_id = 2;
+  bool include_orders = 3;               // Include related orders
+}
+
+message GetPositionResponse {
+  common.v1.Response response = 1;
+  Position position = 2;
+  repeated trading.v1.Order related_orders = 3;
+}
+
+// List positions
+message ListPositionsRequest {
+  common.v1.BaseMessage base = 1;
+  string portfolio_id = 2;
+  string symbol = 3;                     // Optional filter
+  PositionStatus status = 4;             // Optional filter
+  common.v1.Pagination pagination = 5;
+}
+
+message ListPositionsResponse {
+  common.v1.Response response = 1;
+  repeated Position positions = 2;
+  common.v1.Pagination pagination = 3;
+}
+
+// Close position request
+message ClosePositionRequest {
+  common.v1.BaseMessage base = 1;
+  string position_id = 2;
+  double quantity = 3;                   // Partial close if < position quantity
+  string close_reason = 4;               // "manual", "stop_loss", "take_profit"
+}
+
+message ClosePositionResponse {
+  common.v1.Response response = 1;
+  Position updated_position = 2;
+  trading.v1.Order close_order = 3;
+  common.v1.Money realized_pnl = 4;
+}
+
+// Update position stop loss / take profit
+message UpdatePositionRequest {
+  common.v1.BaseMessage base = 1;
+  string position_id = 2;
+  double new_stop_loss = 3;              // 0 to remove
+  double new_take_profit = 4;            // 0 to remove
+}
+
+message UpdatePositionResponse {
+  common.v1.Response response = 1;
+  Position updated_position = 2;
+}
+
+// Portfolio balance history
+message GetBalanceHistoryRequest {
+  common.v1.BaseMessage base = 1;
+  string portfolio_id = 2;
+  common.v1.Timestamp from = 3;
+  common.v1.Timestamp to = 4;
+  string timeframe = 5;                  // "1h", "1d", "1w"
+}
+
+message GetBalanceHistoryResponse {
+  common.v1.Response response = 1;
+  repeated BalanceHistory history = 2;
+}
+
+// Portfolio performance analysis
+message AnalyzePerformanceRequest {
+  common.v1.BaseMessage base = 1;
+  string portfolio_id = 2;
+  common.v1.Timestamp period_start = 3;
+  common.v1.Timestamp period_end = 4;
+  string benchmark_symbol = 5;          // Optional benchmark comparison
+}
+
+message AnalyzePerformanceResponse {
+  common.v1.Response response = 1;
+  PortfolioMetrics metrics = 2;
+  repeated TradeAnalysis trade_analysis = 3;
+  BenchmarkComparison benchmark = 4;     // If benchmark requested
+}
+
+// Individual trade analysis
+message TradeAnalysis {
+  string trade_id = 1;
+  string symbol = 2;
+  trading.v1.OrderSide side = 3;
+  double quantity = 4;
+  double entry_price = 5;
+  double exit_price = 6;
+  common.v1.Money pnl = 7;
+  common.v1.Timestamp entry_time = 8;
+  common.v1.Timestamp exit_time = 9;
+  double duration_hours = 10;
+  double return_percentage = 11;
+  string exit_reason = 12;               // "manual", "stop_loss", "take_profit"
+  string strategy_id = 13;
+}
+
+// Benchmark comparison
+message BenchmarkComparison {
+  string benchmark_symbol = 1;
+  double portfolio_return = 2;
+  double benchmark_return = 3;
+  double alpha = 4;                      // Excess return over benchmark
+  double beta = 5;                       // Portfolio volatility vs benchmark
+  double correlation = 6;                // Correlation with benchmark
+  double tracking_error = 7;             // Standard deviation of excess returns
+  double information_ratio = 8;          // Alpha / tracking error
+}
+
+// Risk metrics calculation
+message RiskMetrics {
+  string portfolio_id = 1;
+  string tenant_id = 2;
+  double value_at_risk_95 = 3;           // 95% confidence VaR
+  double value_at_risk_99 = 4;           // 99% confidence VaR
+  double expected_shortfall = 5;         // Conditional VaR
+  double volatility = 6;                 // Portfolio volatility
+  double skewness = 7;                   // Return distribution skewness
+  double kurtosis = 8;                   // Return distribution kurtosis
+  double max_leverage = 9;               // Maximum leverage ratio
+  double current_leverage = 10;          // Current leverage ratio
+  map<string, double> position_concentrations = 11;  // % per symbol
+  common.v1.Timestamp calculated_at = 12;
+}
+
+// Portfolio risk assessment
+message AssessRiskRequest {
+  common.v1.BaseMessage base = 1;
+  string portfolio_id = 2;
+  int32 lookback_days = 3;               // Historical data period
+  double confidence_level = 4;           // VaR confidence level
+}
+
+message AssessRiskResponse {
+  common.v1.Response response = 1;
+  RiskMetrics risk_metrics = 2;
+  repeated string risk_warnings = 3;     // Risk alerts
+  bool within_risk_limits = 4;
+}
+
+// Real-time portfolio updates
+// Used for Category B transport (gRPC streaming)
+message PortfolioUpdateStream {
+  string tenant_id = 1;
+  repeated Portfolio portfolio_updates = 2;
+  repeated Position position_updates = 3;
+  repeated BalanceHistory balance_updates = 4;
+  common.v1.Timestamp stream_timestamp = 5;
+  string update_type = 6;                // "position_change", "price_update", etc
+}

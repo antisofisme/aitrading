@@ -1,0 +1,286 @@
+syntax = "proto3";
+
+package business.v1;
+
+import "common/base.proto";
+
+option go_package = "github.com/aitrading/proto/business/v1";
+option java_package = "com.aitrading.proto.business.v1";
+option csharp_namespace = "AiTrading.Proto.Business.V1";
+
+// User roles in the system
+enum UserRole {
+  USER_ROLE_UNSPECIFIED = 0;
+  USER_ROLE_TENANT_ADMIN = 1;
+  USER_ROLE_PORTFOLIO_MANAGER = 2;
+  USER_ROLE_ANALYST = 3;
+  USER_ROLE_API_USER = 4;
+  USER_ROLE_VIEWER = 5;
+}
+
+// User status
+enum UserStatus {
+  USER_STATUS_UNSPECIFIED = 0;
+  USER_STATUS_ACTIVE = 1;
+  USER_STATUS_INACTIVE = 2;
+  USER_STATUS_SUSPENDED = 3;
+  USER_STATUS_PENDING_VERIFICATION = 4;
+}
+
+// Subscription tiers
+enum SubscriptionTier {
+  SUBSCRIPTION_TIER_UNSPECIFIED = 0;
+  SUBSCRIPTION_TIER_FREE = 1;
+  SUBSCRIPTION_TIER_PRO = 2;
+  SUBSCRIPTION_TIER_ENTERPRISE = 3;
+}
+
+// User profile - Category B: Medium Volume + Important
+// Transport: gRPC with Protocol Buffers
+// Performance target: <50ms response time
+message User {
+  string user_id = 1;
+  string tenant_id = 2;
+  string email = 3;
+  string username = 4;
+  string full_name = 5;
+  UserRole role = 6;
+  UserStatus status = 7;
+  SubscriptionTier subscription_tier = 8;
+  common.v1.Timestamp created_at = 9;
+  common.v1.Timestamp last_login = 10;
+  common.v1.Timestamp updated_at = 11;
+  UserPreferences preferences = 12;
+  repeated string permissions = 13;
+  map<string, string> metadata = 14;
+  bool mfa_enabled = 15;
+  string timezone = 16;
+  string language = 17;
+}
+
+// User preferences and settings
+message UserPreferences {
+  string default_currency = 1;
+  string default_timeframe = 2;           // "1m", "5m", "1h", etc
+  bool email_notifications = 3;
+  bool push_notifications = 4;
+  bool telegram_notifications = 5;
+  double risk_tolerance = 6;              // 0.0 - 1.0
+  repeated string favorite_symbols = 7;
+  map<string, string> ui_settings = 8;   // Dashboard layout, etc
+  TradingPreferences trading_prefs = 9;
+}
+
+// Trading-specific preferences
+message TradingPreferences {
+  double default_position_size = 1;
+  double max_position_size = 2;
+  double stop_loss_percentage = 3;
+  double take_profit_percentage = 4;
+  bool auto_trading_enabled = 5;
+  repeated string allowed_symbols = 6;
+  map<string, double> symbol_position_limits = 7;
+  bool confirm_orders = 8;
+  string default_order_type = 9;         // "market", "limit"
+}
+
+// Tenant/Company information
+message Tenant {
+  string tenant_id = 1;
+  string company_name = 2;
+  string company_code = 3;                // Unique short code
+  SubscriptionTier subscription_tier = 4;
+  common.v1.Timestamp created_at = 5;
+  common.v1.Timestamp subscription_expires = 6;
+  TenantSettings settings = 7;
+  TenantLimits limits = 8;
+  repeated string features_enabled = 9;   // Feature flags
+  string primary_contact_email = 10;
+  bool is_active = 11;
+  map<string, string> metadata = 12;
+}
+
+// Tenant-level settings
+message TenantSettings {
+  string default_currency = 1;
+  string timezone = 2;
+  bool multi_user_enabled = 3;
+  bool api_access_enabled = 4;
+  repeated string allowed_countries = 5;
+  map<string, string> branding = 6;      // Logo, colors, etc
+  string data_retention_days = 7;
+  bool audit_logging = 8;
+}
+
+// Tenant usage limits
+message TenantLimits {
+  int32 max_users = 1;
+  int32 max_api_requests_per_hour = 2;
+  int32 max_concurrent_sessions = 3;
+  double max_total_position_size = 4;
+  int32 max_symbols_tracked = 5;
+  bool unlimited_backtesting = 6;
+  int32 max_ai_predictions_per_day = 7;
+  double max_data_storage_gb = 8;
+}
+
+// Authentication request/response
+message AuthenticateRequest {
+  common.v1.BaseMessage base = 1;
+  string email = 2;
+  string password = 3;
+  string mfa_token = 4;                   // If MFA enabled
+  string device_id = 5;
+  string user_agent = 6;
+  string ip_address = 7;
+}
+
+message AuthenticateResponse {
+  common.v1.Response response = 1;
+  string access_token = 2;
+  string refresh_token = 3;
+  common.v1.Timestamp expires_at = 4;
+  User user = 5;
+  repeated string permissions = 6;
+  bool requires_mfa = 7;
+}
+
+// User registration
+message RegisterUserRequest {
+  common.v1.BaseMessage base = 1;
+  string email = 2;
+  string password = 3;
+  string full_name = 4;
+  string username = 5;
+  string tenant_id = 6;                   // Optional for new tenant
+  string company_name = 7;                // If creating new tenant
+  string invitation_token = 8;            // If invited to existing tenant
+}
+
+message RegisterUserResponse {
+  common.v1.Response response = 1;
+  User user = 2;
+  Tenant tenant = 3;
+  bool requires_email_verification = 4;
+}
+
+// User profile update
+message UpdateUserRequest {
+  common.v1.BaseMessage base = 1;
+  string user_id = 2;
+  User updated_user = 3;
+  repeated string update_mask = 4;        // Fields to update
+}
+
+message UpdateUserResponse {
+  common.v1.Response response = 1;
+  User user = 2;
+}
+
+// Password change
+message ChangePasswordRequest {
+  common.v1.BaseMessage base = 1;
+  string current_password = 2;
+  string new_password = 3;
+}
+
+message ChangePasswordResponse {
+  common.v1.Response response = 1;
+  bool password_changed = 2;
+}
+
+// MFA setup
+message SetupMFARequest {
+  common.v1.BaseMessage base = 1;
+  string mfa_type = 2;                    // "totp", "sms"
+  string phone_number = 3;                // For SMS
+}
+
+message SetupMFAResponse {
+  common.v1.Response response = 1;
+  string secret_key = 2;                  // For TOTP
+  string qr_code_url = 3;                 // For TOTP setup
+  repeated string backup_codes = 4;
+}
+
+// User session management
+message UserSession {
+  string session_id = 1;
+  string user_id = 2;
+  string tenant_id = 3;
+  common.v1.Timestamp created_at = 4;
+  common.v1.Timestamp last_activity = 5;
+  common.v1.Timestamp expires_at = 6;
+  string device_id = 7;
+  string ip_address = 8;
+  string user_agent = 9;
+  bool is_active = 10;
+  map<string, string> session_data = 11;
+}
+
+// Get user sessions
+message GetUserSessionsRequest {
+  common.v1.BaseMessage base = 1;
+  string user_id = 2;
+  bool active_only = 3;
+}
+
+message GetUserSessionsResponse {
+  common.v1.Response response = 1;
+  repeated UserSession sessions = 2;
+}
+
+// Revoke session
+message RevokeSessionRequest {
+  common.v1.BaseMessage base = 1;
+  string session_id = 2;
+}
+
+message RevokeSessionResponse {
+  common.v1.Response response = 1;
+  bool session_revoked = 2;
+}
+
+// User activity logging
+message UserActivity {
+  string activity_id = 1;
+  string user_id = 2;
+  string tenant_id = 3;
+  string activity_type = 4;               // "login", "trade", "view", etc
+  string description = 5;
+  common.v1.Timestamp timestamp = 6;
+  string ip_address = 7;
+  string user_agent = 8;
+  map<string, string> activity_data = 9;
+  string session_id = 10;
+}
+
+// List users (admin function)
+message ListUsersRequest {
+  common.v1.BaseMessage base = 1;
+  string tenant_id = 2;
+  UserRole role_filter = 3;               // Optional filter
+  UserStatus status_filter = 4;           // Optional filter
+  common.v1.Pagination pagination = 5;
+  string search_query = 6;                // Search by name/email
+}
+
+message ListUsersResponse {
+  common.v1.Response response = 1;
+  repeated User users = 2;
+  common.v1.Pagination pagination = 3;
+}
+
+// User permissions check
+message CheckPermissionRequest {
+  common.v1.BaseMessage base = 1;
+  string user_id = 2;
+  string resource = 3;                    // "trading", "analytics", etc
+  string action = 4;                      // "read", "write", "execute"
+}
+
+message CheckPermissionResponse {
+  common.v1.Response response = 1;
+  bool has_permission = 2;
+  string reason = 3;                      // If denied, why
+}

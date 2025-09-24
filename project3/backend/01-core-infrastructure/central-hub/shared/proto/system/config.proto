@@ -1,0 +1,311 @@
+syntax = "proto3";
+
+package system.v1;
+
+import "common/base.proto";
+
+option go_package = "github.com/aitrading/proto/system/v1";
+option java_package = "com.aitrading.proto.system.v1";
+option csharp_namespace = "AiTrading.Proto.System.V1";
+
+// Configuration value types
+enum ConfigValueType {
+  CONFIG_VALUE_TYPE_UNSPECIFIED = 0;
+  CONFIG_VALUE_TYPE_STRING = 1;
+  CONFIG_VALUE_TYPE_INTEGER = 2;
+  CONFIG_VALUE_TYPE_FLOAT = 3;
+  CONFIG_VALUE_TYPE_BOOLEAN = 4;
+  CONFIG_VALUE_TYPE_JSON = 5;
+  CONFIG_VALUE_TYPE_ARRAY = 6;
+}
+
+// Configuration scopes
+enum ConfigScope {
+  CONFIG_SCOPE_UNSPECIFIED = 0;
+  CONFIG_SCOPE_GLOBAL = 1;
+  CONFIG_SCOPE_TENANT = 2;
+  CONFIG_SCOPE_USER = 3;
+  CONFIG_SCOPE_SERVICE = 4;
+}
+
+// Configuration item - Category C: Low Volume + Standard
+// Transport: HTTP REST + JSON via Kong Gateway
+// Performance target: <500ms response time
+message ConfigItem {
+  string config_id = 1;
+  string key = 2;                       // Configuration key (dot notation)
+  string value = 3;                     // Configuration value (string representation)
+  ConfigValueType value_type = 4;       // How to interpret the value
+  ConfigScope scope = 5;                // Configuration scope
+  string scope_id = 6;                  // Tenant ID, User ID, Service name, etc
+  string description = 7;               // Human-readable description
+  bool is_sensitive = 8;                // Should be encrypted/masked
+  bool is_required = 9;                 // Required for system operation
+  string default_value = 10;            // Default value if not set
+  repeated string allowed_values = 11;   // Valid values (for validation)
+  string validation_regex = 12;         // Regex for value validation
+  common.v1.Timestamp created_at = 13;
+  common.v1.Timestamp updated_at = 14;
+  string created_by = 15;               // User who created this config
+  string updated_by = 16;               // User who last updated
+  int32 version = 17;                   // Configuration version
+  map<string, string> metadata = 18;   // Additional metadata
+}
+
+// Configuration group/namespace
+message ConfigGroup {
+  string group_id = 1;
+  string name = 2;                      // Group name (e.g., "trading", "ai", "system")
+  string description = 3;
+  ConfigScope default_scope = 4;        // Default scope for items in this group
+  bool is_system_group = 5;             // System-managed group
+  repeated ConfigItem items = 6;
+  common.v1.Timestamp created_at = 7;
+  common.v1.Timestamp updated_at = 8;
+  map<string, string> metadata = 9;
+}
+
+// Service configuration
+message ServiceConfig {
+  string service_name = 1;
+  string service_version = 2;
+  map<string, ConfigItem> config_items = 3;
+  string config_hash = 4;               // Hash of all config values
+  common.v1.Timestamp last_reload = 5;
+  bool requires_restart = 6;            // If true, service needs restart
+  repeated string dependencies = 7;      // Other services this depends on
+}
+
+// Get configuration request
+message GetConfigRequest {
+  common.v1.BaseMessage base = 1;
+  string key = 2;                       // Configuration key
+  ConfigScope scope = 3;                // Configuration scope
+  string scope_id = 4;                  // Tenant/User/Service ID
+  bool include_defaults = 5;            // Include default values
+  bool decrypt_sensitive = 6;           // Decrypt sensitive values (if authorized)
+}
+
+message GetConfigResponse {
+  common.v1.Response response = 1;
+  ConfigItem config_item = 2;
+  bool using_default = 3;               // True if returning default value
+}
+
+// Set configuration request
+message SetConfigRequest {
+  common.v1.BaseMessage base = 1;
+  ConfigItem config_item = 2;
+  bool create_if_not_exists = 3;
+  bool encrypt_if_sensitive = 4;
+  string change_reason = 5;             // Reason for the change
+}
+
+message SetConfigResponse {
+  common.v1.Response response = 1;
+  ConfigItem updated_config = 2;
+  bool created = 3;                     // True if newly created
+  int32 new_version = 4;
+}
+
+// List configurations
+message ListConfigsRequest {
+  common.v1.BaseMessage base = 1;
+  string key_prefix = 2;                // Filter by key prefix
+  ConfigScope scope = 3;                // Optional scope filter
+  string scope_id = 4;                  // Optional scope ID filter
+  string group_name = 5;                // Optional group filter
+  bool include_sensitive = 6;           // Include sensitive configs (masked)
+  common.v1.Pagination pagination = 7;
+}
+
+message ListConfigsResponse {
+  common.v1.Response response = 1;
+  repeated ConfigItem config_items = 2;
+  common.v1.Pagination pagination = 3;
+}
+
+// Delete configuration
+message DeleteConfigRequest {
+  common.v1.BaseMessage base = 1;
+  string key = 2;
+  ConfigScope scope = 3;
+  string scope_id = 4;
+  string deletion_reason = 5;
+}
+
+message DeleteConfigResponse {
+  common.v1.Response response = 1;
+  bool deleted = 2;
+}
+
+// Bulk configuration operations
+message BulkConfigRequest {
+  common.v1.BaseMessage base = 1;
+  repeated ConfigItem configs_to_set = 2;
+  repeated string keys_to_delete = 3;
+  ConfigScope scope = 4;
+  string scope_id = 5;
+  string change_reason = 6;
+}
+
+message BulkConfigResponse {
+  common.v1.Response response = 1;
+  int32 successful_sets = 2;
+  int32 successful_deletes = 3;
+  repeated string failed_keys = 4;
+  repeated string error_messages = 5;
+}
+
+// Configuration validation
+message ValidateConfigRequest {
+  common.v1.BaseMessage base = 1;
+  ConfigItem config_item = 2;
+  bool check_dependencies = 3;          // Validate dependent configs
+}
+
+message ValidateConfigResponse {
+  common.v1.Response response = 1;
+  bool is_valid = 2;
+  repeated string validation_errors = 3;
+  repeated string warnings = 4;
+}
+
+// Service configuration reload
+message ReloadServiceConfigRequest {
+  common.v1.BaseMessage base = 1;
+  string service_name = 2;
+  bool force_reload = 3;                // Force reload even if no changes
+}
+
+message ReloadServiceConfigResponse {
+  common.v1.Response response = 1;
+  ServiceConfig service_config = 2;
+  bool config_changed = 3;
+  bool restart_required = 4;
+  common.v1.Timestamp reloaded_at = 5;
+}
+
+// Configuration backup and restore
+message BackupConfigRequest {
+  common.v1.BaseMessage base = 1;
+  ConfigScope scope = 2;                // Scope to backup
+  string scope_id = 3;                  // Optional specific scope ID
+  string backup_name = 4;               // Optional backup name
+}
+
+message BackupConfigResponse {
+  common.v1.Response response = 1;
+  string backup_id = 2;
+  string backup_url = 3;                // Download URL
+  int64 config_count = 4;
+  common.v1.Timestamp created_at = 5;
+}
+
+message RestoreConfigRequest {
+  common.v1.BaseMessage base = 1;
+  string backup_id = 2;
+  bool overwrite_existing = 3;
+  ConfigScope target_scope = 4;
+  string target_scope_id = 5;
+}
+
+message RestoreConfigResponse {
+  common.v1.Response response = 1;
+  int32 restored_count = 2;
+  int32 skipped_count = 3;              // If overwrite_existing = false
+  repeated string conflicts = 4;         // Conflicting keys
+}
+
+// Configuration history and audit
+message ConfigHistory {
+  string history_id = 1;
+  string config_key = 2;
+  ConfigScope scope = 3;
+  string scope_id = 4;
+  string old_value = 5;
+  string new_value = 6;
+  string changed_by = 7;                // User who made the change
+  common.v1.Timestamp changed_at = 8;
+  string change_reason = 9;
+  string change_type = 10;              // "create", "update", "delete"
+  map<string, string> metadata = 11;
+}
+
+message GetConfigHistoryRequest {
+  common.v1.BaseMessage base = 1;
+  string config_key = 2;
+  ConfigScope scope = 3;
+  string scope_id = 4;
+  common.v1.Timestamp from = 5;
+  common.v1.Timestamp to = 6;
+  common.v1.Pagination pagination = 7;
+}
+
+message GetConfigHistoryResponse {
+  common.v1.Response response = 1;
+  repeated ConfigHistory history = 2;
+  common.v1.Pagination pagination = 3;
+}
+
+// Configuration templates
+message ConfigTemplate {
+  string template_id = 1;
+  string name = 2;
+  string description = 3;
+  ConfigScope target_scope = 4;
+  repeated ConfigItem template_items = 5;
+  bool is_system_template = 6;
+  string category = 7;                  // "trading", "ai", "security", etc
+  repeated string required_variables = 8; // Variables that need to be provided
+  common.v1.Timestamp created_at = 9;
+  common.v1.Timestamp updated_at = 10;
+  string created_by = 11;
+  map<string, string> metadata = 12;
+}
+
+message ApplyConfigTemplateRequest {
+  common.v1.BaseMessage base = 1;
+  string template_id = 2;
+  ConfigScope target_scope = 3;
+  string target_scope_id = 4;
+  map<string, string> variables = 5;   // Template variable values
+  bool overwrite_existing = 6;
+}
+
+message ApplyConfigTemplateResponse {
+  common.v1.Response response = 1;
+  int32 applied_count = 2;
+  repeated string applied_keys = 3;
+  repeated string skipped_keys = 4;
+}
+
+// Configuration monitoring and alerts
+message ConfigMonitor {
+  string monitor_id = 1;
+  string config_key = 2;
+  ConfigScope scope = 3;
+  string scope_id = 4;
+  string monitor_type = 5;              // "value_change", "validation_failure"
+  string alert_condition = 6;           // Condition that triggers alert
+  repeated string notification_channels = 7;
+  bool is_active = 8;
+  common.v1.Timestamp created_at = 9;
+  common.v1.Timestamp last_triggered = 10;
+  int32 trigger_count = 11;
+}
+
+// Configuration schema definitions
+message ConfigSchema {
+  string schema_id = 1;
+  string key_pattern = 2;               // Regex pattern for keys
+  ConfigValueType required_type = 3;
+  bool is_required = 4;
+  string description = 5;
+  repeated string allowed_values = 6;
+  string validation_regex = 7;
+  ConfigScope allowed_scope = 8;
+  bool is_sensitive = 9;
+  string default_value = 10;
+  map<string, string> metadata = 11;
+}

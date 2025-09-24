@@ -1,0 +1,654 @@
+syntax = "proto3";
+
+package services.v1;
+
+import "common/base.proto";
+import "business/analytics.proto";
+
+option go_package = "github.com/aitrading/proto/services/v1";
+option java_package = "com.aitrading.proto.services.v1";
+option csharp_namespace = "AiTrading.Proto.Services.V1";
+
+// Analytics Service - Category B: Medium Volume + Important
+// Transport: gRPC with Protocol Buffers
+// Performance target: <50ms response time
+// Connection pooling + circuit breaker
+service AnalyticsService {
+  // Chart data and market analysis
+  rpc GetChartData(business.v1.GetChartDataRequest) returns (business.v1.GetChartDataResponse);
+  rpc GetMultiSymbolCharts(GetMultiSymbolChartsRequest) returns (GetMultiSymbolChartsResponse);
+  rpc GetMarketAnalytics(business.v1.GetMarketAnalyticsRequest) returns (business.v1.GetMarketAnalyticsResponse);
+  rpc GetTechnicalIndicators(GetTechnicalIndicatorsRequest) returns (GetTechnicalIndicatorsResponse);
+
+  // Performance analytics
+  rpc GetPerformanceAnalytics(business.v1.GetPerformanceAnalyticsRequest) returns (business.v1.GetPerformanceAnalyticsResponse);
+  rpc GetPortfolioAttribution(GetPortfolioAttributionRequest) returns (GetPortfolioAttributionResponse);
+  rpc GetReturnAnalysis(GetReturnAnalysisRequest) returns (GetReturnAnalysisResponse);
+  rpc GetDrawdownAnalysis(GetDrawdownAnalysisRequest) returns (GetDrawdownAnalysisResponse);
+
+  // AI analytics and insights
+  rpc GetAIAnalytics(business.v1.GetAIAnalyticsRequest) returns (business.v1.GetAIAnalyticsResponse);
+  rpc GetModelPerformance(GetModelPerformanceRequest) returns (GetModelPerformanceResponse);
+  rpc GetPredictionAccuracy(GetPredictionAccuracyRequest) returns (GetPredictionAccuracyResponse);
+  rpc GetFeatureImportance(GetFeatureImportanceRequest) returns (GetFeatureImportanceResponse);
+
+  // Risk analytics
+  rpc GetRiskAnalytics(business.v1.GetRiskAnalyticsRequest) returns (business.v1.GetRiskAnalyticsResponse);
+  rpc GetCorrelationMatrix(GetCorrelationMatrixRequest) returns (GetCorrelationMatrixResponse);
+  rpc GetVolatilityAnalysis(GetVolatilityAnalysisRequest) returns (GetVolatilityAnalysisResponse);
+  rpc RunStressTest(RunStressTestRequest) returns (RunStressTestResponse);
+
+  // Market regime and sentiment analysis
+  rpc GetMarketRegime(GetMarketRegimeRequest) returns (GetMarketRegimeResponse);
+  rpc GetSentimentAnalysis(GetSentimentAnalysisRequest) returns (GetSentimentAnalysisResponse);
+  rpc GetMarketMicrostructure(GetMarketMicrostructureRequest) returns (GetMarketMicrostructureResponse);
+
+  // Comparative analysis
+  rpc CompareStrategies(CompareStrategiesRequest) returns (CompareStrategiesResponse);
+  rpc BenchmarkAnalysis(BenchmarkAnalysisRequest) returns (BenchmarkAnalysisResponse);
+  rpc PeerComparison(PeerComparisonRequest) returns (PeerComparisonResponse);
+
+  // Custom analytics and queries
+  rpc RunCustomAnalysis(RunCustomAnalysisRequest) returns (RunCustomAnalysisResponse);
+  rpc CreateAnalyticsReport(CreateAnalyticsReportRequest) returns (CreateAnalyticsReportResponse);
+  rpc ScheduleAnalytics(ScheduleAnalyticsRequest) returns (ScheduleAnalyticsResponse);
+
+  // Real-time analytics streaming
+  rpc StreamAnalytics(StreamAnalyticsRequest) returns (stream business.v1.AnalyticsUpdateStream);
+  rpc StreamMarketData(StreamMarketDataRequest) returns (stream MarketDataStream);
+  rpc StreamAIInsights(StreamAIInsightsRequest) returns (stream AIInsightStream);
+
+  // Report generation and export
+  rpc GenerateReport(business.v1.GenerateReportRequest) returns (business.v1.GenerateReportResponse);
+  rpc ExportAnalytics(ExportAnalyticsRequest) returns (ExportAnalyticsResponse);
+  rpc GetReportStatus(GetReportStatusRequest) returns (GetReportStatusResponse);
+
+  // Analytics configuration and preferences
+  rpc UpdateAnalyticsConfig(UpdateAnalyticsConfigRequest) returns (UpdateAnalyticsConfigResponse);
+  rpc GetAnalyticsConfig(GetAnalyticsConfigRequest) returns (GetAnalyticsConfigResponse);
+  rpc CreateCustomIndicator(CreateCustomIndicatorRequest) returns (CreateCustomIndicatorResponse);
+}
+
+// Multi-symbol chart data
+message GetMultiSymbolChartsRequest {
+  common.v1.BaseMessage base = 1;
+  repeated string symbols = 2;
+  business.v1.ChartTimeframe timeframe = 3;
+  common.v1.Timestamp from = 4;
+  common.v1.Timestamp to = 5;
+  repeated string indicators = 6;
+  bool normalize_prices = 7;            // Normalize to same scale
+}
+
+message GetMultiSymbolChartsResponse {
+  common.v1.Response response = 1;
+  map<string, business.v1.ChartData> charts = 2; // symbol -> chart data
+  repeated business.v1.CorrelationPair correlations = 3;
+}
+
+// Technical indicators
+message GetTechnicalIndicatorsRequest {
+  common.v1.BaseMessage base = 1;
+  string symbol = 2;
+  business.v1.ChartTimeframe timeframe = 3;
+  repeated string indicators = 4;       // "RSI", "MACD", "BB", etc
+  common.v1.Timestamp from = 5;
+  common.v1.Timestamp to = 6;
+  map<string, string> parameters = 7;  // Indicator-specific parameters
+}
+
+message GetTechnicalIndicatorsResponse {
+  common.v1.Response response = 1;
+  map<string, IndicatorData> indicators = 2; // indicator_name -> data
+}
+
+message IndicatorData {
+  string indicator_name = 1;
+  repeated IndicatorValue values = 2;
+  map<string, string> parameters = 3;
+  string description = 4;
+}
+
+message IndicatorValue {
+  common.v1.Timestamp timestamp = 1;
+  map<string, double> values = 2;      // For multi-line indicators (e.g., MACD has signal, histogram)
+}
+
+// Portfolio attribution analysis
+message GetPortfolioAttributionRequest {
+  common.v1.BaseMessage base = 1;
+  string portfolio_id = 2;
+  common.v1.Timestamp period_start = 3;
+  common.v1.Timestamp period_end = 4;
+  string attribution_model = 5;        // "brinson", "sector", "factor"
+  string benchmark_symbol = 6;
+}
+
+message GetPortfolioAttributionResponse {
+  common.v1.Response response = 1;
+  repeated AttributionResult attribution = 2;
+  double total_return = 3;
+  double benchmark_return = 4;
+  double active_return = 5;
+}
+
+message AttributionResult {
+  string factor_name = 1;              // Asset, sector, or factor name
+  double allocation_effect = 2;        // Return due to allocation
+  double selection_effect = 3;         // Return due to selection
+  double interaction_effect = 4;       // Interaction between allocation and selection
+  double total_effect = 5;             // Total attribution
+  double weight_portfolio = 6;         // Portfolio weight
+  double weight_benchmark = 7;         // Benchmark weight
+}
+
+// Return analysis
+message GetReturnAnalysisRequest {
+  common.v1.BaseMessage base = 1;
+  string portfolio_id = 2;
+  common.v1.Timestamp period_start = 3;
+  common.v1.Timestamp period_end = 4;
+  string frequency = 5;                // "daily", "weekly", "monthly"
+}
+
+message GetReturnAnalysisResponse {
+  common.v1.Response response = 1;
+  ReturnStatistics statistics = 2;
+  repeated ReturnPeriod return_periods = 3;
+  ReturnDistribution distribution = 4;
+}
+
+message ReturnStatistics {
+  double mean_return = 1;
+  double median_return = 2;
+  double std_deviation = 3;
+  double skewness = 4;
+  double kurtosis = 5;
+  double min_return = 6;
+  double max_return = 7;
+  double var_95 = 8;
+  double var_99 = 9;
+}
+
+message ReturnPeriod {
+  common.v1.Timestamp period_start = 1;
+  common.v1.Timestamp period_end = 2;
+  double return_value = 3;
+  string period_type = 4;              // "daily", "weekly", "monthly"
+}
+
+message ReturnDistribution {
+  repeated DistributionBucket buckets = 1;
+  string distribution_type = 2;        // "normal", "t-distribution", "empirical"
+}
+
+message DistributionBucket {
+  double bucket_start = 1;
+  double bucket_end = 2;
+  int32 frequency = 3;
+  double probability = 4;
+}
+
+// Drawdown analysis
+message GetDrawdownAnalysisRequest {
+  common.v1.BaseMessage base = 1;
+  string portfolio_id = 2;
+  common.v1.Timestamp period_start = 3;
+  common.v1.Timestamp period_end = 4;
+}
+
+message GetDrawdownAnalysisResponse {
+  common.v1.Response response = 1;
+  double max_drawdown = 2;
+  double current_drawdown = 3;
+  repeated DrawdownPeriod drawdown_periods = 4;
+  DrawdownStatistics statistics = 5;
+}
+
+message DrawdownPeriod {
+  common.v1.Timestamp start_date = 1;
+  common.v1.Timestamp end_date = 2;
+  common.v1.Timestamp recovery_date = 3;
+  double max_drawdown = 4;
+  int32 duration_days = 5;
+  int32 recovery_days = 6;
+}
+
+message DrawdownStatistics {
+  double average_drawdown = 1;
+  double average_duration_days = 2;
+  double average_recovery_days = 3;
+  int32 total_drawdown_periods = 4;
+  double time_underwater_percentage = 5;
+}
+
+// Model performance analytics
+message GetModelPerformanceRequest {
+  common.v1.BaseMessage base = 1;
+  string model_id = 2;                 // Optional, for specific model
+  string symbol = 3;                   // Optional, for specific symbol
+  common.v1.Timestamp from = 4;
+  common.v1.Timestamp to = 5;
+  bool include_predictions = 6;
+}
+
+message GetModelPerformanceResponse {
+  common.v1.Response response = 1;
+  repeated ModelPerformanceMetric metrics = 2;
+  ModelPerformanceSummary summary = 3;
+}
+
+message ModelPerformanceMetric {
+  string model_id = 1;
+  string model_name = 2;
+  double accuracy = 3;
+  double precision = 4;
+  double recall = 5;
+  double f1_score = 6;
+  double sharpe_ratio = 7;
+  int32 total_predictions = 8;
+  int32 correct_predictions = 9;
+  common.v1.Timestamp evaluation_period_start = 10;
+  common.v1.Timestamp evaluation_period_end = 11;
+}
+
+message ModelPerformanceSummary {
+  string best_model_id = 1;
+  double best_accuracy = 2;
+  double average_accuracy = 3;
+  int32 total_models = 4;
+  double accuracy_improvement = 5;     // Improvement over baseline
+}
+
+// Prediction accuracy analysis
+message GetPredictionAccuracyRequest {
+  common.v1.BaseMessage base = 1;
+  string model_id = 2;
+  string symbol = 3;
+  common.v1.Timestamp from = 4;
+  common.v1.Timestamp to = 5;
+  repeated string prediction_types = 6; // "direction", "price", "volatility"
+}
+
+message GetPredictionAccuracyResponse {
+  common.v1.Response response = 1;
+  repeated PredictionAccuracyMetric accuracy_metrics = 2;
+  AccuracyTrend trend = 3;
+}
+
+message PredictionAccuracyMetric {
+  string prediction_type = 1;
+  double overall_accuracy = 2;
+  double recent_accuracy = 3;          // Last 30 days
+  double accuracy_by_confidence_high = 4; // Accuracy for high-confidence predictions
+  double accuracy_by_confidence_medium = 5;
+  double accuracy_by_confidence_low = 6;
+  repeated AccuracyByTimeframe timeframe_accuracy = 7;
+}
+
+message AccuracyByTimeframe {
+  string timeframe = 1;               // "1h", "4h", "1d"
+  double accuracy = 2;
+  int32 sample_size = 3;
+}
+
+message AccuracyTrend {
+  double accuracy_change_30d = 1;     // Change over last 30 days
+  double accuracy_change_7d = 2;      // Change over last 7 days
+  string trend_direction = 3;         // "improving", "declining", "stable"
+}
+
+// Feature importance analysis
+message GetFeatureImportanceRequest {
+  common.v1.BaseMessage base = 1;
+  string model_id = 2;
+  string symbol = 3;                  // Optional
+  int32 top_n_features = 4;           // Return top N features
+}
+
+message GetFeatureImportanceResponse {
+  common.v1.Response response = 1;
+  repeated FeatureImportance features = 2;
+  FeatureImportanceSummary summary = 3;
+}
+
+message FeatureImportance {
+  string feature_name = 1;
+  double importance_score = 2;
+  double importance_percentage = 3;
+  string feature_type = 4;            // "technical", "fundamental", "sentiment"
+  string description = 5;
+}
+
+message FeatureImportanceSummary {
+  string most_important_feature = 1;
+  double top_5_features_contribution = 2; // % contribution of top 5 features
+  int32 total_features = 3;
+  double feature_stability = 4;       // How stable feature importance is over time
+}
+
+// Correlation matrix
+message GetCorrelationMatrixRequest {
+  common.v1.BaseMessage base = 1;
+  repeated string symbols = 2;
+  string correlation_type = 3;        // "pearson", "spearman", "kendall"
+  common.v1.Timestamp from = 4;
+  common.v1.Timestamp to = 5;
+  string timeframe = 6;               // "1d", "1h" for return calculation
+}
+
+message GetCorrelationMatrixResponse {
+  common.v1.Response response = 1;
+  repeated CorrelationRow matrix = 2;
+  CorrelationStatistics statistics = 3;
+}
+
+message CorrelationRow {
+  string symbol = 1;
+  map<string, double> correlations = 2; // symbol -> correlation
+}
+
+message CorrelationStatistics {
+  double average_correlation = 1;
+  double max_correlation = 2;
+  double min_correlation = 3;
+  string most_correlated_pair = 4;
+  string least_correlated_pair = 5;
+}
+
+// Volatility analysis
+message GetVolatilityAnalysisRequest {
+  common.v1.BaseMessage base = 1;
+  string symbol = 2;                  // Optional, for specific symbol
+  string portfolio_id = 3;            // Optional, for portfolio volatility
+  common.v1.Timestamp from = 4;
+  common.v1.Timestamp to = 5;
+  repeated string volatility_models = 6; // "historical", "garch", "ewma"
+}
+
+message GetVolatilityAnalysisResponse {
+  common.v1.Response response = 1;
+  repeated VolatilityResult results = 2;
+  VolatilitySummary summary = 3;
+}
+
+message VolatilityResult {
+  string model_type = 1;
+  double current_volatility = 2;
+  double average_volatility = 3;
+  double volatility_percentile = 4;    // Current vol vs historical
+  repeated VolatilityPoint time_series = 5;
+}
+
+message VolatilityPoint {
+  common.v1.Timestamp timestamp = 1;
+  double volatility = 2;
+  double returns = 3;
+}
+
+message VolatilitySummary {
+  double volatility_regime = 1;        // 1 = low, 2 = medium, 3 = high
+  string regime_description = 2;
+  bool volatility_clustering = 3;      // Is there volatility clustering?
+  double mean_reversion_speed = 4;
+}
+
+// Stress testing
+message RunStressTestRequest {
+  common.v1.BaseMessage base = 1;
+  string portfolio_id = 2;
+  repeated StressScenario scenarios = 3;
+  bool include_monte_carlo = 4;
+  int32 monte_carlo_simulations = 5;
+}
+
+message StressScenario {
+  string scenario_name = 1;
+  string description = 2;
+  map<string, double> shock_values = 3; // symbol -> shock percentage
+  double probability = 4;
+}
+
+message RunStressTestResponse {
+  common.v1.Response response = 1;
+  repeated business.v1.StressTestResult results = 2;
+  MonteCarloResult monte_carlo = 3;
+}
+
+message MonteCarloResult {
+  double var_95 = 1;
+  double var_99 = 2;
+  double expected_shortfall = 3;
+  repeated double simulation_results = 4;
+  double worst_case_scenario = 5;
+  double best_case_scenario = 6;
+}
+
+// Market regime analysis
+message GetMarketRegimeRequest {
+  common.v1.BaseMessage base = 1;
+  string symbol = 2;
+  common.v1.Timestamp from = 3;
+  common.v1.Timestamp to = 4;
+  string regime_model = 5;             // "hmm", "markov_switching", "volatility_based"
+}
+
+message GetMarketRegimeResponse {
+  common.v1.Response response = 1;
+  string current_regime = 2;           // "bull", "bear", "sideways", "volatile"
+  double regime_confidence = 3;
+  repeated RegimePeriod regime_history = 4;
+  RegimeStatistics statistics = 5;
+}
+
+message RegimePeriod {
+  common.v1.Timestamp start_date = 1;
+  common.v1.Timestamp end_date = 2;
+  string regime_type = 3;
+  double confidence = 4;
+  int32 duration_days = 5;
+}
+
+message RegimeStatistics {
+  map<string, double> regime_probabilities = 1; // regime -> probability
+  map<string, double> average_durations = 2;    // regime -> avg duration in days
+  double regime_persistence = 3;        // How stable regimes are
+}
+
+// Sentiment analysis
+message GetSentimentAnalysisRequest {
+  common.v1.BaseMessage base = 1;
+  string symbol = 2;
+  common.v1.Timestamp from = 3;
+  common.v1.Timestamp to = 4;
+  repeated string sentiment_sources = 5; // "news", "social", "options", "flows"
+}
+
+message GetSentimentAnalysisResponse {
+  common.v1.Response response = 1;
+  double overall_sentiment = 2;        // -1 to 1
+  string sentiment_label = 3;          // "bearish", "neutral", "bullish"
+  repeated SentimentSource source_breakdown = 4;
+  repeated SentimentPoint time_series = 5;
+}
+
+message SentimentSource {
+  string source_name = 1;
+  double sentiment_score = 2;
+  double confidence = 3;
+  int32 data_points = 4;
+}
+
+message SentimentPoint {
+  common.v1.Timestamp timestamp = 1;
+  double sentiment_score = 2;
+  double volume = 3;                   // Sentiment volume/intensity
+}
+
+// Strategy comparison
+message CompareStrategiesRequest {
+  common.v1.BaseMessage base = 1;
+  repeated string strategy_ids = 2;
+  common.v1.Timestamp period_start = 3;
+  common.v1.Timestamp period_end = 4;
+  string benchmark_symbol = 5;
+}
+
+message CompareStrategiesResponse {
+  common.v1.Response response = 1;
+  repeated StrategyComparison comparisons = 2;
+  StrategyRanking ranking = 3;
+}
+
+message StrategyComparison {
+  string strategy_id = 1;
+  string strategy_name = 2;
+  double total_return = 3;
+  double volatility = 4;
+  double sharpe_ratio = 5;
+  double max_drawdown = 6;
+  double win_rate = 7;
+  int32 total_trades = 8;
+}
+
+message StrategyRanking {
+  repeated string ranked_by_return = 1;
+  repeated string ranked_by_sharpe = 2;
+  repeated string ranked_by_risk = 3;
+  string overall_winner = 4;
+}
+
+// Streaming requests
+message StreamAnalyticsRequest {
+  common.v1.BaseMessage base = 1;
+  repeated string analytics_types = 2;  // "performance", "risk", "ai"
+  string portfolio_id = 3;             // Optional filter
+  repeated string symbols = 4;         // Optional filter
+}
+
+message StreamMarketDataRequest {
+  common.v1.BaseMessage base = 1;
+  repeated string symbols = 2;
+  repeated string data_types = 3;      // "price", "volume", "sentiment"
+}
+
+message MarketDataStream {
+  repeated business.v1.ChartDataPoint market_updates = 1;
+  repeated business.v1.MarketAnalytics market_analytics = 2;
+  common.v1.Timestamp stream_timestamp = 3;
+}
+
+message StreamAIInsightsRequest {
+  common.v1.BaseMessage base = 1;
+  repeated string insight_types = 2;   // "pattern", "anomaly", "opportunity"
+  double min_confidence = 3;
+}
+
+message AIInsightStream {
+  repeated business.v1.AIInsight insights = 1;
+  repeated ModelPerformanceUpdate model_updates = 2;
+  common.v1.Timestamp stream_timestamp = 3;
+}
+
+message ModelPerformanceUpdate {
+  string model_id = 1;
+  double new_accuracy = 2;
+  double accuracy_change = 3;
+  common.v1.Timestamp updated_at = 4;
+}
+
+// Additional analytics configuration
+message UpdateAnalyticsConfigRequest {
+  common.v1.BaseMessage base = 1;
+  AnalyticsConfig config = 2;
+}
+
+message UpdateAnalyticsConfigResponse {
+  common.v1.Response response = 1;
+  AnalyticsConfig updated_config = 2;
+}
+
+message GetAnalyticsConfigRequest {
+  common.v1.BaseMessage base = 1;
+  string user_id = 2;
+}
+
+message GetAnalyticsConfigResponse {
+  common.v1.Response response = 1;
+  AnalyticsConfig config = 2;
+}
+
+message AnalyticsConfig {
+  string user_id = 1;
+  string default_timeframe = 2;
+  repeated string favorite_indicators = 3;
+  map<string, string> indicator_settings = 4;
+  bool auto_refresh = 5;
+  int32 refresh_interval_seconds = 6;
+  repeated string dashboard_widgets = 7;
+}
+
+message CreateCustomIndicatorRequest {
+  common.v1.BaseMessage base = 1;
+  CustomIndicator indicator = 2;
+}
+
+message CreateCustomIndicatorResponse {
+  common.v1.Response response = 1;
+  CustomIndicator created_indicator = 2;
+}
+
+message CustomIndicator {
+  string indicator_id = 1;
+  string name = 2;
+  string description = 3;
+  string formula = 4;                  // Mathematical formula
+  repeated string input_parameters = 5;
+  string output_type = 6;              // "single", "multiple"
+  string created_by = 7;
+  common.v1.Timestamp created_at = 8;
+}
+
+// Export and custom analysis
+message ExportAnalyticsRequest {
+  common.v1.BaseMessage base = 1;
+  string analytics_type = 2;           // "performance", "risk", "charts"
+  string portfolio_id = 3;
+  common.v1.Timestamp from = 4;
+  common.v1.Timestamp to = 5;
+  string format = 6;                   // "csv", "xlsx", "pdf"
+}
+
+message ExportAnalyticsResponse {
+  common.v1.Response response = 1;
+  string download_url = 2;
+  int64 file_size_bytes = 3;
+  common.v1.Timestamp expires_at = 4;
+}
+
+message RunCustomAnalysisRequest {
+  common.v1.BaseMessage base = 1;
+  string analysis_script = 2;         // Custom analysis script/query
+  map<string, string> parameters = 3;
+  string output_format = 4;           // "json", "csv", "chart"
+}
+
+message RunCustomAnalysisResponse {
+  common.v1.Response response = 1;
+  string analysis_result = 2;         // JSON string or data
+  string result_type = 3;
+  common.v1.Timestamp executed_at = 4;
+}
+
+message GetReportStatusRequest {
+  common.v1.BaseMessage base = 1;
+  string report_id = 2;
+}
+
+message GetReportStatusResponse {
+  common.v1.Response response = 1;
+  string status = 2;                   // "pending", "processing", "completed", "failed"
+  double progress_percentage = 3;
+  string download_url = 4;             // If completed
+  string error_message = 5;            // If failed
+}

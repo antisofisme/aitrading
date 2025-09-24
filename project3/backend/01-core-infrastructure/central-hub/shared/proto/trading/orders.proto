@@ -1,0 +1,189 @@
+syntax = "proto3";
+
+package trading.v1;
+
+import "common/base.proto";
+
+option go_package = "github.com/aitrading/proto/trading/v1";
+option java_package = "com.aitrading.proto.trading.v1";
+option csharp_namespace = "AiTrading.Proto.Trading.V1";
+
+// Order types
+enum OrderType {
+  ORDER_TYPE_UNSPECIFIED = 0;
+  ORDER_TYPE_MARKET = 1;
+  ORDER_TYPE_LIMIT = 2;
+  ORDER_TYPE_STOP = 3;
+  ORDER_TYPE_STOP_LIMIT = 4;
+}
+
+// Order side
+enum OrderSide {
+  ORDER_SIDE_UNSPECIFIED = 0;
+  ORDER_SIDE_BUY = 1;
+  ORDER_SIDE_SELL = 2;
+}
+
+// Order status
+enum OrderStatus {
+  ORDER_STATUS_UNSPECIFIED = 0;
+  ORDER_STATUS_PENDING = 1;
+  ORDER_STATUS_PARTIALLY_FILLED = 2;
+  ORDER_STATUS_FILLED = 3;
+  ORDER_STATUS_CANCELLED = 4;
+  ORDER_STATUS_REJECTED = 5;
+  ORDER_STATUS_EXPIRED = 6;
+}
+
+// Order time in force
+enum TimeInForce {
+  TIME_IN_FORCE_UNSPECIFIED = 0;
+  TIME_IN_FORCE_GTC = 1;        // Good Till Cancelled
+  TIME_IN_FORCE_IOC = 2;        // Immediate Or Cancel
+  TIME_IN_FORCE_FOK = 3;        // Fill Or Kill
+  TIME_IN_FORCE_DAY = 4;        // Good For Day
+}
+
+// Trading order - Category A: High Volume + Mission Critical
+// Transport: NATS primary, Kafka backup
+// Performance target: <1.2ms order execution
+message Order {
+  string order_id = 1;
+  string client_order_id = 2;
+  string tenant_id = 3;
+  string user_id = 4;
+  string symbol = 5;
+  OrderType order_type = 6;
+  OrderSide side = 7;
+  double quantity = 8;
+  double price = 9;                     // For limit orders
+  double stop_price = 10;               // For stop orders
+  TimeInForce time_in_force = 11;
+  OrderStatus status = 12;
+  common.v1.Timestamp created_at = 13;
+  common.v1.Timestamp updated_at = 14;
+  common.v1.Timestamp expires_at = 15;
+  string strategy_id = 16;              // AI strategy that generated this order
+  double confidence_score = 17;         // AI confidence (0-1)
+  map<string, string> metadata = 18;   // Additional order parameters
+}
+
+// Order execution/fill information
+message OrderExecution {
+  string execution_id = 1;
+  string order_id = 2;
+  string tenant_id = 3;
+  double executed_quantity = 4;
+  double executed_price = 5;
+  common.v1.Money commission = 6;
+  common.v1.Money fees = 7;
+  common.v1.Timestamp execution_time = 8;
+  string venue = 9;                     // Execution venue (MT5, etc)
+  string execution_type = 10;           // "market", "limit", "stop"
+  int64 sequence_number = 11;           // For order sequencing
+}
+
+// Order placement request
+message PlaceOrderRequest {
+  common.v1.BaseMessage base = 1;
+  Order order = 2;
+  bool dry_run = 3;                     // Test order without execution
+  string parent_order_id = 4;           // For bracket orders
+  double take_profit = 5;               // Take profit level
+  double stop_loss = 6;                 // Stop loss level
+}
+
+message PlaceOrderResponse {
+  common.v1.Response response = 1;
+  Order order = 2;
+  string broker_order_id = 3;           // External broker order ID
+  double estimated_margin = 4;
+}
+
+// Order modification request
+message ModifyOrderRequest {
+  common.v1.BaseMessage base = 1;
+  string order_id = 2;
+  double new_quantity = 3;
+  double new_price = 4;
+  double new_stop_price = 5;
+  TimeInForce new_time_in_force = 6;
+}
+
+message ModifyOrderResponse {
+  common.v1.Response response = 1;
+  Order updated_order = 2;
+}
+
+// Order cancellation request
+message CancelOrderRequest {
+  common.v1.BaseMessage base = 1;
+  string order_id = 2;
+  string reason = 3;
+}
+
+message CancelOrderResponse {
+  common.v1.Response response = 1;
+  Order cancelled_order = 2;
+  common.v1.Timestamp cancelled_at = 3;
+}
+
+// Order status query
+message OrderStatusRequest {
+  common.v1.BaseMessage base = 1;
+  string order_id = 2;
+  bool include_executions = 3;
+}
+
+message OrderStatusResponse {
+  common.v1.Response response = 1;
+  Order order = 2;
+  repeated OrderExecution executions = 3;
+}
+
+// Orders history query
+message OrderHistoryRequest {
+  common.v1.BaseMessage base = 1;
+  string symbol = 2;                    // Optional filter
+  OrderStatus status = 3;               // Optional filter
+  common.v1.Timestamp from = 4;
+  common.v1.Timestamp to = 5;
+  common.v1.Pagination pagination = 6;
+}
+
+message OrderHistoryResponse {
+  common.v1.Response response = 1;
+  repeated Order orders = 2;
+  common.v1.Pagination pagination = 3;
+}
+
+// Real-time order updates stream
+// Used for Category A transport (NATS + Kafka)
+message OrderUpdateStream {
+  string tenant_id = 1;
+  repeated Order order_updates = 2;
+  repeated OrderExecution executions = 3;
+  common.v1.Timestamp stream_timestamp = 4;
+  int64 stream_sequence = 5;
+}
+
+// Order validation result
+message OrderValidation {
+  bool is_valid = 1;
+  repeated string validation_errors = 2;
+  double required_margin = 3;
+  double available_margin = 4;
+  bool margin_sufficient = 5;
+  double max_position_size = 6;
+  bool position_limit_ok = 7;
+}
+
+// Bracket order (parent with take profit and stop loss)
+message BracketOrder {
+  Order parent_order = 1;
+  Order take_profit_order = 2;
+  Order stop_loss_order = 3;
+  string bracket_id = 4;
+  string tenant_id = 5;
+  common.v1.Timestamp created_at = 6;
+}

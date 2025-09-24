@@ -1,0 +1,356 @@
+syntax = "proto3";
+
+package business.v1;
+
+import "common/base.proto";
+
+option go_package = "github.com/aitrading/proto/business/v1";
+option java_package = "com.aitrading.proto.business.v1";
+option csharp_namespace = "AiTrading.Proto.Business.V1";
+
+// Notification types
+enum NotificationType {
+  NOTIFICATION_TYPE_UNSPECIFIED = 0;
+  NOTIFICATION_TYPE_TRADE_ALERT = 1;
+  NOTIFICATION_TYPE_PRICE_ALERT = 2;
+  NOTIFICATION_TYPE_RISK_WARNING = 3;
+  NOTIFICATION_TYPE_AI_SIGNAL = 4;
+  NOTIFICATION_TYPE_SYSTEM_ALERT = 5;
+  NOTIFICATION_TYPE_ACCOUNT_UPDATE = 6;
+  NOTIFICATION_TYPE_NEWS = 7;
+  NOTIFICATION_TYPE_MAINTENANCE = 8;
+}
+
+// Notification priority
+enum NotificationPriority {
+  NOTIFICATION_PRIORITY_UNSPECIFIED = 0;
+  NOTIFICATION_PRIORITY_LOW = 1;
+  NOTIFICATION_PRIORITY_MEDIUM = 2;
+  NOTIFICATION_PRIORITY_HIGH = 3;
+  NOTIFICATION_PRIORITY_CRITICAL = 4;
+}
+
+// Notification status
+enum NotificationStatus {
+  NOTIFICATION_STATUS_UNSPECIFIED = 0;
+  NOTIFICATION_STATUS_PENDING = 1;
+  NOTIFICATION_STATUS_SENT = 2;
+  NOTIFICATION_STATUS_DELIVERED = 3;
+  NOTIFICATION_STATUS_READ = 4;
+  NOTIFICATION_STATUS_FAILED = 5;
+}
+
+// Delivery channels
+enum DeliveryChannel {
+  DELIVERY_CHANNEL_UNSPECIFIED = 0;
+  DELIVERY_CHANNEL_IN_APP = 1;
+  DELIVERY_CHANNEL_EMAIL = 2;
+  DELIVERY_CHANNEL_SMS = 3;
+  DELIVERY_CHANNEL_TELEGRAM = 4;
+  DELIVERY_CHANNEL_PUSH = 5;
+  DELIVERY_CHANNEL_WEBHOOK = 6;
+}
+
+// Notification message - Category B: Medium Volume + Important
+// Transport: gRPC with Protocol Buffers
+// Performance target: <50ms response time
+message Notification {
+  string notification_id = 1;
+  string tenant_id = 2;
+  string user_id = 3;
+  NotificationType type = 4;
+  NotificationPriority priority = 5;
+  NotificationStatus status = 6;
+  string title = 7;
+  string message = 8;
+  string detailed_message = 9;          // Extended message content
+  repeated DeliveryChannel channels = 10;
+  common.v1.Timestamp created_at = 11;
+  common.v1.Timestamp scheduled_at = 12; // For scheduled notifications
+  common.v1.Timestamp sent_at = 13;
+  common.v1.Timestamp delivered_at = 14;
+  common.v1.Timestamp read_at = 15;
+  common.v1.Timestamp expires_at = 16;
+  map<string, string> metadata = 17;    // Type-specific data
+  string action_url = 18;               // Deep link or action URL
+  bool is_actionable = 19;              // Has associated action
+  string related_entity_id = 20;        // Related trade, position, etc
+  string related_entity_type = 21;      // "trade", "position", "order"
+}
+
+// Price alert configuration
+message PriceAlert {
+  string alert_id = 1;
+  string tenant_id = 2;
+  string user_id = 3;
+  string symbol = 4;
+  string condition = 5;                 // "above", "below", "crosses_up", "crosses_down"
+  double target_price = 6;
+  bool is_active = 7;
+  bool repeat_alert = 8;                // Alert again if condition met again
+  int32 cooldown_minutes = 9;           // Minimum time between repeats
+  repeated DeliveryChannel channels = 10;
+  common.v1.Timestamp created_at = 11;
+  common.v1.Timestamp last_triggered = 12;
+  int32 trigger_count = 13;
+  common.v1.Timestamp expires_at = 14;  // Optional expiry
+  map<string, string> metadata = 15;
+}
+
+// AI signal alert configuration
+message AISignalAlert {
+  string alert_id = 1;
+  string tenant_id = 2;
+  string user_id = 3;
+  string symbol = 4;                    // Optional, for specific symbol
+  double min_confidence = 5;            // Minimum AI confidence (0-1)
+  repeated string signal_types = 6;     // "buy", "sell", "hold"
+  repeated string model_types = 7;      // Which AI models to watch
+  bool is_active = 8;
+  repeated DeliveryChannel channels = 9;
+  common.v1.Timestamp created_at = 10;
+  common.v1.Timestamp last_triggered = 11;
+  int32 trigger_count = 12;
+  map<string, string> metadata = 13;
+}
+
+// Risk warning alert configuration
+message RiskAlert {
+  string alert_id = 1;
+  string tenant_id = 2;
+  string user_id = 3;
+  string risk_type = 4;                 // "drawdown", "margin", "concentration"
+  double threshold = 5;                 // Alert threshold
+  string threshold_unit = 6;            // "percentage", "absolute", "ratio"
+  bool is_active = 7;
+  repeated DeliveryChannel channels = 8;
+  common.v1.Timestamp created_at = 9;
+  common.v1.Timestamp last_triggered = 10;
+  int32 trigger_count = 11;
+  string portfolio_id = 12;             // Optional, for specific portfolio
+  map<string, string> metadata = 13;
+}
+
+// Notification preferences
+message NotificationPreferences {
+  string user_id = 1;
+  string tenant_id = 2;
+
+  // Global preferences
+  bool notifications_enabled = 3;
+  string timezone = 4;
+  string quiet_hours_start = 5;         // "22:00"
+  string quiet_hours_end = 6;           // "08:00"
+  bool weekend_notifications = 7;
+
+  // Channel preferences
+  map<string, bool> channel_enabled = 8; // Channel -> enabled
+
+  // Type preferences
+  map<string, NotificationPriority> type_min_priority = 9; // Type -> min priority
+  map<string, repeated DeliveryChannel> type_channels = 10; // Type -> channels
+
+  // Delivery settings
+  string email_address = 11;
+  string phone_number = 12;
+  string telegram_chat_id = 13;
+  string webhook_url = 14;
+
+  common.v1.Timestamp updated_at = 15;
+}
+
+// Send notification request
+message SendNotificationRequest {
+  common.v1.BaseMessage base = 1;
+  Notification notification = 2;
+  bool immediate = 3;                   // Skip rate limiting
+  bool force_delivery = 4;              // Ignore user preferences
+}
+
+message SendNotificationResponse {
+  common.v1.Response response = 1;
+  string notification_id = 2;
+  repeated DeliveryResult delivery_results = 3;
+  common.v1.Timestamp scheduled_at = 4;
+}
+
+// Delivery result per channel
+message DeliveryResult {
+  DeliveryChannel channel = 1;
+  bool success = 2;
+  string error_message = 3;
+  common.v1.Timestamp delivered_at = 4;
+  string external_id = 5;               // External service ID
+}
+
+// Get notifications
+message GetNotificationsRequest {
+  common.v1.BaseMessage base = 1;
+  string user_id = 2;
+  NotificationType type = 3;            // Optional filter
+  NotificationStatus status = 4;        // Optional filter
+  bool unread_only = 5;
+  common.v1.Pagination pagination = 6;
+  common.v1.Timestamp from = 7;        // Optional date range
+  common.v1.Timestamp to = 8;
+}
+
+message GetNotificationsResponse {
+  common.v1.Response response = 1;
+  repeated Notification notifications = 2;
+  common.v1.Pagination pagination = 3;
+  int32 unread_count = 4;
+}
+
+// Mark notification as read
+message MarkNotificationReadRequest {
+  common.v1.BaseMessage base = 1;
+  string notification_id = 2;
+}
+
+message MarkNotificationReadResponse {
+  common.v1.Response response = 1;
+  common.v1.Timestamp read_at = 2;
+}
+
+// Mark all notifications as read
+message MarkAllReadRequest {
+  common.v1.BaseMessage base = 1;
+  string user_id = 2;
+  NotificationType type = 3;            // Optional, mark only specific type
+}
+
+message MarkAllReadResponse {
+  common.v1.Response response = 1;
+  int32 marked_count = 2;
+}
+
+// Delete notification
+message DeleteNotificationRequest {
+  common.v1.BaseMessage base = 1;
+  string notification_id = 2;
+}
+
+message DeleteNotificationResponse {
+  common.v1.Response response = 1;
+}
+
+// Create price alert
+message CreatePriceAlertRequest {
+  common.v1.BaseMessage base = 1;
+  PriceAlert alert = 2;
+}
+
+message CreatePriceAlertResponse {
+  common.v1.Response response = 1;
+  PriceAlert alert = 2;
+}
+
+// List alerts
+message ListAlertsRequest {
+  common.v1.BaseMessage base = 1;
+  string user_id = 2;
+  string alert_type = 3;               // "price", "ai_signal", "risk"
+  bool active_only = 4;
+  common.v1.Pagination pagination = 5;
+}
+
+message ListAlertsResponse {
+  common.v1.Response response = 1;
+  repeated PriceAlert price_alerts = 2;
+  repeated AISignalAlert ai_alerts = 3;
+  repeated RiskAlert risk_alerts = 4;
+  common.v1.Pagination pagination = 5;
+}
+
+// Update alert
+message UpdateAlertRequest {
+  common.v1.BaseMessage base = 1;
+  string alert_id = 2;
+  string alert_type = 3;               // "price", "ai_signal", "risk"
+  // One of these will be set based on alert_type
+  PriceAlert price_alert = 4;
+  AISignalAlert ai_alert = 5;
+  RiskAlert risk_alert = 6;
+}
+
+message UpdateAlertResponse {
+  common.v1.Response response = 1;
+  // Updated alert returned based on type
+  PriceAlert price_alert = 2;
+  AISignalAlert ai_alert = 3;
+  RiskAlert risk_alert = 4;
+}
+
+// Delete alert
+message DeleteAlertRequest {
+  common.v1.BaseMessage base = 1;
+  string alert_id = 2;
+  string alert_type = 3;               // "price", "ai_signal", "risk"
+}
+
+message DeleteAlertResponse {
+  common.v1.Response response = 1;
+}
+
+// Get/update notification preferences
+message GetNotificationPreferencesRequest {
+  common.v1.BaseMessage base = 1;
+  string user_id = 2;
+}
+
+message GetNotificationPreferencesResponse {
+  common.v1.Response response = 1;
+  NotificationPreferences preferences = 2;
+}
+
+message UpdateNotificationPreferencesRequest {
+  common.v1.BaseMessage base = 1;
+  NotificationPreferences preferences = 2;
+}
+
+message UpdateNotificationPreferencesResponse {
+  common.v1.Response response = 1;
+  NotificationPreferences preferences = 2;
+}
+
+// Test notification delivery
+message TestNotificationRequest {
+  common.v1.BaseMessage base = 1;
+  string user_id = 2;
+  DeliveryChannel channel = 3;
+  string test_message = 4;
+}
+
+message TestNotificationResponse {
+  common.v1.Response response = 1;
+  DeliveryResult result = 2;
+}
+
+// Real-time notification stream
+// Used for Category B transport (gRPC streaming)
+message NotificationStream {
+  string tenant_id = 1;
+  repeated Notification new_notifications = 2;
+  repeated string read_notification_ids = 3;
+  repeated string deleted_notification_ids = 4;
+  common.v1.Timestamp stream_timestamp = 5;
+  int32 unread_count = 6;
+}
+
+// Bulk notification for system-wide alerts
+message BulkNotificationRequest {
+  common.v1.BaseMessage base = 1;
+  repeated string user_ids = 2;         // Target users
+  string tenant_id = 3;                 // Or all users in tenant
+  Notification notification_template = 4;
+  bool send_immediately = 5;
+}
+
+message BulkNotificationResponse {
+  common.v1.Response response = 1;
+  int32 total_recipients = 2;
+  int32 successful_sends = 3;
+  int32 failed_sends = 4;
+  repeated string failed_user_ids = 5;
+}

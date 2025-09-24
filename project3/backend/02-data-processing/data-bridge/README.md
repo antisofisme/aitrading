@@ -34,20 +34,23 @@ Data        User Context  Data Enrich   10x Faster        DragonflyDB
 
 ---
 
-## 🔧 Protocol Buffers Integration
+## 🚀 Transport Architecture & Contract Integration
 
-### **Shared Schema Usage**:
-```
-contracts/
-├── inputs/                    # Import from shared schemas
-│   └── from-api-gateway.md   # References shared/proto/common/tick-data.proto
-├── outputs/                   # Export schema definitions
-│   └── to-database-service.md # References shared/proto/trading/enriched-data.proto
-└── internal/                  # Service-specific schemas
-    └── validation-rules.md    # Internal validation schemas
-```
+### **Transport Decision Matrix Applied**:
 
-### **Schema Imports**:
+#### **Kategori A: High Volume + Mission Critical**
+- **Primary Transport**: WebSocket Binary + Protocol Buffers
+- **Backup Transport**: HTTP/2 streaming for fallback
+- **Failover**: Automatic connection recovery
+- **Services**: API Gateway → Data Bridge (tick data streaming)
+- **Performance**: <3ms data validation dan routing
+
+#### **Kategori B: Medium Volume + Important**
+- **Transport**: HTTP + Protocol Buffers
+- **Connection**: Connection pooling
+- **Services**: Data Bridge → Database Service (enriched data)
+
+### **Schema Dependencies & Contracts**:
 ```python
 # Import from centralized schemas
 import sys
@@ -384,6 +387,20 @@ async def health_check():
 
 ---
 
+## 🔗 Service Contract Specifications
+
+### **Data Bridge Contracts**:
+- **Input Contract**: WebSocket Binary dari API Gateway dengan BatchTickData protobuf
+- **Output Contract**: HTTP + Protocol Buffers ke Database Service dengan EnrichedBatchData
+- **Validation Pipeline**: Advanced server-side validation beyond client processing
+
+### **Critical Path Integration**:
+- **API Gateway → Data Bridge**: WebSocket Binary untuk high-frequency data
+- **Data Bridge → Database Service**: HTTP + Protocol Buffers untuk enriched storage
+- **Performance Target**: <3ms total processing per batch
+
+---
+
 **Input Flow**: API Gateway (WebSocket) → Data Bridge (validation & enrichment)
 **Output Flow**: Data Bridge → Database Service (multi-database storage)
-**Key Innovation**: Advanced data validation dengan Protocol Buffers optimization untuk high-frequency trading data processing
+**Key Innovation**: Advanced data validation dengan multi-transport architecture dan Protocol Buffers optimization untuk high-frequency trading data processing

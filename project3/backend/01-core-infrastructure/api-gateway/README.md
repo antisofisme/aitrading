@@ -26,19 +26,41 @@ Real-time     Rate Limit     Load Balance
 **Authentication**: JWT tokens, rate limiting per subscription tier
 **Performance Target**: <5ms request routing dan authentication
 
-### **Output Flow**: Filtered data ke multiple Kafka topics untuk scalability
-**Destination**: Multiple Kafka topics berdasarkan data type
-**Topic Structure**:
-- `tick-data` (5000 msg/sec) → Data-Bridge consumers
-- `user-events` (2 msg/sec) → User-Management consumers
-- `trading-signals` (1000 msg/sec) → Trading-Engine consumers
-- `notifications` (50 msg/sec) → Notification-Hub consumers
-**Multi-User Handling**: Each topic partitioned by user_id
-**Performance Target**: <5ms routing + filtering + Kafka publish
+### **Output Flow**: Multi-transport routing berdasarkan kategori dan criticality
+**Destinations**: Backend services via appropriate transport methods
+**Routing Strategy**:
+- **High Volume/Critical**: NATS primary → Kafka backup (trading data, signals)
+- **Medium Volume**: Direct gRPC calls (business logic, analytics)
+- **Low Volume**: HTTP REST via Kong Gateway (config, admin)
+**Multi-User Handling**: User context preservation across all transports
+**Performance Target**: <5ms request routing dan service call initiation
 
 ---
 
-## 🔧 WebSocket Implementation
+## 🚀 Transport Architecture & Contract Integration
+
+### **Transport Decision Matrix Applied**:
+
+#### **Kategori A: High Volume + Mission Critical**
+- **Input**: Native WebSocket (WSS) + Protocol Buffers from Client-MT5
+- **Output Primary**: NATS + Protocol Buffers (<1ms publish to backend services)
+- **Output Backup**: Kafka + Protocol Buffers (guaranteed delivery)
+- **Failover**: Automatic NATS→Kafka switching
+- **Services**: Trading data, market signals, real-time events
+- **Performance**: <1ms NATS publish, <5ms total request processing
+
+#### **Kategori B: Medium Volume + Important**
+- **Input**: HTTP REST + JSON from Frontend dashboard
+- **Output**: Direct gRPC calls (HTTP/2 + Protocol Buffers)
+- **Connection**: gRPC connection pooling + circuit breaker
+- **Services**: Business logic, analytics queries, user management
+- **Performance**: <3ms gRPC call initiation
+
+#### **Kategori C: Low Volume + Standard**
+- **Input**: HTTP REST + JSON for admin operations
+- **Output**: HTTP REST via Kong Gateway
+- **Services**: Configuration management, health checks, admin operations
+- **Performance**: <5ms HTTP routing
 
 ### **Native WebSocket (WSS) - Chosen for Performance**
 
@@ -102,12 +124,13 @@ enum SubscriptionTier {
 - **Cache-friendly** limits lookup dengan 5min TTL
 - **Real-time updates** via database + cache invalidation
 
-### **Protocol Buffers Integration:**
+### **Multi-Transport Routing Integration:**
 ```
-Client-MT5 → MessageEnvelope → API Gateway → Header-based Route → Kafka Topics
+Client-MT5 → MessageEnvelope → API Gateway → Transport Decision → Backend Services
     ↓              ↓                ↓               ↓                  ↓
-JSON Batch    Protobuf Binary   Read Header    Route by Type      Specialized Topics
-5 ticks/100ms  60% smaller      <0.1ms route   No full parsing    tick-data/user-events
+JSON Batch    Protobuf Binary   Header Analysis  Route Selection   Service Calls
+5 ticks/100ms  60% smaller      <0.1ms analysis  NATS/gRPC/HTTP   Direct Processing
+                                                 Category-based     Real-time Response
 ```
 
 **Enhanced Schema Structure:**
@@ -123,25 +146,27 @@ message MessageEnvelope {
 }
 ```
 
-**Routing Benefits:**
-- **Header-only routing**: No full deserialization needed (0.1ms vs 2ms)
-- **Fast topic determination**: Read message_type header only
-- **Optimal for 5000+ msg/sec**: Minimal processing overhead
+**Multi-Transport Routing Benefits:**
+- **Intelligent route selection**: Category-based transport decision (<0.1ms)
+- **Load balancing**: Automatic endpoint selection dengan health monitoring
+- **Circuit breaker protection**: Automatic failover untuk service reliability
+- **Optimal for 5000+ msg/sec**: Minimal processing overhead across all transports
 
-### **Multi-Topic Data Flow:**
+### **Intelligent Routing Architecture:**
 ```
-Multiple Users → WebSocket → API Gateway → Route by Data Type → Kafka Topics
-      ↓             ↓            ↓              ↓                    ↓
-100+ Clients   Auth Once    Filter/Route   tick-data (high vol)   Specialized Consumers
-50 ticks/sec   Per Client   By Data Type   user-events (low vol)  Independent Scaling
-Real-time      JWT Token    Rate Limits    trading-signals        Parallel Processing
+Multiple Users → WebSocket → API Gateway → Multi-Transport Router → Backend Services
+      ↓             ↓            ↓                  ↓                      ↓
+100+ Clients   Auth Once    Routing Engine    Transport Decision     Direct Processing
+50 ticks/sec   Per Client   Load Balance      NATS/gRPC/HTTP        Service Response
+Real-time      JWT Token    Circuit Breaker   Category-based        <5ms Total Latency
+Multi-tenant   Rate Limits  Health Monitor    Auto Failover         Real-time Results
 ```
 
-### **Error Handling & Protection:**
+### **Advanced Error Handling & Protection:**
 ```
-Normal Flow:    Valid Messages → Filtering → Kafka Topics → Processing
-Error Flow:     Invalid Messages → Dead Letter Queue → Manual Review
-Protection:     Spam Detection → Circuit Breaker → Block Connection
+Normal Flow:    Valid Messages → Route Selection → Backend Services → Processing
+Error Flow:     Service Down → Circuit Breaker → Automatic Failover → Alternative Service
+Protection:     Rate Limiting → Load Balancing → Health Monitoring → Auto Recovery
 ```
 
 **Dead Letter Queue (DLQ):**
@@ -364,5 +389,35 @@ Real-time     <0.01ms overhead       Optional field     End-to-end      On-deman
 
 ---
 
+## 🔗 Service Contract Specifications
+
+### **Sophisticated Routing Engine Contracts**:
+- **Bidirectional Routing**: `/contracts/internal/bidirectional-routing.md`
+  - Multi-transport support (HTTP/WebSocket/Kafka/gRPC)
+  - Intelligent load balancing dengan adaptive strategies
+  - Circuit breaker protection dengan auto-recovery
+  - Multi-tenant filtering dan security enforcement
+
+- **MT5 Execution Contract**: `/contracts/outputs/to-client-mt5-execution.md`
+  - Real-time trading command delivery via WebSocket
+  - Protocol Buffers execution commands dengan comprehensive validation
+  - Automatic retry mechanisms dengan exponential backoff
+
+### **Critical Path Integration**:
+- **Client-MT5 → API Gateway**: WSS dengan Protocol Buffers
+- **API Gateway → Backend Services**: Intelligent multi-transport routing
+  - **High Volume**: NATS primary, Kafka backup dengan automatic failover
+  - **Medium Volume**: gRPC calls dengan connection pooling
+  - **Low Volume**: HTTP REST via Kong Gateway
+- **Real-time Performance**: <1ms routing decision, <5ms total latency
+
+### **Advanced Features**:
+- ✅ **Adaptive Load Balancing**: Dynamic weight adjustment based on performance
+- ✅ **Circuit Breaker Protection**: Automatic service failover dengan health monitoring
+- ✅ **Multi-tenant Security**: Company/user-level filtering dan access control
+- ✅ **Performance Monitoring**: Real-time metrics dengan alerting thresholds
+
+---
+
 **Next Flow**: API Gateway → Data Bridge (WebSocket data) → Feature Engineering → ML Processing
-**Key Innovation**: Native WebSocket untuk maximum trading performance dengan enterprise security
+**Key Innovation**: Native WebSocket dengan multi-transport architecture untuk maximum trading performance dengan enterprise security

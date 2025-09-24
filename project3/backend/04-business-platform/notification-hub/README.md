@@ -34,9 +34,28 @@ Service Health  User Preferences    Delivery Status   Engagement Track
 
 ---
 
-## 🔧 Protocol Buffers Integration
+## 🚀 Transport Architecture & Contract Integration
+
+### **Transport Decision Matrix Applied**:
+
+#### **Kategori A: High Volume + Mission Critical**
+- **Primary Transport**: NATS + Protocol Buffers (<1ms latency)
+- **Backup Transport**: Kafka + Protocol Buffers (guaranteed delivery)
+- **Failover**: Automatic dengan sequence tracking
+- **Services**: Trading alerts, critical system notifications
+
+#### **Kategori B: Medium Volume + Important**
+- **Transport**: gRPC (HTTP/2 + Protocol Buffers)
+- **Connection**: Pooling + circuit breaker
+- **Services**: User notifications, template management
+
+#### **Kategori C: Low Volume + Standard**
+- **Transport**: HTTP REST + JSON via Kong Gateway
+- **Backup**: Redis Queue for reliability
+- **Services**: Notification preferences, campaign management
 
 ### **Global Decisions Applied**:
+✅ **Multi-Transport Architecture**: NATS+Kafka for alerts, gRPC for management, HTTP for config
 ✅ **Protocol Buffers Communication**: 60% smaller notification payloads, 10x faster serialization
 ✅ **Multi-Tenant Architecture**: Company/user-level notification isolation and preferences
 ✅ **Request Tracing**: Complete correlation ID tracking through notification pipeline
@@ -73,6 +92,103 @@ message NotificationProcessingEnvelope {
   EventMetadata event_metadata = 9;  // Event classification
   AuthToken auth_token = 10;         // JWT + Protocol Buffers auth
 }
+```
+
+---
+
+## 📋 Standard Implementation Patterns
+
+### **BaseService Integration:**
+```python
+# Notification Hub menggunakan Central Hub standardization
+from central_hub.static.utils import BaseService, ServiceConfig
+from central_hub.static.utils.patterns import (
+    StandardResponse, StandardDatabaseManager, StandardCacheManager,
+    RequestTracer, StandardCircuitBreaker, PerformanceTracker, ErrorDNA
+)
+
+class NotificationHubService(BaseService):
+    def __init__(self):
+        config = ServiceConfig(
+            service_name="notification-hub",
+            version="3.0.0",
+            port=8004,
+            environment="production"
+        )
+        super().__init__(config)
+
+        # Service-specific components
+        self.channel_managers = {}
+        self.template_engine = None
+
+    async def custom_health_checks(self):
+        """Notification-specific health checks"""
+        return {
+            "notifications_sent_24h": await self.get_daily_notification_count(),
+            "avg_delivery_time_ms": await self.get_avg_delivery_time(),
+            "channel_success_rates": await self.get_channel_success_rates(),
+            "template_cache_hit_rate": await self.get_template_cache_rate()
+        }
+```
+
+### **Standard Error Handling dengan ErrorDNA:**
+```python
+async def process_notification_event(self, event: NotificationEvent, correlation_id: str):
+    """Process notification dengan standardized error handling"""
+    try:
+        return await self.process_with_tracing(
+            "notification_delivery",
+            self._deliver_notification,
+            correlation_id,
+            event
+        )
+    except Exception as e:
+        # ErrorDNA automatic analysis
+        error_analysis = self.error_analyzer.analyze_error(
+            error_message=str(e),
+            stack_trace=traceback.format_exc(),
+            correlation_id=correlation_id,
+            context={"operation": "notification_delivery", "channel": event.channel}
+        )
+
+        self.logger.error(f"Notification delivery failed: {error_analysis.suggested_actions}")
+        return StandardResponse.error_response(str(e), correlation_id=correlation_id)
+```
+
+### **Standard Cache & Database Patterns:**
+```python
+# Template caching dengan standard patterns
+template = await self.cache.get_or_set(
+    f"template:{template_id}",
+    lambda: self.load_template_from_db(template_id),
+    ttl=3600  # 1 hour
+)
+
+# User preferences caching
+user_prefs = await self.cache.get_or_set(
+    f"notification_prefs:{user_id}",
+    lambda: self.db.fetch_one(
+        "SELECT * FROM notification_preferences WHERE user_id = $1",
+        {"user_id": user_id}
+    ),
+    ttl=1800  # 30 minutes
+)
+```
+
+### **Circuit Breaker untuk External Channels:**
+```python
+# Telegram channel dengan circuit breaker protection
+if not await self.check_circuit_breaker("telegram_api"):
+    try:
+        result = await self.telegram_client.send_message(chat_id, message)
+        await self.record_external_success("telegram_api")
+        return result
+    except Exception as e:
+        await self.record_external_failure("telegram_api")
+        # Fallback ke email channel
+        return await self.send_email_fallback(user_id, message)
+else:
+    return await self.send_email_fallback(user_id, message)
 ```
 
 ---
@@ -781,6 +897,20 @@ async def health_check():
 
 ---
 
+## 🔗 Service Contract Specifications
+
+### **Notification Service Proto Contract**:
+- **Service Definition**: `/01-core-infrastructure/central-hub/static/proto/services/notification_service.proto`
+- **gRPC Methods**: 45+ RPCs for notifications, alerts, templates, campaigns, real-time streaming
+- **Real-time Streaming**: GetNotificationStream(), GetAlertStream(), GetDeliveryStatusStream()
+
+### **HTTP REST API Contract**:
+- **OpenAPI Specification**: `/01-core-infrastructure/central-hub/static/proto/http/notification_api.yaml`
+- **Management Endpoints**: Notification preferences, campaign management, template configuration
+- **Kong Gateway Integration**: External webhook APIs dengan rate limiting dan authentication
+
+---
+
 **Input Flow**: All Services (events) → Notification-Hub (processing)
 **Output Flow**: Notification-Hub → Multi-Channel Delivery → Users
-**Key Innovation**: Sub-2 second multi-channel notification orchestration dengan intelligent filtering, rich templating, dan comprehensive delivery analytics.
+**Key Innovation**: Sub-2 second multi-channel notification orchestration dengan multi-transport architecture, intelligent filtering, rich templating, dan comprehensive delivery analytics.

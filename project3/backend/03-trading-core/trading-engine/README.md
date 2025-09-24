@@ -34,9 +34,29 @@ ML-Processing → Trading-Engine → Risk-Management → API-Gateway → Client-
 
 ---
 
-## 🔧 Protocol Buffers Integration
+## 🚀 Transport Architecture & Contract Integration
+
+### **Transport Decision Matrix Applied**:
+
+#### **Kategori A: High Volume + Mission Critical**
+- **Primary Transport**: NATS + Protocol Buffers (<1ms latency)
+- **Backup Transport**: Kafka + Protocol Buffers (guaranteed delivery)
+- **Failover**: Automatic dengan sequence tracking
+- **Services**: ML Predictions → Trading Signals, Signal → Risk Assessment
+- **Performance**: <5ms signal generation (critical path)
+
+#### **Kategori B: Medium Volume + Important**
+- **Transport**: gRPC (HTTP/2 + Protocol Buffers)
+- **Connection**: Pooling + circuit breaker
+- **Services**: Strategy management, performance analytics
+
+#### **Kategori C: Low Volume + Standard**
+- **Transport**: HTTP REST + JSON via Kong Gateway
+- **Backup**: Redis Queue for reliability
+- **Services**: Trading configuration, strategy settings
 
 ### **Global Decisions Applied**:
+✅ **Multi-Transport Architecture**: NATS+Kafka for signals, gRPC for management, HTTP for config
 ✅ **Protocol Buffers Communication**: 60% smaller signal payloads, 10x faster serialization
 ✅ **Multi-Tenant Architecture**: Company/user-level trading strategy isolation
 ✅ **Request Tracing**: Complete correlation ID tracking through decision pipeline
@@ -72,6 +92,103 @@ message TradingProcessingEnvelope {
   StrategyInfo strategy_info = 9;    // Active strategy metadata
   AuthToken auth_token = 10;         // JWT + Protocol Buffers auth
 }
+```
+
+---
+
+## 📋 Standard Implementation Patterns
+
+### **BaseService Integration:**
+```python
+# Trading Engine menggunakan Central Hub standardization
+from central_hub.static.utils import BaseService, ServiceConfig
+from central_hub.static.utils.patterns import (
+    StandardResponse, StandardDatabaseManager, StandardCacheManager,
+    RequestTracer, StandardCircuitBreaker, PerformanceTracker, ErrorDNA
+)
+
+class TradingEngineService(BaseService):
+    def __init__(self):
+        config = ServiceConfig(
+            service_name="trading-engine",
+            version="5.0.0",
+            port=8002,
+            environment="production"
+        )
+        super().__init__(config)
+
+        # Service-specific components
+        self.strategy_registry = {}
+        self.signal_processor = None
+
+    async def custom_health_checks(self):
+        """Trading Engine-specific health checks"""
+        return {
+            "signals_generated_24h": await self.get_daily_signal_count(),
+            "avg_signal_generation_ms": await self.get_avg_signal_time(),
+            "strategy_success_rates": await self.get_strategy_success_rates(),
+            "active_trading_pairs": await self.get_active_pairs_count()
+        }
+```
+
+### **Standard Error Handling dengan ErrorDNA:**
+```python
+async def process_ml_prediction(self, prediction: MLPredictionBatch, correlation_id: str):
+    """Process ML prediction dengan standardized error handling"""
+    try:
+        return await self.process_with_tracing(
+            "signal_generation",
+            self._generate_trading_signal,
+            correlation_id,
+            prediction
+        )
+    except Exception as e:
+        # ErrorDNA automatic analysis
+        error_analysis = self.error_analyzer.analyze_error(
+            error_message=str(e),
+            stack_trace=traceback.format_exc(),
+            correlation_id=correlation_id,
+            context={"operation": "signal_generation", "symbol": prediction.symbol}
+        )
+
+        self.logger.error(f"Signal generation failed: {error_analysis.suggested_actions}")
+        return StandardResponse.error_response(str(e), correlation_id=correlation_id)
+```
+
+### **Standard Cache & Database Patterns:**
+```python
+# Strategy configuration caching
+strategy_config = await self.cache.get_or_set(
+    f"strategy:{strategy_id}:{user_id}",
+    lambda: self.db.fetch_one(
+        "SELECT * FROM trading_strategies WHERE strategy_id = $1 AND user_id = $2",
+        {"strategy_id": strategy_id, "user_id": user_id}
+    ),
+    ttl=600  # 10 minutes
+)
+
+# Market conditions caching
+market_conditions = await self.cache.get_or_set(
+    f"market:{symbol}",
+    lambda: self.analyze_market_conditions(symbol),
+    ttl=60  # 1 minute
+)
+```
+
+### **Circuit Breaker untuk External Services:**
+```python
+# Risk Management service dengan circuit breaker protection
+if not await self.check_circuit_breaker("risk_management"):
+    try:
+        risk_assessment = await self.risk_client.assess_signal(signal)
+        await self.record_external_success("risk_management")
+        return risk_assessment
+    except Exception as e:
+        await self.record_external_failure("risk_management")
+        # Fallback to conservative risk assessment
+        return await self.apply_conservative_risk_limits(signal)
+else:
+    return await self.apply_conservative_risk_limits(signal)
 ```
 
 ---
@@ -667,6 +784,20 @@ async def health_check():
 
 ---
 
+## 🔗 Service Contract Specifications
+
+### **Trading Engine Proto Contracts**:
+- **Input Contract**: ML Predictions via NATS/Kafka from `/trading/ml_predictions.proto`
+- **Output Contract**: Trading Signals via NATS/Kafka to `/trading/trading_signals.proto`
+- **Strategy Management**: gRPC service for strategy configuration dan performance tracking
+
+### **Critical Path Integration**:
+- **ML-Processing → Trading-Engine**: NATS primary, Kafka backup
+- **Trading-Engine → Risk-Management**: NATS primary, Kafka backup
+- **Trading-Engine → API-Gateway**: gRPC for approved signals
+
+---
+
 **Input Flow**: ML-Processing (AI predictions) → Trading-Engine (decision synthesis)
 **Output Flow**: Trading-Engine → Risk-Management → API-Gateway → Client-MT5
-**Key Innovation**: Sub-5ms intelligent trading decision synthesis dengan multi-tenant strategy management dan risk-aware signal generation untuk optimal trading performance.
+**Key Innovation**: Sub-5ms intelligent trading decision synthesis dengan multi-transport architecture, multi-tenant strategy management dan risk-aware signal generation untuk optimal trading performance.

@@ -44,18 +44,26 @@ Company Setup    Multi-tenant     Access Control   Secure Operations
 ✅ **JWT + Protocol Buffers Auth**: Optimized token format with protobuf claims
 ✅ **Circuit Breaker Pattern**: External auth provider failover and caching
 
-### **Schema Dependencies**:
+### **Protocol Buffers Schema Dependencies**:
 ```python
 # Import from centralized schemas
 import sys
 sys.path.append('../../../01-core-infrastructure/central-hub/static/generated/python')
 
-from users.auth_request_pb2 import AuthRequest, LoginRequest, RegistrationRequest
-from users.user_context_pb2 import UserContext, UserProfile, CompanyProfile
-from users.subscription_pb2 import SubscriptionInfo, SubscriptionTier, BillingInfo
-from users.auth_token_pb2 import AuthToken, JWTClaims, TokenMetadata
-from common.request_trace_pb2 import RequestTrace, TraceContext
-from business.company_management_pb2 import CompanySettings, TeamMember, RolePermissions
+# Core schemas from Schema Registry
+from common.base_pb2 import BaseMessage, Timestamp, UserContext, Response
+from business.user_management_pb2 import (
+    User, UserRole, UserStatus, SubscriptionTier, Tenant, TenantSettings,
+    UserPreferences, TradingPreferences, UserSession, UserActivity
+)
+
+# Service contract schemas
+from services.user_service_pb2 import (
+    AuthenticateRequest, AuthenticateResponse, RefreshTokenRequest,
+    RegisterUserRequest, RegisterUserResponse, UpdateUserRequest,
+    ValidateTokenRequest, ValidateTokenResponse, SetupMFARequest,
+    CreateTenantRequest, InviteUserRequest, UserInvitation
+)
 ```
 
 ### **Enhanced Auth MessageEnvelope**:

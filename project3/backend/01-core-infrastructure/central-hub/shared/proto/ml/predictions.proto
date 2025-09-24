@@ -1,0 +1,210 @@
+syntax = "proto3";
+
+package ml.v1;
+
+import "common/base.proto";
+
+option go_package = "github.com/aitrading/proto/ml/v1";
+option java_package = "com.aitrading.proto.ml.v1";
+option csharp_namespace = "AiTrading.Proto.ML.V1";
+
+// AI model types
+enum ModelType {
+  MODEL_TYPE_UNSPECIFIED = 0;
+  MODEL_TYPE_XGBOOST = 1;
+  MODEL_TYPE_LIGHTGBM = 2;
+  MODEL_TYPE_RANDOM_FOREST = 3;
+  MODEL_TYPE_LSTM = 4;
+  MODEL_TYPE_TRANSFORMER = 5;
+  MODEL_TYPE_CNN = 6;
+  MODEL_TYPE_ENSEMBLE = 7;
+}
+
+// Prediction confidence levels
+enum ConfidenceLevel {
+  CONFIDENCE_LEVEL_UNSPECIFIED = 0;
+  CONFIDENCE_LEVEL_LOW = 1;           // 0-0.3
+  CONFIDENCE_LEVEL_MEDIUM = 2;        // 0.3-0.7
+  CONFIDENCE_LEVEL_HIGH = 3;          // 0.7-1.0
+}
+
+// Trading signal direction
+enum SignalDirection {
+  SIGNAL_DIRECTION_UNSPECIFIED = 0;
+  SIGNAL_DIRECTION_BUY = 1;
+  SIGNAL_DIRECTION_SELL = 2;
+  SIGNAL_DIRECTION_HOLD = 3;
+}
+
+// AI Trading Prediction - Category A: High Volume + Mission Critical
+// Transport: NATS primary, Kafka backup
+// Performance target: <15ms AI decision making
+message TradingPrediction {
+  string prediction_id = 1;
+  string model_id = 2;
+  string tenant_id = 3;
+  string symbol = 4;
+  ModelType model_type = 5;
+  SignalDirection direction = 6;
+  double confidence_score = 7;          // 0.0 - 1.0
+  ConfidenceLevel confidence_level = 8;
+  double predicted_price = 9;           // Target price
+  double probability = 10;              // Probability of direction
+  common.v1.Timestamp prediction_time = 11;
+  common.v1.Timestamp valid_until = 12;
+  int32 timeframe_minutes = 13;         // Prediction timeframe
+  string strategy_id = 14;
+  map<string, double> feature_importance = 15;
+  int64 sequence_number = 16;           // For stream ordering
+}
+
+// Ensemble prediction combining multiple models
+message EnsemblePrediction {
+  string ensemble_id = 1;
+  string tenant_id = 2;
+  string symbol = 3;
+  repeated TradingPrediction individual_predictions = 4;
+  SignalDirection final_direction = 5;
+  double final_confidence = 6;
+  double consensus_score = 7;           // Agreement between models (0-1)
+  common.v1.Timestamp created_at = 8;
+  string ensemble_strategy = 9;         // "weighted_average", "majority_vote", etc
+  map<string, double> model_weights = 10;
+}
+
+// Feature vector for ML models
+message FeatureVector {
+  string symbol = 1;
+  string tenant_id = 2;
+  common.v1.Timestamp timestamp = 3;
+  map<string, double> technical_indicators = 4;  // RSI, MACD, etc
+  map<string, double> market_features = 5;       // Volume, volatility, etc
+  map<string, double> time_features = 6;         // Hour, day, season, etc
+  map<string, double> custom_features = 7;       // User-defined features
+  string feature_version = 8;                    // Schema version
+}
+
+// Model performance metrics
+message ModelPerformance {
+  string model_id = 1;
+  string tenant_id = 2;
+  ModelType model_type = 3;
+  double accuracy = 4;                  // Overall accuracy (0-1)
+  double precision = 5;                 // Precision score
+  double recall = 6;                    // Recall score
+  double f1_score = 7;                  // F1 score
+  double sharpe_ratio = 8;              // Risk-adjusted return
+  double max_drawdown = 9;              // Maximum drawdown
+  int32 total_predictions = 10;
+  int32 correct_predictions = 11;
+  common.v1.Timestamp evaluation_period_start = 12;
+  common.v1.Timestamp evaluation_period_end = 13;
+  common.v1.Timestamp last_updated = 14;
+}
+
+// Model training request
+message TrainModelRequest {
+  common.v1.BaseMessage base = 1;
+  string model_id = 2;
+  ModelType model_type = 3;
+  string symbol = 4;
+  common.v1.Timestamp training_start = 5;
+  common.v1.Timestamp training_end = 6;
+  map<string, string> hyperparameters = 7;
+  repeated string feature_columns = 8;
+  string target_column = 9;
+  bool cross_validation = 10;
+  int32 cv_folds = 11;
+}
+
+message TrainModelResponse {
+  common.v1.Response response = 1;
+  string training_job_id = 2;
+  ModelPerformance performance = 3;
+  common.v1.Timestamp training_started = 4;
+  common.v1.Timestamp training_completed = 5;
+  string model_artifact_path = 6;
+}
+
+// Prediction request
+message PredictionRequest {
+  common.v1.BaseMessage base = 1;
+  string model_id = 2;
+  string symbol = 3;
+  FeatureVector features = 4;
+  bool include_feature_importance = 5;
+  int32 prediction_horizon_minutes = 6;
+}
+
+message PredictionResponse {
+  common.v1.Response response = 1;
+  TradingPrediction prediction = 2;
+  map<string, double> feature_importance = 3;
+  double inference_time_ms = 4;
+}
+
+// Batch prediction request
+message BatchPredictionRequest {
+  common.v1.BaseMessage base = 1;
+  string model_id = 2;
+  repeated FeatureVector feature_batch = 3;
+  bool include_feature_importance = 4;
+}
+
+message BatchPredictionResponse {
+  common.v1.Response response = 1;
+  repeated TradingPrediction predictions = 2;
+  double total_inference_time_ms = 3;
+}
+
+// Real-time prediction stream
+// Used for Category A transport (NATS + Kafka)
+message PredictionStream {
+  string tenant_id = 1;
+  repeated TradingPrediction predictions = 2;
+  repeated EnsemblePrediction ensemble_predictions = 3;
+  common.v1.Timestamp stream_timestamp = 4;
+  int64 stream_sequence = 5;
+  string stream_source = 6;             // Which ML service generated this
+}
+
+// Model deployment status
+message ModelDeployment {
+  string model_id = 1;
+  string tenant_id = 2;
+  ModelType model_type = 3;
+  string deployment_status = 4;         // "training", "deployed", "retired"
+  string version = 5;
+  common.v1.Timestamp deployed_at = 6;
+  common.v1.Timestamp last_prediction = 7;
+  int64 prediction_count = 8;
+  double average_inference_time_ms = 9;
+  ModelPerformance current_performance = 10;
+}
+
+// Model health check
+message ModelHealthCheck {
+  string model_id = 1;
+  string tenant_id = 2;
+  bool is_healthy = 3;
+  string status_message = 4;
+  double last_inference_time_ms = 5;
+  common.v1.Timestamp last_health_check = 6;
+  int32 recent_prediction_count = 7;    // Last hour
+  double recent_error_rate = 8;         // Last hour error rate
+}
+
+// A/B testing for models
+message ModelABTest {
+  string test_id = 1;
+  string tenant_id = 2;
+  string model_a_id = 3;
+  string model_b_id = 4;
+  double traffic_split = 5;             // 0.5 = 50/50 split
+  common.v1.Timestamp test_start = 6;
+  common.v1.Timestamp test_end = 7;
+  ModelPerformance model_a_performance = 8;
+  ModelPerformance model_b_performance = 9;
+  string winning_model_id = 10;
+  bool is_active = 11;
+}
