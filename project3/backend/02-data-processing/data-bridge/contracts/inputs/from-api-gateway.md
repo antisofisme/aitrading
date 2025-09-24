@@ -1,7 +1,7 @@
 # Input Contract: API Gateway → Data Bridge
 
 ## 🎯 Contract Overview
-WebSocket binary connection dari API Gateway dengan authenticated user context untuk real-time tick data processing.
+WebSocket connection proxied through API Gateway dengan authenticated user context untuk real-time tick data processing.
 
 ---
 
@@ -11,22 +11,22 @@ WebSocket binary connection dari API Gateway dengan authenticated user context u
 ```
 1. Client-MT5 → API Gateway: JWT Authentication
 2. API Gateway validates JWT + subscription tier
-3. API Gateway provides WebSocket endpoint for Data Bridge
-4. Client-MT5 → Data Bridge: Direct WebSocket dengan authenticated context
-5. Data Bridge validates user context independently
+3. API Gateway establishes WebSocket connection to Data Bridge
+4. Client-MT5 → API Gateway → Data Bridge: WebSocket proxied dengan authenticated context
+5. Data Bridge receives data via API Gateway proxy dengan validated context
 ```
 
-### **Service Communication Pattern (Consistent with Central Hub)**
+### **Service Communication Pattern (Consistent with API Gateway)**
 ```
 ✅ CORRECT Flow:
 - Client-MT5 authenticates with API Gateway (JWT validation)
-- API Gateway provides authenticated WebSocket endpoint to Data Bridge
-- Client-MT5 connects directly to Data Bridge with validated context
-- Data Bridge processes data independently
+- API Gateway establishes WebSocket connection dan proxies to Data Bridge
+- Client-MT5 sends data to API Gateway which forwards to Data Bridge
+- Data Bridge processes data received via API Gateway proxy
 
 ❌ WRONG Flow:
-- Client-MT5 → API Gateway → Data Bridge (NO proxy through API Gateway)
-- API Gateway should NOT proxy data streams for performance
+- Client-MT5 → Data Bridge (direct connection dari internet - SECURITY RISK!)
+- Client tidak boleh bypass API Gateway untuk security dan monitoring
 ```
 
 ---
@@ -41,8 +41,9 @@ WebSocket binary connection dari API Gateway dengan authenticated user context u
 
 ### **Connection Details**
 ```
-Endpoint: WSS://api.gateway.com/ws/data-bridge
-Protocol: WebSocket Secure (WSS)
+Client Endpoint: WSS://api.gateway.com/ws/mt5
+Internal Proxy: API Gateway → Data Bridge (ws://data-bridge:8003/ws/stream)
+Protocol: WebSocket Secure (WSS) to API Gateway
 Headers:
   - Authorization: Bearer <jwt_token>
   - x-company-id: "company_abc"
@@ -154,7 +155,8 @@ x-subscription-tier: "pro"          # Subscription level for data filtering
 - **Subscription Service**: Tier-based access control
 - **Rate Limiting**: Per-user request throttling
 
-### **Data Bridge Processing**
+### **Data Bridge Processing** (via API Gateway)
+- **Input Reception**: Receive data dari API Gateway WebSocket proxy
 - **Input Validation**: Advanced tick data validation
 - **Data Enrichment**: Market context dan user-specific processing
 - **Quality Assessment**: Comprehensive data quality scoring
@@ -220,4 +222,4 @@ TIER_LIMITS = {
 
 ---
 
-**Key Innovation**: Direct WebSocket connection dengan multi-tenant context validation untuk optimal real-time trading data processing dengan subscription-aware business logic integration.
+**Key Innovation**: API Gateway WebSocket proxy dengan multi-tenant context validation untuk secure real-time trading data processing dengan subscription-aware business logic integration.

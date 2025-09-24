@@ -8,20 +8,20 @@
 ## 📊 ChainFlow Diagram
 
 ```
-Client-MT5 → API Gateway (Auth Only) → Data Bridge → Database Service → Multi-Database Storage
-    ↓           ↓                        ↓              ↓                 ↓
-WebSocket   JWT Validation            Advanced      Protobuf Binary    PostgreSQL
-Processed   User Context             Validation    Serialization      ClickHouse
-Data        Rate Limits              Data Enrich   10x Faster        DragonflyDB
-50+ ticks   Direct Forward           Quality Check  60% Smaller      Weaviate/Arango
+Client-MT5 → API Gateway → Data Bridge → Database Service → Multi-Database Storage
+    ↓           ↓              ↓              ↓                 ↓
+WebSocket   JWT Validation   Advanced      Protobuf Binary    PostgreSQL
+Processed   User Context     Validation    Serialization      ClickHouse
+Data        Rate Limits      Data Enrich   10x Faster        DragonflyDB
+50+ ticks   WebSocket Proxy  Quality Check  60% Smaller      Weaviate/Arango
 ```
 
 ---
 
 ## 🏗️ Service Architecture
 
-### **Input Flow**: Pre-processed tick data dari Client-MT5 via API Gateway coordination
-**Data Source**: Client-MT5 → Data Bridge (direct WebSocket after API Gateway auth)
+### **Input Flow**: Pre-processed tick data dari Client-MT5 melalui API Gateway WebSocket proxy
+**Data Source**: Client-MT5 → API Gateway → Data Bridge (WebSocket proxied through API Gateway)
 **Format**: Protocol Buffers (BatchTickData) dengan authenticated user context
 **Frequency**: 50+ ticks/second across 10 trading pairs
 **Performance Target**: <3ms data validation dan routing (part of <30ms total system budget)
@@ -42,7 +42,7 @@ Data        Rate Limits              Data Enrich   10x Faster        DragonflyDB
 - **Primary Transport**: WebSocket Binary + Protocol Buffers
 - **Backup Transport**: HTTP/2 streaming for fallback (standardized across all services)
 - **Failover**: Automatic connection recovery
-- **Services**: API Gateway → Data Bridge (tick data streaming)
+- **Services**: Client-MT5 → API Gateway → Data Bridge (tick data streaming via WebSocket proxy)
 - **Performance**: <3ms data validation dan routing
 
 #### **Kategori B: Medium Volume + Important**
@@ -52,32 +52,31 @@ Data        Rate Limits              Data Enrich   10x Faster        DragonflyDB
 
 ### **⚠️ Service Communication Pattern**
 
-**Data Bridge uses DIRECT service calls:**
+**Data Bridge service communication pattern:**
 
 ```
-✅ CORRECT Flow:
-1. Client-MT5 → API Gateway (authenticate & get WebSocket token)
-2. Client-MT5 → Data Bridge (direct WebSocket with JWT token)
-3. Data Bridge → Database Service (direct multi-database storage)
+✅ CORRECT Flow (Client Connection):
+1. Client-MT5 → API Gateway (authenticate & establish WebSocket)
+2. API Gateway → Data Bridge (proxy WebSocket dengan authenticated context)
+3. Data Bridge → Database Service (direct backend service call)
 4. Data Bridge → Central Hub (register health & metrics)
 
-✅ Service Discovery:
+✅ CORRECT Flow (Backend Service Discovery):
 - Data Bridge queries Central Hub untuk Database Service endpoint
-- Direct connection to Database Service (no proxy through Central Hub)
-- Authentication token validated independently
+- Data Bridge makes direct connection to Database Service (no proxy through Central Hub)
+- Backend services communicate directly after service discovery
 
 ❌ WRONG Flow:
-1. Client-MT5 → API Gateway → Data Bridge
-   (API Gateway should NOT proxy data streams)
-2. Data Bridge → Central Hub → Database Service
-   (Central Hub should NOT proxy database operations)
+1. Client-MT5 → Data Bridge (direct from internet - SECURITY RISK!)
+2. Data Bridge → Central Hub → Database Service (Central Hub should NOT proxy data)
 ```
 
 **Data Bridge Role:**
-- ✅ **Data Processor**: Validate dan enrich tick data dari Client-MT5
+- ✅ **Data Processor**: Validate dan enrich tick data dari API Gateway
+- ✅ **Backend Service**: Receive data via API Gateway WebSocket proxy
 - ✅ **Direct Database Client**: Store processed data directly ke Database Service
 - ✅ **Service Discovery Client**: Query Central Hub untuk service endpoints
-- ❌ **API Gateway Proxy**: TIDAK receive data through API Gateway proxy
+- ❌ **Internet-Facing Service**: TIDAK receive direct connections dari internet
 
 ### **Schema Dependencies & Contracts**:
 ```python
@@ -99,7 +98,7 @@ from common.api_response_pb2 import APIResponse, ErrorInfo
 ```python
 class DataBridgeProcessor:
     async def handle_websocket_data(self, binary_data: bytes, user_context: UserContext):
-        """Process incoming protobuf data from API Gateway"""
+        """Process incoming protobuf data proxied through API Gateway"""
 
         # Deserialize Protocol Buffers data
         batch_data = BatchTickData()
@@ -389,8 +388,8 @@ async def health_check():
 ## 🔗 Integration Points
 
 ### **Service Dependencies**:
-- **API Gateway**: WebSocket data input + user authentication
-- **Database Service**: Direct HTTP connection for data storage
+- **API Gateway**: WebSocket proxy untuk client connections + user authentication
+- **Database Service**: Direct HTTP connection untuk backend data storage
 - **Central Hub**: Service discovery dan health reporting
 - **Shared Schemas**: Protocol Buffers schema imports
 
@@ -438,6 +437,6 @@ async def health_check():
 
 ---
 
-**Input Flow**: API Gateway (WebSocket) → Data Bridge (validation & enrichment)
+**Input Flow**: Client-MT5 → API Gateway (WebSocket proxy) → Data Bridge (validation & enrichment)
 **Output Flow**: Data Bridge → Database Service (multi-database storage)
-**Key Innovation**: Advanced data validation dengan multi-transport architecture dan Protocol Buffers optimization untuk high-frequency trading data processing
+**Key Innovation**: Advanced data validation dengan WebSocket proxy architecture dan Protocol Buffers optimization untuk high-frequency trading data processing
