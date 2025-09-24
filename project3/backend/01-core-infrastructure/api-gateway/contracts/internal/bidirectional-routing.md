@@ -1,7 +1,7 @@
 # Internal Contract: Bidirectional Routing Engine
 
 ## Purpose
-Central routing engine dalam API Gateway yang mengatur traffic flow untuk semua input dan output communications dengan intelligent load balancing dan circuit breaker protection.
+Central routing engine dalam API Gateway yang mengatur traffic flow untuk semua input dan output communications dengan integration ke Central Hub untuk service discovery dan backend coordination.
 
 ## Architecture Overview
 ```
@@ -10,8 +10,8 @@ Central routing engine dalam API Gateway yang mengatur traffic flow untuk semua 
 └─────────────────┘    └──────────────────┘    └─────────────────┘
          │                        │                        │
     ┌────▼────┐              ┌────▼────┐              ┌────▼────┐
-    │ Circuit │              │ Load    │              │ Circuit │
-    │ Breaker │              │ Balance │              │ Breaker │
+    │ Tenant  │              │ Central │              │ Format  │
+    │ Filter  │              │ Hub API │              │ Output  │
     └─────────┘              └─────────┘              └─────────┘
 ```
 
@@ -20,10 +20,9 @@ Central routing engine dalam API Gateway yang mengatur traffic flow untuk semua 
 message RoutingEngine {
   RoutingConfig config = 1;
   repeated RouteDefinition routes = 2;
-  LoadBalancer load_balancer = 3;
-  CircuitBreaker circuit_breaker = 4;
-  RoutingMetrics metrics = 5;
-  int64 last_updated = 6;
+  CentralHubIntegration central_hub = 3;
+  RoutingMetrics metrics = 4;
+  int64 last_updated = 5;
 }
 
 message RoutingConfig {
@@ -54,10 +53,9 @@ message RouteSource {
 
 message RouteDestination {
   DestinationType type = 1;           // HTTP/WEBSOCKET/KAFKA/GRPC
-  repeated string endpoints = 2;      // Multiple endpoints for load balancing
+  string service_name = 2;            // Service name for Central Hub discovery
   Authentication auth = 3;            // Destination authentication
-  LoadBalanceStrategy strategy = 4;   // ROUND_ROBIN/WEIGHTED/LEAST_CONN
-  FailoverConfig failover = 5;        // Failover configuration
+  FailoverConfig failover = 4;        // Failover configuration
 }
 
 message RoutingRules {
@@ -82,21 +80,20 @@ message TransformationRule {
   string transformation_script = 4;   // Custom transformation logic
 }
 
-message LoadBalancer {
-  LoadBalanceStrategy strategy = 1;   // ROUND_ROBIN/WEIGHTED/ADAPTIVE
-  repeated EndpointWeight weights = 2; // Endpoint weight configuration
-  HealthChecker health_checker = 3;   // Health checking configuration
-  AdaptiveConfig adaptive = 4;        // Adaptive load balancing
+message CentralHubIntegration {
+  string hub_endpoint = 1;            // Central Hub service endpoint
+  int32 discovery_timeout_ms = 2;     // 5000ms service discovery timeout
+  int32 cache_ttl_seconds = 3;        // 30 seconds cache TTL
+  bool enable_fallback_cache = 4;     // Use cache when Hub unavailable
+  Authentication hub_auth = 5;        // Central Hub authentication
 }
 
-message CircuitBreaker {
-  string circuit_id = 1;              // Unique circuit identifier
-  CircuitState state = 2;             // CLOSED/OPEN/HALF_OPEN
-  int32 failure_threshold = 3;        // 10 failures to open
-  int32 success_threshold = 4;        // 5 successes to close
-  int32 timeout_seconds = 5;          // 30 seconds timeout
-  FailurePattern pattern = 6;         // What constitutes failure
-  CircuitMetrics metrics = 7;         // Circuit performance metrics
+message ServiceDiscoveryCache {
+  string service_name = 1;            // Service identifier
+  repeated string endpoints = 2;      // Cached healthy endpoints
+  int64 last_updated = 3;             // Last cache update timestamp
+  int64 expires_at = 4;               // Cache expiration timestamp
+  HealthStatus status = 5;            // Last known health status
 }
 
 message RoutingMetrics {
@@ -105,7 +102,7 @@ message RoutingMetrics {
   int64 failed_routes = 3;            // Failed routing count
   double average_latency_ms = 4;      // Average routing latency
   double p95_latency_ms = 5;          // 95th percentile latency
-  int64 circuit_breaker_trips = 6;    // Circuit breaker activation count
+  int64 service_discovery_failures = 6; // Central Hub discovery failures
   repeated RoutePerformance route_perf = 7; // Per-route performance
 }
 
@@ -118,19 +115,19 @@ message RouteHealth {
   string failure_reason = 6;          // Last failure reason
 }
 
-message EndpointWeight {
-  string endpoint = 1;                // Endpoint URL/address
-  int32 weight = 2;                   // Load balancing weight (1-100)
-  bool enabled = 3;                   // Endpoint enabled status
-  EndpointMetrics metrics = 4;        // Endpoint-specific metrics
+message ServiceEndpoint {
+  string service_name = 1;            // Service name in Central Hub
+  string endpoint_url = 2;            // Actual endpoint URL
+  HealthStatus health = 3;            // Health status from Central Hub
+  int64 last_health_check = 4;        // Last health check timestamp
 }
 
-message AdaptiveConfig {
-  bool enable_adaptive = 1;           // Enable adaptive load balancing
-  int32 learning_window_minutes = 2;  // 10 minutes learning window
-  double latency_weight = 3;          // 0.6 (60% weight to latency)
-  double throughput_weight = 4;       // 0.4 (40% weight to throughput)
-  double adaptation_rate = 5;         // 0.1 (10% adaptation per window)
+message CentralHubConfig {
+  bool enable_service_discovery = 1;  // Enable Central Hub integration
+  int32 discovery_interval_seconds = 2; // 30 seconds discovery refresh
+  int32 health_check_timeout_ms = 3;  // 5000ms health check timeout
+  int32 max_retry_attempts = 4;       // 3 max retry attempts
+  bool enable_cache_fallback = 5;     // Use cache when Hub unavailable
 }
 
 enum RouteType {
@@ -153,18 +150,17 @@ enum DestinationType {
   GRPC_DEST = 3;
 }
 
-enum LoadBalanceStrategy {
-  ROUND_ROBIN = 0;
-  WEIGHTED_ROUND_ROBIN = 1;
-  LEAST_CONNECTIONS = 2;
-  LEAST_LATENCY = 3;
-  ADAPTIVE = 4;
+enum ServiceDiscoveryStrategy {
+  CENTRAL_HUB_PRIMARY = 0;            // Use Central Hub as primary
+  CACHE_FALLBACK = 1;                 // Use cache when Hub unavailable
+  HYBRID_DISCOVERY = 2;               // Combine Hub + local cache
 }
 
-enum CircuitState {
-  CLOSED = 0;                         // Normal operation
-  OPEN = 1;                           // Circuit breaker active
-  HALF_OPEN = 2;                      // Testing recovery
+enum CacheStrategy {
+  NO_CACHE = 0;                       // Always query Central Hub
+  SHORT_CACHE = 1;                    // 30 second cache TTL
+  LONG_CACHE = 2;                     // 5 minute cache TTL
+  PERSISTENT_CACHE = 3;               // Cache survives restarts
 }
 
 enum FilterOperator {
@@ -206,14 +202,12 @@ function routeIncomingRequest(request) {
   // 3. Multi-tenant Filtering
   if (!validateCompanyAccess(request)) return FORBIDDEN;
 
-  // 4. Circuit Breaker Check
-  if (circuitBreaker.isOpen(targetService)) return SERVICE_UNAVAILABLE;
+  // 4. Service Discovery via Central Hub
+  endpoint = await centralHub.queryServiceEndpoint(targetService);
+  if (!endpoint) return SERVICE_UNAVAILABLE;
 
-  // 5. Load Balancing Selection
-  endpoint = loadBalancer.selectEndpoint(targetService);
-
-  // 6. Route to Selected Endpoint
-  return forwardRequest(request, endpoint);
+  // 5. Direct Service Call
+  return await callServiceDirectly(request, endpoint);
 }
 ```
 
@@ -231,9 +225,9 @@ function routeOutgoingData(data, user_preferences) {
   for (channel in channels) {
     formattedData = transformForChannel(filteredData, channel);
 
-    // 4. Circuit Breaker Protection
-    if (!circuitBreaker.isOpen(channel)) {
-      sendToChannel(formattedData, channel);
+    // 4. Service Health Check via Central Hub
+    if (await centralHub.isServiceHealthy(channel)) {
+      await sendDirectlyToService(formattedData, channel);
     }
   }
 }
@@ -243,9 +237,9 @@ function routeOutgoingData(data, user_preferences) {
 
 ### **Caching Strategy**
 - **Route Cache**: Cache routing decisions untuk 5 minutes
-- **Health Cache**: Cache endpoint health untuk 30 seconds
+- **Service Discovery Cache**: Cache Central Hub endpoint data untuk 30 seconds
 - **Authentication Cache**: Cache JWT validation untuk 10 minutes
-- **Load Balancing Cache**: Cache endpoint selection untuk 1 minute
+- **Health Status Cache**: Cache service health status untuk 1 minute
 
 ### **Connection Pooling**
 - **HTTP Connections**: Reuse HTTP connections untuk outbound requests
@@ -263,17 +257,17 @@ function routeOutgoingData(data, user_preferences) {
 ### **Key Metrics**
 - **Routing Latency**: <2ms average routing decision time
 - **Success Rate**: >99.9% successful routing
-- **Circuit Breaker Health**: Track breaker state changes
-- **Load Distribution**: Monitor endpoint load distribution
+- **Central Hub Integration**: Track service discovery performance
+- **Endpoint Health**: Monitor service availability via Central Hub
 
 ### **Alert Conditions**
 - **High Latency**: Alert if routing latency >10ms
-- **Circuit Breaker Trips**: Alert on circuit breaker activation
+- **Central Hub Unavailable**: Alert on service discovery failures
 - **Endpoint Failures**: Alert if endpoint success rate <95%
-- **Load Imbalance**: Alert if load distribution >20% imbalanced
+- **Service Discovery Issues**: Alert on Central Hub communication problems
 
 ### **Auto-Recovery Mechanisms**
-- **Endpoint Health Recovery**: Automatic endpoint re-enablement
-- **Circuit Breaker Reset**: Automatic circuit breaker reset
-- **Load Rebalancing**: Dynamic load redistribution
-- **Route Failover**: Automatic failover to backup routes
+- **Service Discovery Fallback**: Cache-based routing when Central Hub unavailable
+- **Health Status Refresh**: Periodic Central Hub health data updates
+- **Route Failover**: Automatic failover to backup routes via Central Hub
+- **Connection Recovery**: Automatic Central Hub reconnection

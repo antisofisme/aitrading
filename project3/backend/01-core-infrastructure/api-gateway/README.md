@@ -43,24 +43,50 @@ Real-time     Rate Limit     Load Balance
 
 #### **Kategori A: High Volume + Mission Critical**
 - **Input**: Native WebSocket (WSS) + Protocol Buffers from Client-MT5
-- **Output Primary**: NATS + Protocol Buffers (<1ms publish to backend services)
-- **Output Backup**: Kafka + Protocol Buffers (guaranteed delivery)
-- **Failover**: Automatic NATS→Kafka switching
+- **Output Primary**: NATS + Protocol Buffers (direct publish to NATS broker)
+- **Output Backup**: Kafka + Protocol Buffers (direct publish to Kafka broker)
+- **Failover**: Automatic NATS→Kafka switching (direct connection failover)
 - **Services**: Trading data, market signals, real-time events
-- **Performance**: <1ms NATS publish, <5ms total request processing
+- **Performance**: <1ms direct NATS publish, <5ms total request processing
 
 #### **Kategori B: Medium Volume + Important**
 - **Input**: HTTP REST + JSON from Frontend dashboard
-- **Output**: Direct gRPC calls (HTTP/2 + Protocol Buffers)
-- **Connection**: gRPC connection pooling + circuit breaker
+- **Output**: Direct gRPC calls to backend services (HTTP/2 + Protocol Buffers)
+- **Connection**: Direct gRPC connection pooling + circuit breaker
+- **Service Discovery**: Query Central Hub for service endpoints, then call directly
 - **Services**: Business logic, analytics queries, user management
-- **Performance**: <3ms gRPC call initiation
+- **Performance**: <3ms direct gRPC call initiation
 
 #### **Kategori C: Low Volume + Standard**
 - **Input**: HTTP REST + JSON for admin operations
-- **Output**: HTTP REST via Kong Gateway
+- **Output**: Direct HTTP REST calls to backend services
+- **Service Discovery**: Query Central Hub for service endpoints, then call directly
 - **Services**: Configuration management, health checks, admin operations
-- **Performance**: <5ms HTTP routing
+- **Performance**: <5ms direct HTTP call
+
+### **⚠️ Service Communication Pattern**
+
+**API Gateway makes DIRECT calls to backend services:**
+
+```
+✅ CORRECT Flow:
+1. Client → API Gateway (request)
+2. API Gateway → Central Hub (query: "where is Trading-Engine?")
+3. Central Hub → API Gateway (answer: "http://trading-engine:8080")
+4. API Gateway → Trading-Engine (direct call to http://trading-engine:8080)
+5. Trading-Engine → API Gateway (response)
+6. API Gateway → Client (response)
+
+❌ WRONG Flow:
+1. Client → API Gateway → Central Hub → Trading-Engine
+   (Central Hub should NOT forward business requests)
+```
+
+**API Gateway Role:**
+- ✅ **Client Gateway**: Handle client connections dan authentication
+- ✅ **Service Caller**: Make direct calls to backend services
+- ✅ **Service Discovery Client**: Query Central Hub for service locations
+- ❌ **Service Proxy**: TIDAK route through Central Hub
 
 ### **Native WebSocket (WSS) - Chosen for Performance**
 
@@ -174,11 +200,11 @@ Protection:     Rate Limiting → Load Balancing → Health Monitoring → Auto 
 - **No data loss**: Error messages stored untuk investigation
 - **Non-blocking**: Tidak ganggu normal processing flow
 
-**Circuit Breaker Protection:**
-- **Error threshold**: >50% error rate dalam 1 menit trigger circuit breaker
+**Connection Protection:**
+- **Rate limiting**: Max 100 messages/sec per user, drop excess
 - **Auto-disconnect**: WebSocket connection terminated untuk spam clients
 - **Temporary ban**: Block reconnection untuk protect server resources
-- **Rate limiting**: Max 100 messages/sec per user, drop excess
+- **Central Hub Integration**: Query Central Hub untuk backend service health status
 
 ### **Multi-Tenant Security Architecture:**
 
@@ -411,11 +437,11 @@ Real-time     <0.01ms overhead       Optional field     End-to-end      On-deman
   - **Low Volume**: HTTP REST via Kong Gateway
 - **Real-time Performance**: <1ms routing decision, <5ms total latency
 
-### **Advanced Features**:
-- ✅ **Adaptive Load Balancing**: Dynamic weight adjustment based on performance
-- ✅ **Circuit Breaker Protection**: Automatic service failover dengan health monitoring
+### **Client-Facing Features**:
+- ✅ **Multi-Tenant Request Routing**: Forward requests dengan tenant context to Central Hub
+- ✅ **Subscription Tier Enforcement**: Real-time subscription validation dan feature access
 - ✅ **Multi-tenant Security**: Company/user-level filtering dan access control
-- ✅ **Performance Monitoring**: Real-time metrics dengan alerting thresholds
+- ✅ **WebSocket Performance Monitoring**: Client connection metrics dengan alerting
 
 ---
 
