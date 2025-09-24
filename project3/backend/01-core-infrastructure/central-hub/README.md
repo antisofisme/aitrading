@@ -8,11 +8,18 @@
 ## 📊 ChainFlow Diagram
 
 ```
-All Services ↔ Central Hub ↔ System Coordination
-     ↓              ↓              ↓
-Service Calls   Discovery      Health Monitor
-Import Libs     Config Mgmt    Load Balance
-Use Schemas     ErrorDNA       Circuit Breaker
+Service A ──query──→ Central Hub ──response──→ Service A
+    ↓                     ↓                        ↓
+Direct Call          Discovery Only           Direct Call
+    ↓                     ↓                        ↓
+Service B ←─────────────────────────────────────────┘
+
+✅ COORDINATION PATTERN (NOT PROXY):
+1. Service A queries Central Hub: "Where is Service B?"
+2. Central Hub responds: "Service B is at http://service-b:8080"
+3. Service A calls Service B directly
+
+Shared Resources: Schemas, Utils, ErrorDNA, Circuit Breakers
 ```
 
 ---
@@ -27,7 +34,7 @@ Use Schemas     ErrorDNA       Circuit Breaker
 ### **Runtime Coordination** (Service-based)
 **Function**: Real-time service coordination dan monitoring
 **Usage**: Runtime service discovery, health checks, load balancing
-**Performance**: <2ms coordination response time
+**Performance**: <2ms coordination response time (part of <30ms total system budget)
 
 ### **Management Services** (Event-driven)
 **Function**: System-wide management dan orchestration
@@ -210,13 +217,77 @@ async def discover_service(service_name: str):
         return response.json()
 ```
 
-### **Health Monitoring:**
+### **Standardized Fallback Strategies:**
+
+#### **Transport Fallback Protocol (Standardized)**
 ```python
-# Health check results
-{
-    "api-gateway": {"status": "healthy", "latency": 15, "last_check": "2024-01-20T10:30:00Z"},
-    "data-bridge": {"status": "healthy", "latency": 8, "last_check": "2024-01-20T10:30:05Z"},
-    "ml-processing": {"status": "degraded", "latency": 45, "last_check": "2024-01-20T10:29:58Z"}
+# Standardized across all services
+class TransportFallbackManager:
+    def __init__(self):
+        self.fallback_hierarchy = {
+            "primary": "http_protobuf",    # HTTP + Protocol Buffers
+            "secondary": "http2_streaming", # HTTP/2 streaming
+            "tertiary": "http_json"        # HTTP + JSON fallback
+        }
+
+    async def execute_with_fallback(self, service_call, context):
+        """Execute service call with automatic fallback"""
+        for transport_type in self.fallback_hierarchy.values():
+            try:
+                return await service_call.execute(transport_type, context)
+            except TransportException as e:
+                await self.log_transport_failure(transport_type, e)
+                continue
+        raise AllTransportsFailedException()
+```
+
+### **Standardized Health Check Format:**
+```python
+# Standardized health check response (all services must comply)
+STANDARD_HEALTH_RESPONSE = {
+    "service_name": "central-hub",
+    "status": "healthy",                # "healthy", "degraded", "unhealthy"
+    "timestamp": "2024-01-20T10:30:00Z", # ISO 8601 timestamp
+    "version": "1.0.0",               # Service version
+    "uptime_seconds": 3600,           # Service uptime
+    "performance_metrics": {
+        "response_time_ms": 2.5,
+        "throughput_rps": 150.0,
+        "error_rate_percent": 0.01
+    },
+    "system_resources": {
+        "cpu_usage_percent": 45.2,
+        "memory_usage_mb": 512.8,
+        "disk_usage_percent": 23.1
+    },
+    "dependencies": {
+        "database": "healthy",
+        "cache": "healthy",
+        "external_apis": "healthy"
+    },
+    "tenant_context": {
+        "active_tenants": 12,
+        "tenant_isolation_status": "healthy"
+    }
+}
+
+# Multi-service health aggregation
+MULTI_SERVICE_HEALTH = {
+    "api-gateway": {
+        "service_name": "api-gateway",
+        "status": "healthy",
+        "performance_metrics": {"response_time_ms": 1.8, "throughput_rps": 200.0}
+    },
+    "data-bridge": {
+        "service_name": "data-bridge",
+        "status": "healthy",
+        "performance_metrics": {"response_time_ms": 2.1, "throughput_rps": 180.0}
+    },
+    "database-service": {
+        "service_name": "database-service",
+        "status": "degraded",
+        "performance_metrics": {"response_time_ms": 4.2, "throughput_rps": 120.0}
+    }
 }
 ```
 
@@ -278,7 +349,7 @@ Central Hub provides **tenant-aware infrastructure coordination** yang mendukung
 # Services receive tenant context via headers
 @discovery_router.get("/")
 async def list_services(
-    tenant_id: Optional[str] = Header(None, alias="x-tenant-id"),
+    company_id: Optional[str] = Header(None, alias="x-company-id"),
     subscription_tier: Optional[str] = Header(None, alias="x-subscription-tier"),
     user_id: Optional[str] = Header(None, alias="x-user-id")
 ):
@@ -396,9 +467,8 @@ class TenantResourceManager:
 # API Gateway forwards tenant context to Central Hub
 headers = {
     "x-user-id": user_context.user_id,
-    "x-tenant-id": user_context.tenant_id,
-    "x-subscription-tier": user_context.subscription_tier,
-    "x-company-id": user_context.company_id
+    "x-company-id": user_context.company_id,
+    "x-subscription-tier": user_context.subscription_tier
 }
 
 response = await httpx.post("http://central-hub:7000/services/discover", headers=headers)
@@ -423,9 +493,9 @@ Central Hub maintains **backward compatibility** dengan existing services:
 @discovery_router.get("/")
 async def list_services(
     legacy_mode: bool = Query(False),
-    tenant_id: Optional[str] = Header(None, alias="x-tenant-id")
+    company_id: Optional[str] = Header(None, alias="x-company-id")
 ):
-    if legacy_mode or not tenant_id:
+    if legacy_mode or not company_id:
         return {"services": central_hub_service.service_registry}  # All services
     else:
         return get_tenant_filtered_services(tenant_id)  # Filtered services
@@ -493,7 +563,7 @@ await central_hub.register_service({
 import httpx
 
 headers = {
-    "x-tenant-id": tenant_id,
+    "x-company-id": company_id,
     "x-subscription-tier": subscription_tier,
     "x-user-id": user_id
 }
@@ -533,10 +603,9 @@ feature_flags = tenant_config["config"]["features"]
 ### **Tenant Context Headers:**
 ```yaml
 Required_Headers:
-  x-tenant-id: "company_abc"           # Tenant/Company identifier
+  x-company-id: "company_abc"         # Company/Tenant identifier (standardized)
   x-user-id: "user_123"               # Individual user identifier
   x-subscription-tier: "pro"          # Subscription level
-  x-company-id: "company_abc"         # Alias for tenant-id
 
 Optional_Headers:
   x-correlation-id: "req_456"         # Request tracing
@@ -579,7 +648,7 @@ async def execute_trade(trade_order, tenant_context):
     # 1. Query Central Hub for service location
     response = await httpx.get(
         "http://central-hub:7000/services/discover/risk-management",
-        headers={"x-tenant-id": tenant_context["tenant_id"]}
+        headers={"x-company-id": tenant_context["company_id"]}
     )
     risk_service_endpoint = response.json()["recommended_endpoint"]
 
