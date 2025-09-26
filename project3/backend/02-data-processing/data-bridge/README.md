@@ -342,20 +342,28 @@ class DataBridgeProcessor:
 
         # Extract user context for processing
         user_id = batch_data.user_id
-        ticks = batch_data.ticks
+        account_info = batch_data.account_info
+        live_prices = batch_data.live_prices
 
         # Performance tracking
         start_time = time.time()
 
-        # Process batch
-        enriched_data = await self.process_tick_batch(batch_data, user_context)
+        # Convert to user context dict (NO indicator processing)
+        user_data = {
+            'user_id': user_id,
+            'account_balance': account_info.balance,
+            'live_bid': live_prices.bid,
+            'live_ask': live_prices.ask,
+            'account_info': account_info,
+            'timestamp': int(time.time() * 1000)
+        }
 
-        # Send to Database Service (Direct Objects)
-        await self.send_to_database(enriched_data)
+        # Send ONLY to Database Service (Direct Objects) - NO Feature-Engineering
+        await self.send_user_data_to_database(user_data)
 
         # Performance logging
         processing_time = (time.time() - start_time) * 1000
-        self.logger.info(f"Client batch processed in {processing_time:.2f}ms")
+        self.logger.info(f"Client data stored in {processing_time:.2f}ms")
 
     async def handle_internal_data(self, market_data_dict: dict):
         """Process incoming direct objects from Data-Ingestion"""
