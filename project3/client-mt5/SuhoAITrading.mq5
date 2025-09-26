@@ -28,6 +28,7 @@
 #include <Trade\SymbolInfo.mqh>
 #include <Trade\DealInfo.mqh>
 #include <Trade\HistoryOrderInfo.mqh>
+#include "WebSocketClient.mqh"
 
 //+------------------------------------------------------------------+
 //| Input Parameters - Professional Settings Interface              |
@@ -83,11 +84,12 @@ CTrade trade;
 CPositionInfo positionInfo;
 CAccountInfo accountInfo;
 CSymbolInfo symbolInfo;
+CHttpClient httpClient;
 
 // Connection status
-bool ServerConnected = false;
 datetime LastConnectionCheck = 0;
 datetime LastPriceStream = 0;
+datetime LastCommandCheck = 0;
 
 // Trading symbols array
 string TradingSymbols[];        // Selected major pairs + metals for trading & streaming
@@ -118,6 +120,9 @@ int OnInit()
         return INIT_FAILED;
     }
 
+    // Initialize HTTP client
+    httpClient.SetServer(ServerURL, AuthToken);
+
     // Test server connection
     if(!ConnectToServer()) {
         Print("⚠️ Initial server connection failed - will retry");
@@ -125,13 +130,13 @@ int OnInit()
     }
 
     // Send account profile on startup
-    if(ServerConnected) {
+    if(httpClient.IsConnected()) {
         SendAccountProfile();
     }
 
     Print("✅ Suho AI Trading EA - Initialization completed successfully");
     Print("📊 Monitoring " + IntegerToString(ArraySize(TradingSymbols)) + " trading pairs");
-    Print("🔗 Server connection: " + (ServerConnected ? "Connected" : "Disconnected"));
+    Print("🔗 Server connection: " + (httpClient.IsConnected() ? "Connected" : "Disconnected"));
 
     return INIT_SUCCEEDED;
 }
@@ -144,7 +149,7 @@ void OnDeinit(const int reason)
     Print("🛑 Suho AI Trading EA - Shutting down...");
 
     // Send shutdown notification
-    if(ServerConnected) {
+    if(httpClient.IsConnected()) {
         SendShutdownNotification();
     }
 
@@ -166,14 +171,17 @@ void OnTick()
     }
 
     // Price streaming - automatically stream selected pairs
-    if(ServerConnected) {
+    if(httpClient.IsConnected()) {
         if(TimeCurrent() - LastPriceStream >= StreamingInterval / 1000) {
             StreamPricesToServer();
         }
     }
 
-    // Process any pending server commands
-    ProcessServerCommands();
+    // Process any pending server commands (check every 5 seconds)
+    if(TimeCurrent() - LastCommandCheck >= 5) {
+        ProcessServerCommands();
+        LastCommandCheck = TimeCurrent();
+    }
 }
 
 //+------------------------------------------------------------------+
@@ -224,31 +232,36 @@ bool InitializeTradingSymbols()
 //+------------------------------------------------------------------+
 bool ConnectToServer()
 {
-    // For now, simulate connection based on configuration
+    // Validate configuration
     if(StringLen(UserID) == 0) {
         Print("❌ User ID not configured");
         return false;
     }
 
     if(TestingMode) {
-        Print("🧪 Test mode: Simulating server connection to localhost");
-        ServerConnected = true;
-        return true;
+        Print("🧪 Test mode: Connecting to localhost server");
+        // Update URL for localhost testing
+        string testUrl = "http://localhost:8000";
+        httpClient.SetServer(testUrl, AuthToken);
+    } else {
+        if(StringLen(AuthToken) == 0) {
+            Print("❌ Auth token not configured for production");
+            return false;
+        }
     }
 
-    if(StringLen(AuthToken) == 0) {
-        Print("❌ Auth token not configured");
-        return false;
+    Print("🔗 Attempting connection to server...");
+
+    // Use actual HTTP client connection
+    bool connected = httpClient.TestConnection();
+
+    if(connected) {
+        Print("✅ Connected to server successfully");
+    } else {
+        Print("❌ Server connection failed");
     }
 
-    // TODO: Implement actual WebSocket connection
-    Print("🔗 Attempting connection to: " + ServerURL);
-
-    // Simulate connection for now
-    ServerConnected = true;
-    Print("✅ Connected to server successfully");
-
-    return true;
+    return connected;
 }
 
 //+------------------------------------------------------------------+
@@ -256,14 +269,15 @@ bool ConnectToServer()
 //+------------------------------------------------------------------+
 void CheckServerConnection()
 {
-    if(!ServerConnected) {
-        // Attempt reconnection
-        Print("🔄 Attempting to reconnect to server...");
+    if(!httpClient.IsHealthy()) {
+        Print("🔄 Connection unhealthy, attempting to reconnect...");
         ConnectToServer();
     }
 
-    // TODO: Implement connection health check
-    // For now, assume connection is stable
+    // Log connection statistics for debugging
+    if(httpClient.GetRetryCount() > 0) {
+        Print("📊 Connection retries: " + IntegerToString(httpClient.GetRetryCount()));
+    }
 }
 
 //+------------------------------------------------------------------+
@@ -271,29 +285,29 @@ void CheckServerConnection()
 //+------------------------------------------------------------------+
 bool SendAccountProfile()
 {
-    if(!ServerConnected) return false;
+    if(!httpClient.IsConnected()) return false;
 
     Print("📤 Sending account profile to server...");
 
-    // Create basic profile data
+    // Create profile data
     string profileData = "UserID=" + UserID;
     profileData += "&Account=" + IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN));
     profileData += "&Balance=" + DoubleToString(AccountInfoDouble(ACCOUNT_BALANCE), 2);
     profileData += "&Equity=" + DoubleToString(AccountInfoDouble(ACCOUNT_EQUITY), 2);
     profileData += "&Broker=" + AccountInfoString(ACCOUNT_COMPANY);
     profileData += "&Server=" + AccountInfoString(ACCOUNT_SERVER);
+    profileData += "&Currency=" + AccountInfoString(ACCOUNT_CURRENCY);
+    profileData += "&Leverage=" + IntegerToString(AccountInfoInteger(ACCOUNT_LEVERAGE));
 
-    // Add selected trading pairs (only pairs that will be streamed)
+    // Add selected trading pairs
     profileData += "&TradingPairs=";
     for(int i = 0; i < ArraySize(TradingSymbols); i++) {
         if(i > 0) profileData += ",";
         profileData += TradingSymbols[i];
     }
 
-    // TODO: Implement actual HTTP/WebSocket send
-    Print("📊 Profile data prepared: " + IntegerToString(StringLen(profileData)) + " characters");
-
-    return true;
+    // Send via HTTP client
+    return httpClient.SendAccountProfile(profileData);
 }
 
 //+------------------------------------------------------------------+
@@ -301,10 +315,11 @@ bool SendAccountProfile()
 //+------------------------------------------------------------------+
 bool StreamPricesToServer()
 {
-    if(!ServerConnected) return false;
+    if(!httpClient.IsConnected()) return false;
 
     // Create price data with timestamp
     string priceData = "UserID=" + UserID + "&Timestamp=" + IntegerToString(TimeCurrent());
+    int priceCount = 0;
 
     if(StreamCurrentChartOnly) {
         // Stream only current chart symbol
@@ -312,15 +327,16 @@ bool StreamPricesToServer()
         if(SymbolInfoTick(_Symbol, tick)) {
             priceData += "&" + _Symbol + "_bid=" + DoubleToString(tick.bid, 5);
             priceData += "&" + _Symbol + "_ask=" + DoubleToString(tick.ask, 5);
-            priceData += "&" + _Symbol + "_type=current";
+            priceCount = 1;
         }
     } else {
-        // Stream only selected trading pairs (bid/ask only)
+        // Stream selected trading pairs (bid/ask only)
         for(int i = 0; i < ArraySize(TradingSymbols); i++) {
             MqlTick tick;
             if(SymbolInfoTick(TradingSymbols[i], tick)) {
                 priceData += "&" + TradingSymbols[i] + "_bid=" + DoubleToString(tick.bid, 5);
                 priceData += "&" + TradingSymbols[i] + "_ask=" + DoubleToString(tick.ask, 5);
+                priceCount++;
             }
         }
     }
@@ -328,7 +344,11 @@ bool StreamPricesToServer()
     // Update last stream time
     LastPriceStream = TimeCurrent();
 
-    // TODO: Implement actual data send
+    // Send via HTTP client (only if we have data)
+    if(priceCount > 0) {
+        return httpClient.SendPriceData(priceData);
+    }
+
     return true;
 }
 
@@ -337,8 +357,45 @@ bool StreamPricesToServer()
 //+------------------------------------------------------------------+
 void ProcessServerCommands()
 {
-    // TODO: Implement WebSocket command processing
-    // For now, this is a placeholder
+    if(!httpClient.IsConnected()) return;
+
+    // Get pending commands from server
+    string commandsResponse = httpClient.GetServerCommands();
+
+    if(StringLen(commandsResponse) > 0) {
+        Print("📨 Received server commands: " + IntegerToString(StringLen(commandsResponse)) + " characters");
+
+        // TODO: Parse JSON commands and execute trades
+        // For now, just log that we received commands
+        ParseAndExecuteCommands(commandsResponse);
+    }
+}
+
+//+------------------------------------------------------------------+
+//| Parse and execute trading commands from server                  |
+//+------------------------------------------------------------------+
+void ParseAndExecuteCommands(string commandsJson)
+{
+    // Basic command parsing - will be enhanced in next phase
+    Print("🧠 Processing AI trading commands...");
+
+    // Simple command detection for now
+    if(StringFind(commandsJson, "BUY") >= 0) {
+        Print("📈 AI Signal: BUY detected");
+        // TODO: Execute buy order
+    }
+    else if(StringFind(commandsJson, "SELL") >= 0) {
+        Print("📉 AI Signal: SELL detected");
+        // TODO: Execute sell order
+    }
+    else if(StringFind(commandsJson, "CLOSE") >= 0) {
+        Print("🔒 AI Signal: CLOSE positions");
+        // TODO: Close positions
+    }
+
+    // Send acknowledgment back to server
+    string ackData = "UserID=" + UserID + "&Status=RECEIVED&Timestamp=" + IntegerToString(TimeCurrent());
+    httpClient.SendTradeConfirmation(ackData);
 }
 
 //+------------------------------------------------------------------+
@@ -371,9 +428,9 @@ void PrintPerformanceSummary()
           DoubleToString(runtime / 3600.0, 1) + " hours)");
     Print("🎯 Total trades executed: " + IntegerToString(TotalTrades));
     Print("💰 Total profit/loss: $" + DoubleToString(TotalProfit, 2));
-    Print("📈 Starting balance: $" + DoubleToString(accountInfo.Balance(), 2));
+    Print("📈 Starting balance: $" + DoubleToString(AccountInfoDouble(ACCOUNT_BALANCE), 2));
     Print("📊 Current balance: $" + DoubleToString(AccountInfoDouble(ACCOUNT_BALANCE), 2));
-    Print("🔗 Server connection status: " + (ServerConnected ? "Connected" : "Disconnected"));
+    Print("🔗 Server connection status: " + (httpClient.IsConnected() ? "Connected" : "Disconnected"));
     Print("===============================================");
 }
 
