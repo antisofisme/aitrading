@@ -5,6 +5,8 @@
 #ifndef WEBSOCKETCLIENT_MQH
 #define WEBSOCKETCLIENT_MQH
 
+#include "BinaryProtocol.mqh"
+
 //+------------------------------------------------------------------+
 //| Enhanced WebSocket Client for Trading Commands                  |
 //+------------------------------------------------------------------+
@@ -211,6 +213,128 @@ public:
                 }
             }
             return false;
+        }
+    }
+
+    //+------------------------------------------------------------------+
+    //| Send binary price data via dedicated WebSocket                 |
+    //+------------------------------------------------------------------+
+    bool SendBinaryPriceData(string user_id, string &symbols[], MqlTick &ticks[])
+    {
+        if(!m_isPriceStreamConnected) {
+            if(!ConnectPriceStreamWebSocket()) {
+                return false;
+            }
+        }
+
+        // Create binary packet
+        char binaryBuffer[];
+        int packetSize = CBinaryProtocol::CreatePriceStreamPacket(user_id, symbols, ticks, binaryBuffer);
+
+        if(packetSize <= 0) {
+            Print("[ERROR] Failed to create binary price packet");
+            return false;
+        }
+
+        Print("[BINARY] Created price packet: ", packetSize, " bytes for ", ArraySize(symbols), " symbols");
+
+        // Send binary data via HTTP POST (WebSocket binary frames)
+        string endpoint = "/api/v1/prices/binary";
+        string response = "";
+        int statusCode = 0;
+
+        bool result = HttpRequestBinary("POST", endpoint, binaryBuffer, packetSize, response, statusCode);
+
+        if(result && statusCode == 200) {
+            m_lastPriceStream = TimeCurrent();
+            Print("[SUCCESS] Binary price data sent - ", packetSize, " bytes");
+            return true;
+        } else {
+            if(statusCode != 200) {
+                Print("[WARNING] Binary price streaming error. Status: ", IntegerToString(statusCode));
+                if(statusCode == 0 || statusCode >= 500) {
+                    m_isPriceStreamConnected = false;
+                }
+            }
+            return false;
+        }
+    }
+
+    //+------------------------------------------------------------------+
+    //| Send binary account profile to server                          |
+    //+------------------------------------------------------------------+
+    bool SendBinaryAccountProfile(string user_id)
+    {
+        if(!m_isConnected && !TestConnection()) {
+            return false;
+        }
+
+        // Create binary packet
+        char binaryBuffer[];
+        int packetSize = CBinaryProtocol::CreateAccountProfilePacket(user_id, binaryBuffer);
+
+        if(packetSize <= 0) {
+            Print("[ERROR] Failed to create binary account packet");
+            return false;
+        }
+
+        Print("[BINARY] Created account packet: ", packetSize, " bytes");
+
+        string endpoint = "/api/v1/account/binary";
+        string response = "";
+        int statusCode = 0;
+
+        bool result = HttpRequestBinary("POST", endpoint, binaryBuffer, packetSize, response, statusCode);
+
+        if(result && (statusCode == 200 || statusCode == 201)) {
+            Print("[SUCCESS] Binary account profile sent");
+            return true;
+        } else {
+            Print("[ERROR] Failed to send binary account profile. Status: ", IntegerToString(statusCode));
+            return false;
+        }
+    }
+
+    //+------------------------------------------------------------------+
+    //| Get binary trading commands from server                        |
+    //+------------------------------------------------------------------+
+    string GetBinaryServerCommands()
+    {
+        if(!m_isConnected && !ConnectTradingWebSocket()) {
+            return "";
+        }
+
+        string endpoint = "/api/v1/commands/binary";
+        if(StringLen(m_userId) > 0) {
+            endpoint += "?user_id=" + m_userId;
+        }
+
+        string response = "";
+        int statusCode = 0;
+
+        bool result = HttpRequest("GET", endpoint, "", response, statusCode);
+
+        if(result && statusCode == 200) {
+            m_lastHeartbeat = TimeCurrent();
+
+            // Parse binary response if available
+            if(StringLen(response) > 0) {
+                Print("[BINARY] Received binary commands: ", StringLen(response), " bytes");
+                // Queue binary commands for processing
+                QueueCommands(response);
+            }
+
+            return response;
+        } else if(statusCode == 204) {
+            // No commands pending - normal
+            m_lastHeartbeat = TimeCurrent();
+            return "";
+        } else {
+            Print("[WARNING] Failed to get binary trading commands. Status: ", IntegerToString(statusCode));
+            if(statusCode == 0 || statusCode == 401) {
+                m_isConnected = false;
+            }
+            return "";
         }
     }
 
@@ -473,6 +597,71 @@ private:
             // Debug logging for development
             if(result != 200 && result != 201 && result != 204) {
                 Print("[DEBUG] HTTP " + method + " " + endpoint + " -> " + IntegerToString(result));
+            }
+
+            return true;
+        }
+    }
+
+    //+------------------------------------------------------------------+
+    //| Binary HTTP request implementation for binary protocol         |
+    //+------------------------------------------------------------------+
+    bool HttpRequestBinary(string method, string endpoint, const char &binaryData[], int dataSize, string &response, int &statusCode)
+    {
+        string url = m_serverUrl + endpoint;
+
+        // Convert WebSocket URL to HTTP if needed
+        if(StringFind(url, "wss://") == 0) {
+            StringReplace(url, "wss://", "https://");
+        } else if(StringFind(url, "ws://") == 0) {
+            StringReplace(url, "ws://", "http://");
+        }
+
+        // Prepare headers for binary content
+        string headers = "Content-Type: application/octet-stream\r\n";
+        headers += "Content-Length: " + IntegerToString(dataSize) + "\r\n";
+        headers += "User-Agent: " + m_userAgent + "\r\n";
+
+        if(StringLen(m_authToken) > 0) {
+            headers += "Authorization: Bearer " + m_authToken + "\r\n";
+        }
+
+        // Use binary data directly
+        char responseArray[];
+        char dataArray[];
+        ArrayResize(dataArray, dataSize);
+        ArrayCopy(dataArray, binaryData, 0, 0, dataSize);
+
+        // Make HTTP request with binary data
+        int result = WebRequest(
+            method,
+            url,
+            headers,
+            m_timeout,
+            dataArray,
+            responseArray,
+            headers // Will contain response headers
+        );
+
+        if(result == -1) {
+            int error = GetLastError();
+            Print("[ERROR] Binary HTTP request failed. Error: " + IntegerToString(error));
+
+            if(error == 4014) {  // ERR_FUNCTION_NOT_ALLOWED
+                Print("[HINT] Enable WebRequest for: " + url + " in MT5 settings");
+            }
+
+            statusCode = 0;
+            return false;
+        } else {
+            statusCode = result;
+            response = CharArrayToString(responseArray);
+
+            // Debug logging for binary requests
+            if(result != 200 && result != 201 && result != 204) {
+                Print("[DEBUG] Binary HTTP " + method + " " + endpoint + " -> " + IntegerToString(result) + " (" + IntegerToString(dataSize) + " bytes)");
+            } else {
+                Print("[DEBUG] Binary HTTP " + method + " success - " + IntegerToString(dataSize) + " bytes sent");
             }
 
             return true;
