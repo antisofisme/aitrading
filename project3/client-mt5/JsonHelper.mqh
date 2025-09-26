@@ -134,7 +134,8 @@ public:
     //+------------------------------------------------------------------+
     static bool ParseTradingCommand(string commandJson, string &action, string &symbol, double &lots, double &stopLoss, double &takeProfit)
     {
-        return ParseTradingCommandExtended(commandJson, action, symbol, lots, stopLoss, takeProfit, 0);
+        ulong dummy_ticket = 0;
+        return ParseTradingCommandExtended(commandJson, action, symbol, lots, stopLoss, takeProfit, dummy_ticket);
     }
 
     //+------------------------------------------------------------------+
