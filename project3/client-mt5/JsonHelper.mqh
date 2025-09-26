@@ -2,6 +2,8 @@
 //|                                                  JsonHelper.mqh |
 //|                           Manual JSON construction helper for MT5 |
 //+------------------------------------------------------------------+
+#ifndef JSONHELPER_MQH
+#define JSONHELPER_MQH
 
 class JsonHelper
 {
@@ -224,3 +226,5 @@ public:
         return confirmation;
     }
 };
+
+#endif // JSONHELPER_MQH

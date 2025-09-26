@@ -2,6 +2,8 @@
 //|                                             WebSocketClient.mqh |
 //|                     Enhanced WebSocket client for dual connections |
 //+------------------------------------------------------------------+
+#ifndef WEBSOCKETCLIENT_MQH
+#define WEBSOCKETCLIENT_MQH
 
 //+------------------------------------------------------------------+
 //| Enhanced WebSocket Client for Trading Commands                  |
@@ -477,3 +479,5 @@ private:
         }
     }
 };
+
+#endif // WEBSOCKETCLIENT_MQH

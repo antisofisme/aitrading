@@ -1,0 +1,13 @@
+root = true
+
+[*.{mq4,mq5,mqh}]
+charset = utf-8
+end_of_line = crlf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+[*.{mq4,mq5,mqh}]
+# MQL5 specific settings
+max_line_length = 120

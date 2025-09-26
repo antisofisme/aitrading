@@ -2,6 +2,10 @@
 //|                                              TradingHelpers.mqh |
 //|                     Enhanced trading functions and utilities    |
 //+------------------------------------------------------------------+
+#ifndef TRADINGHELPERS_MQH
+#define TRADINGHELPERS_MQH
+
+#include "JsonHelper.mqh"
 
 //+------------------------------------------------------------------+
 //| Create Protocol Buffers client price stream                    |
@@ -136,6 +140,8 @@ void SendAccountUpdate(string UserID, CWebSocketClient &wsClient)
     if(wsClient.SendAccountProfile(accountProfile)) {
         // Success - no need to log every minute
     } else {
-        Print("⚠️ Failed to send account update");
+        Print("[WARNING] Failed to send account update");
     }
 }
+
+#endif // TRADINGHELPERS_MQH

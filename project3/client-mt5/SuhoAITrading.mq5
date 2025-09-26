@@ -28,8 +28,8 @@
 #include <Trade\SymbolInfo.mqh>
 #include <Trade\DealInfo.mqh>
 #include <Trade\HistoryOrderInfo.mqh>
-#include "WebSocketClient.mqh"
 #include "JsonHelper.mqh"
+#include "WebSocketClient.mqh"
 
 //+------------------------------------------------------------------+
 //| Input Parameters - Professional Settings Interface              |
