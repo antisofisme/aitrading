@@ -29,17 +29,19 @@
 #include <Trade\DealInfo.mqh>
 #include <Trade\HistoryOrderInfo.mqh>
 #include "WebSocketClient.mqh"
+#include "JsonHelper.mqh"
 
 //+------------------------------------------------------------------+
 //| Input Parameters - Professional Settings Interface              |
 //+------------------------------------------------------------------+
 
 // === 🌐 SERVER CONNECTION ===
-input group "🌐 SERVER CONNECTION"
-input string    ServerURL = "wss://api.aitrading.suho.platform";  // │ Production server URL
-input string    AuthToken = "";                                    // │ JWT Token from web platform
-input string    UserID = "";                                       // │ Your unique User ID
-input bool      TestingMode = false;                               // │ Enable for localhost testing
+input group "🌐 ENHANCED SERVER CONNECTION"
+input string    ServerURL = "ws://localhost:8001/ws/trading";    // │ Trading WebSocket URL
+input string    AuthToken = "";                                    // │ JWT Authentication Token
+input string    UserID = "user123";                             // │ Your unique User ID
+input int       MagicNumber = 20241226;                           // │ EA Magic Number
+input bool      TestingMode = true;                               // │ Enable for localhost testing
 
 // === 💰 TRADING PREFERENCES ===
 input group "💰 TRADING SETTINGS"
@@ -84,7 +86,7 @@ CTrade trade;
 CPositionInfo positionInfo;
 CAccountInfo accountInfo;
 CSymbolInfo symbolInfo;
-CHttpClient httpClient;
+CWebSocketClient wsClient;
 
 // Connection status
 datetime LastConnectionCheck = 0;
