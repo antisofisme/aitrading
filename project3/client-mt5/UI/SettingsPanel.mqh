@@ -144,7 +144,7 @@ public:
     void                ShowSettings(void);
     void                HideSettings(void);
     bool                Create(const long chart, const string name, const int subwin, const int x1, const int y1, const int x2, const int y2);
-    void                Destroy(int reason) override;
+    void                Destroy(const int reason = 0) override;
 
     // Settings management
     void                LoadSettings(void);

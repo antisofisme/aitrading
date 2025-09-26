@@ -262,14 +262,14 @@ bool CStatusDisplay::Create(int x, int y, int width, int height, string name)
     m_labelConnection = new CLabel();
     if(m_labelConnection != NULL)
     {
-        if(!m_labelConnection.Create(0, name + "_conn", 0, UI_MARGIN, UI_MARGIN, width - UI_MARGIN, UI_MARGIN + UI_LABEL_HEIGHT))
+        if(!m_labelConnection->Create(0, name + "_conn", 0, UI_MARGIN, UI_MARGIN, width - UI_MARGIN, UI_MARGIN + UI_LABEL_HEIGHT))
         {
             delete m_labelConnection;
             m_labelConnection = NULL;
             return false;
         }
-        m_labelConnection.Text("Connection: Disconnected");
-        m_labelConnection.Color(clrRed);
+        m_labelConnection->Text("Connection: Disconnected");
+        m_labelConnection->Color(clrRed);
         if(m_panel != NULL) m_panel.Add(m_labelConnection);
     }
 
@@ -277,14 +277,14 @@ bool CStatusDisplay::Create(int x, int y, int width, int height, string name)
     m_labelStatus = new CLabel();
     if(m_labelStatus != NULL)
     {
-        if(!m_labelStatus.Create(0, name + "_status", 0, UI_MARGIN, UI_MARGIN + 25, width - UI_MARGIN, UI_MARGIN + 45))
+        if(!m_labelStatus->Create(0, name + "_status", 0, UI_MARGIN, UI_MARGIN + 25, width - UI_MARGIN, UI_MARGIN + 45))
         {
             delete m_labelStatus;
             m_labelStatus = NULL;
             return false;
         }
-        m_labelStatus.Text("Trading: Inactive");
-        m_labelStatus.Color(clrGray);
+        m_labelStatus->Text("Trading: Inactive");
+        m_labelStatus->Color(clrGray);
         if(m_panel != NULL) m_panel.Add(m_labelStatus);
     }
 
@@ -292,14 +292,14 @@ bool CStatusDisplay::Create(int x, int y, int width, int height, string name)
     m_labelLastUpdate = new CLabel();
     if(m_labelLastUpdate != NULL)
     {
-        if(!m_labelLastUpdate.Create(0, name + "_update", 0, UI_MARGIN, UI_MARGIN + 50, width - UI_MARGIN, UI_MARGIN + 70))
+        if(!m_labelLastUpdate->Create(0, name + "_update", 0, UI_MARGIN, UI_MARGIN + 50, width - UI_MARGIN, UI_MARGIN + 70))
         {
             delete m_labelLastUpdate;
             m_labelLastUpdate = NULL;
             return false;
         }
-        m_labelLastUpdate.Text("Last Update: Never");
-        m_labelLastUpdate.Color(clrGray);
+        m_labelLastUpdate->Text("Last Update: Never");
+        m_labelLastUpdate->Color(clrGray);
         if(m_panel != NULL) m_panel.Add(m_labelLastUpdate);
     }
 
@@ -315,8 +315,8 @@ void CStatusDisplay::SetConnectionStatus(string status, color clr)
 {
     if(m_labelConnection != NULL)
     {
-        m_labelConnection.Text("Connection: " + status);
-        m_labelConnection.Color(clr);
+        m_labelConnection->Text("Connection: " + status);
+        m_labelConnection->Color(clr);
     }
 }
 
@@ -324,8 +324,8 @@ void CStatusDisplay::SetTradingStatus(string status, color clr)
 {
     if(m_labelStatus != NULL)
     {
-        m_labelStatus.Text("Trading: " + status);
-        m_labelStatus.Color(clr);
+        m_labelStatus->Text("Trading: " + status);
+        m_labelStatus->Color(clr);
     }
 }
 
@@ -334,8 +334,8 @@ void CStatusDisplay::SetLastUpdate(datetime timestamp)
     if(m_labelLastUpdate != NULL)
     {
         string timeStr = TimeToString(timestamp, TIME_DATE | TIME_MINUTES | TIME_SECONDS);
-        m_labelLastUpdate.Text("Last Update: " + timeStr);
-        m_labelLastUpdate.Color(clrWhite);
+        m_labelLastUpdate->Text("Last Update: " + timeStr);
+        m_labelLastUpdate->Color(clrWhite);
     }
 }
 
