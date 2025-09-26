@@ -22,11 +22,11 @@ Database Service ← Enriched Data ← Data Bridge → Client Distribution
 
 ## 🏗️ Service Architecture
 
-### **Input Flow**: Server-processed market data + client subscription requests
+### **Input Flow**: Server-processed market data + converted client data
 **Data Source 1**: 00-data-ingestion → NATS → Data Bridge (aggregated broker data)
-**Data Source 2**: Client-MT5 → API Gateway → Data Bridge (subscription requests)
-**Format**: Direct Objects (Python dict from ingestion), Protocol Buffers (SubscriptionRequest from clients)
-**Frequency**: 50+ ticks/second dari server ingestion, subscription management dari clients
+**Data Source 2**: Client-MT5 → API Gateway (Binary→Protobuf conversion) → Data Bridge (converted data)
+**Format**: Direct Objects (Python dict from ingestion), Protocol Buffers (converted from Suho Binary by API Gateway)
+**Frequency**: 50+ ticks/second dari server ingestion, real-time converted data dari Client-MT5
 **Performance Target**: <3ms data distribution dan filtering (part of <30ms total system budget)
 
 ### **Output Flow**: Real-time market data distribution + database storage

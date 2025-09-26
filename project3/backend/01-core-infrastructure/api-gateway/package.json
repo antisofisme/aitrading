@@ -1,0 +1,99 @@
+{
+  "name": "suho-ai-trading-api-gateway",
+  "version": "2.0.0",
+  "description": "High-performance API Gateway with Suho Binary Protocol support for Client-MT5 integration",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "lint": "eslint src/**/*.js",
+    "lint:fix": "eslint src/**/*.js --fix",
+    "build": "echo 'No build step required for Node.js'",
+    "docker:build": "docker build -t suho-api-gateway .",
+    "docker:run": "docker run -p 3000:3000 -p 8001:8001 -p 8002:8002 suho-api-gateway"
+  },
+  "keywords": [
+    "api-gateway",
+    "binary-protocol",
+    "websocket",
+    "mt5",
+    "trading",
+    "high-performance",
+    "protocol-buffers",
+    "routing",
+    "suho"
+  ],
+  "author": "Suho AI Trading Team",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2",
+    "ws": "^8.14.2",
+    "cors": "^2.8.5",
+    "helmet": "^7.0.0",
+    "compression": "^1.7.4",
+    "axios": "^1.5.0",
+    "protobufjs": "^7.2.5",
+    "uuid": "^9.0.0",
+    "joi": "^17.10.0",
+    "lodash": "^4.17.21",
+    "moment": "^2.29.4"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1",
+    "jest": "^29.7.0",
+    "supertest": "^6.3.3",
+    "eslint": "^8.49.0",
+    "eslint-config-airbnb-base": "^15.0.0",
+    "eslint-plugin-import": "^2.28.1",
+    "@types/node": "^20.6.3"
+  },
+  "engines": {
+    "node": ">=16.0.0",
+    "npm": ">=8.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/suho-ai/trading-api-gateway.git"
+  },
+  "bugs": {
+    "url": "https://github.com/suho-ai/trading-api-gateway/issues"
+  },
+  "homepage": "https://github.com/suho-ai/trading-api-gateway#readme",
+  "jest": {
+    "testEnvironment": "node",
+    "collectCoverageFrom": [
+      "src/**/*.js",
+      "!src/index.js"
+    ],
+    "coverageReporters": [
+      "text",
+      "lcov",
+      "html"
+    ],
+    "testMatch": [
+      "**/tests/**/*.test.js",
+      "**/src/**/*.test.js"
+    ]
+  },
+  "eslintConfig": {
+    "extends": [
+      "airbnb-base"
+    ],
+    "env": {
+      "node": true,
+      "jest": true
+    },
+    "rules": {
+      "no-console": "off",
+      "max-len": [
+        "error",
+        {
+          "code": 100
+        }
+      ]
+    }
+  }
+}
