@@ -387,7 +387,7 @@ void HandleEmergencyStop(string reason)
     // Close all open positions immediately
     for(int i = 0; i < PositionsTotal(); i++) {
         if(positionInfo.SelectByIndex(i)) {
-            if(positionInfo.Symbol() == _Symbol || StreamAllPairs) {
+            if(positionInfo.Symbol() == _Symbol || !StreamCurrentChartOnly) {
                 trade.PositionClose(positionInfo.Ticket());
                 Print("🔒 Emergency close: " + positionInfo.Symbol() + " - " + DoubleToString(positionInfo.Volume(), 2) + " lots");
             }
