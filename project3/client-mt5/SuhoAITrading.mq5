@@ -385,12 +385,15 @@ void ParseAndExecuteCommands(string commandsJson)
 {
     Print("[PROCESS] Processing AI trading commands (Protocol Buffers)...");
 
-    // Parse Protocol Buffers command using JsonHelper
+    // Parse Protocol Buffers command using enhanced JsonHelper
     string action = "", symbol = "";
     double lots = 0.0, stopLoss = 0.0, takeProfit = 0.0;
+    ulong ticket = 0;
 
-    if(JsonHelper::ParseTradingCommand(commandsJson, action, symbol, lots, stopLoss, takeProfit)) {
-        Print("[PARSED] Command parsed - Action: " + action + ", Symbol: " + symbol + ", Lots: " + DoubleToString(lots, 2));
+    if(JsonHelper::ParseTradingCommandExtended(commandsJson, action, symbol, lots, stopLoss, takeProfit, ticket)) {
+        Print("[PARSED] Command parsed - Action: " + action + ", Symbol: " + symbol +
+              ", Lots: " + DoubleToString(lots, 2) +
+              (ticket > 0 ? ", Ticket: " + IntegerToString(ticket) : ""));
 
         if(action == "BUY") {
             Print("[BUY] AI Signal: BUY " + symbol + " " + DoubleToString(lots, 2) + " lots");
@@ -403,6 +406,22 @@ void ParseAndExecuteCommands(string commandsJson)
         else if(action == "CLOSE") {
             Print("[CLOSE] AI Signal: CLOSE " + symbol + " positions");
             ClosePositions(symbol);
+        }
+        else if(action == "MODIFY") {
+            Print("[MODIFY] AI Signal: MODIFY " + symbol + " SL:" + DoubleToString(stopLoss, 5) + " TP:" + DoubleToString(takeProfit, 5));
+            ModifyPosition(symbol, ticket, stopLoss, takeProfit);
+        }
+        else if(action == "PARTIAL_CLOSE") {
+            Print("[PARTIAL] AI Signal: PARTIAL CLOSE " + symbol + " " + DoubleToString(lots, 2) + " lots");
+            PartialClosePosition(symbol, ticket, lots);
+        }
+        else if(action == "CLOSE_ALL") {
+            Print("[CLOSE_ALL] AI Signal: CLOSE ALL positions");
+            CloseAllPositions();
+        }
+        else if(action == "EMERGENCY_STOP") {
+            Print("[EMERGENCY] AI Signal: EMERGENCY STOP triggered");
+            HandleEmergencyStop("Server emergency signal");
         }
         else {
             Print("[WARNING] Unknown command action: " + action);
@@ -435,12 +454,230 @@ void ExecuteSellOrder(string symbol, double lots, double stopLoss, double takePr
 }
 
 //+------------------------------------------------------------------+
-//| Close Positions (Placeholder for next phase)                   |
+//| Close Positions (Enhanced Implementation)                       |
 //+------------------------------------------------------------------+
 void ClosePositions(string symbol)
 {
-    Print("[TODO] Close positions for " + symbol);
-    // TODO: Implement position closing in next phase
+    Print("[CLOSE] Closing all positions for " + symbol);
+
+    int closedCount = 0;
+    for(int i = PositionsTotal() - 1; i >= 0; i--) {
+        if(positionInfo.SelectByIndex(i)) {
+            if(positionInfo.Symbol() == symbol) {
+                ulong ticket = positionInfo.Ticket();
+                double lots = positionInfo.Volume();
+
+                if(trade.PositionClose(ticket)) {
+                    Print("[SUCCESS] Closed position " + IntegerToString(ticket) +
+                          " (" + DoubleToString(lots, 2) + " lots)");
+
+                    // Send confirmation
+                    string confirmation = JsonHelper::CreateTradeConfirmationProto(
+                        InpUserID, "closed", symbol, ticket, 0, lots);
+                    wsClient.SendTradeConfirmation(confirmation);
+
+                    closedCount++;
+                } else {
+                    Print("[ERROR] Failed to close position " + IntegerToString(ticket) +
+                          " Error: " + IntegerToString(GetLastError()));
+                }
+            }
+        }
+    }
+
+    Print("[SUMMARY] Closed " + IntegerToString(closedCount) + " positions for " + symbol);
+}
+
+//+------------------------------------------------------------------+
+//| Modify Position - NEW FUNCTIONALITY                             |
+//+------------------------------------------------------------------+
+void ModifyPosition(string symbol, ulong specificTicket, double newStopLoss, double newTakeProfit)
+{
+    Print("[MODIFY] Modifying position for " + symbol);
+
+    bool foundPosition = false;
+
+    if(specificTicket > 0) {
+        // Modify specific ticket
+        if(PositionSelectByTicket(specificTicket)) {
+            if(positionInfo.Symbol() == symbol) {
+                foundPosition = true;
+                ExecuteModify(specificTicket, symbol, newStopLoss, newTakeProfit);
+            }
+        }
+    } else {
+        // Modify first position found for this symbol
+        for(int i = 0; i < PositionsTotal(); i++) {
+            if(positionInfo.SelectByIndex(i)) {
+                if(positionInfo.Symbol() == symbol) {
+                    ulong ticket = positionInfo.Ticket();
+                    foundPosition = true;
+                    ExecuteModify(ticket, symbol, newStopLoss, newTakeProfit);
+                    break; // Only modify first position
+                }
+            }
+        }
+    }
+
+    if(!foundPosition) {
+        Print("[WARNING] No position found for " + symbol +
+              (specificTicket > 0 ? " with ticket " + IntegerToString(specificTicket) : ""));
+
+        // Send failure confirmation
+        string confirmation = JsonHelper::CreateModifyConfirmationProto(
+            InpUserID, symbol, specificTicket, newStopLoss, newTakeProfit, false, "Position not found");
+        wsClient.SendTradeConfirmation(confirmation);
+    }
+}
+
+//+------------------------------------------------------------------+
+//| Execute Modify Operation                                         |
+//+------------------------------------------------------------------+
+void ExecuteModify(ulong ticket, string symbol, double newStopLoss, double newTakeProfit)
+{
+    double currentSL = positionInfo.StopLoss();
+    double currentTP = positionInfo.TakeProfit();
+
+    Print("[MODIFY] Ticket " + IntegerToString(ticket) +
+          " Current SL:" + DoubleToString(currentSL, 5) + " TP:" + DoubleToString(currentTP, 5));
+    Print("[MODIFY] New SL:" + DoubleToString(newStopLoss, 5) + " TP:" + DoubleToString(newTakeProfit, 5));
+
+    if(trade.PositionModify(ticket, newStopLoss, newTakeProfit)) {
+        Print("[SUCCESS] Position " + IntegerToString(ticket) + " modified successfully");
+
+        // Send success confirmation
+        string confirmation = JsonHelper::CreateModifyConfirmationProto(
+            InpUserID, symbol, ticket, newStopLoss, newTakeProfit, true);
+        wsClient.SendTradeConfirmation(confirmation);
+
+    } else {
+        int error = GetLastError();
+        string reason = "MT5 Error: " + IntegerToString(error);
+        Print("[ERROR] Failed to modify position " + IntegerToString(ticket) + " - " + reason);
+
+        // Send failure confirmation
+        string confirmation = JsonHelper::CreateModifyConfirmationProto(
+            InpUserID, symbol, ticket, newStopLoss, newTakeProfit, false, reason);
+        wsClient.SendTradeConfirmation(confirmation);
+    }
+}
+
+//+------------------------------------------------------------------+
+//| Partial Close Position - NEW FUNCTIONALITY                      |
+//+------------------------------------------------------------------+
+void PartialClosePosition(string symbol, ulong specificTicket, double closeLots)
+{
+    Print("[PARTIAL] Partial close " + DoubleToString(closeLots, 2) + " lots of " + symbol);
+
+    bool foundPosition = false;
+
+    if(specificTicket > 0) {
+        // Partial close specific ticket
+        if(PositionSelectByTicket(specificTicket)) {
+            if(positionInfo.Symbol() == symbol) {
+                foundPosition = true;
+                ExecutePartialClose(specificTicket, symbol, closeLots);
+            }
+        }
+    } else {
+        // Partial close first position found for this symbol
+        for(int i = 0; i < PositionsTotal(); i++) {
+            if(positionInfo.SelectByIndex(i)) {
+                if(positionInfo.Symbol() == symbol) {
+                    ulong ticket = positionInfo.Ticket();
+                    foundPosition = true;
+                    ExecutePartialClose(ticket, symbol, closeLots);
+                    break;
+                }
+            }
+        }
+    }
+
+    if(!foundPosition) {
+        Print("[WARNING] No position found for partial close: " + symbol);
+
+        // Send failure confirmation
+        string confirmation = JsonHelper::CreatePartialCloseConfirmationProto(
+            InpUserID, symbol, specificTicket, closeLots, 0, false);
+        wsClient.SendTradeConfirmation(confirmation);
+    }
+}
+
+//+------------------------------------------------------------------+
+//| Execute Partial Close Operation                                  |
+//+------------------------------------------------------------------+
+void ExecutePartialClose(ulong ticket, string symbol, double closeLots)
+{
+    double currentVolume = positionInfo.Volume();
+
+    Print("[PARTIAL] Ticket " + IntegerToString(ticket) +
+          " Current volume: " + DoubleToString(currentVolume, 2) +
+          " Close: " + DoubleToString(closeLots, 2));
+
+    if(closeLots >= currentVolume) {
+        // Close entire position
+        if(trade.PositionClose(ticket)) {
+            Print("[FULL_CLOSE] Closed entire position " + IntegerToString(ticket));
+
+            string confirmation = JsonHelper::CreatePartialCloseConfirmationProto(
+                InpUserID, symbol, ticket, currentVolume, 0, true);
+            wsClient.SendTradeConfirmation(confirmation);
+        }
+    } else {
+        // Partial close
+        if(trade.PositionClosePartial(ticket, closeLots)) {
+            double remaining = currentVolume - closeLots;
+            Print("[SUCCESS] Partial close " + IntegerToString(ticket) +
+                  " Closed: " + DoubleToString(closeLots, 2) +
+                  " Remaining: " + DoubleToString(remaining, 2));
+
+            string confirmation = JsonHelper::CreatePartialCloseConfirmationProto(
+                InpUserID, symbol, ticket, closeLots, remaining, true);
+            wsClient.SendTradeConfirmation(confirmation);
+        } else {
+            int error = GetLastError();
+            Print("[ERROR] Failed to partial close " + IntegerToString(ticket) +
+                  " Error: " + IntegerToString(error));
+
+            string confirmation = JsonHelper::CreatePartialCloseConfirmationProto(
+                InpUserID, symbol, ticket, closeLots, currentVolume, false);
+            wsClient.SendTradeConfirmation(confirmation);
+        }
+    }
+}
+
+//+------------------------------------------------------------------+
+//| Close All Positions - NEW FUNCTIONALITY                         |
+//+------------------------------------------------------------------+
+void CloseAllPositions()
+{
+    Print("[CLOSE_ALL] Closing all open positions");
+
+    int totalPositions = PositionsTotal();
+    int closedCount = 0;
+
+    for(int i = totalPositions - 1; i >= 0; i--) {
+        if(positionInfo.SelectByIndex(i)) {
+            ulong ticket = positionInfo.Ticket();
+            string symbol = positionInfo.Symbol();
+            double lots = positionInfo.Volume();
+
+            if(trade.PositionClose(ticket)) {
+                Print("[SUCCESS] Closed position " + IntegerToString(ticket) +
+                      " (" + symbol + ", " + DoubleToString(lots, 2) + " lots)");
+                closedCount++;
+
+                // Send confirmation for each position
+                string confirmation = JsonHelper::CreateTradeConfirmationProto(
+                    InpUserID, "closed_all", symbol, ticket, 0, lots);
+                wsClient.SendTradeConfirmation(confirmation);
+            } else {
+                Print("[ERROR] Failed to close position " + IntegerToString(ticket));
+            }
+        }
+    }
+
+    Print("[SUMMARY] Closed " + IntegerToString(closedCount) + " of " + IntegerToString(totalPositions) + " positions");
 }
 
 //+------------------------------------------------------------------+

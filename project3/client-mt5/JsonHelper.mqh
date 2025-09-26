@@ -134,12 +134,21 @@ public:
     //+------------------------------------------------------------------+
     static bool ParseTradingCommand(string commandJson, string &action, string &symbol, double &lots, double &stopLoss, double &takeProfit)
     {
+        return ParseTradingCommandExtended(commandJson, action, symbol, lots, stopLoss, takeProfit, 0);
+    }
+
+    //+------------------------------------------------------------------+
+    //| Parse Extended Trading Command with Ticket Support              |
+    //+------------------------------------------------------------------+
+    static bool ParseTradingCommandExtended(string commandJson, string &action, string &symbol, double &lots, double &stopLoss, double &takeProfit, ulong &ticket)
+    {
         // Initialize variables
         action = "";
         symbol = "";
         lots = 0.0;
         stopLoss = 0.0;
         takeProfit = 0.0;
+        ticket = 0;
 
         // Simple JSON parsing
         string searchKey;
@@ -206,6 +215,19 @@ public:
             }
         }
 
+        // Parse ticket (for modify/close commands)
+        searchKey = "\"ticket\":";
+        startPos = StringFind(commandJson, searchKey);
+        if(startPos != -1) {
+            startPos += StringLen(searchKey);
+            endPos = StringFind(commandJson, ",", startPos);
+            if(endPos == -1) endPos = StringFind(commandJson, "}", startPos);
+            if(endPos != -1) {
+                string ticketStr = StringSubstr(commandJson, startPos, endPos - startPos);
+                ticket = StringToInteger(ticketStr);
+            }
+        }
+
         return StringLen(action) > 0 && StringLen(symbol) > 0;
     }
 
@@ -221,6 +243,45 @@ public:
         confirmation = AddIntegerField(confirmation, "ticket", ticket);
         confirmation = AddNumericField(confirmation, "price", price, 5);
         confirmation = AddNumericField(confirmation, "lots", lots, 2);
+        confirmation = AddIntegerField(confirmation, "timestamp", TimeCurrent());
+        confirmation += "}";
+        return confirmation;
+    }
+
+    //+------------------------------------------------------------------+
+    //| Create Modify Confirmation Protocol Buffer Format               |
+    //+------------------------------------------------------------------+
+    static string CreateModifyConfirmationProto(string userId, string symbol, ulong ticket, double newSL, double newTP, bool success, string reason = "")
+    {
+        string confirmation = "{";
+        confirmation = AddStringField(confirmation, "user_id", userId);
+        confirmation = AddStringField(confirmation, "action", "MODIFY_RESULT");
+        confirmation = AddStringField(confirmation, "symbol", symbol);
+        confirmation = AddIntegerField(confirmation, "ticket", ticket);
+        confirmation = AddNumericField(confirmation, "new_stop_loss", newSL, 5);
+        confirmation = AddNumericField(confirmation, "new_take_profit", newTP, 5);
+        confirmation = AddStringField(confirmation, "status", success ? "success" : "failed");
+        if(StringLen(reason) > 0) {
+            confirmation = AddStringField(confirmation, "reason", reason);
+        }
+        confirmation = AddIntegerField(confirmation, "timestamp", TimeCurrent());
+        confirmation += "}";
+        return confirmation;
+    }
+
+    //+------------------------------------------------------------------+
+    //| Create Partial Close Confirmation Protocol Buffer Format        |
+    //+------------------------------------------------------------------+
+    static string CreatePartialCloseConfirmationProto(string userId, string symbol, ulong ticket, double closedLots, double remainingLots, bool success)
+    {
+        string confirmation = "{";
+        confirmation = AddStringField(confirmation, "user_id", userId);
+        confirmation = AddStringField(confirmation, "action", "PARTIAL_CLOSE_RESULT");
+        confirmation = AddStringField(confirmation, "symbol", symbol);
+        confirmation = AddIntegerField(confirmation, "ticket", ticket);
+        confirmation = AddNumericField(confirmation, "closed_lots", closedLots, 2);
+        confirmation = AddNumericField(confirmation, "remaining_lots", remainingLots, 2);
+        confirmation = AddStringField(confirmation, "status", success ? "success" : "failed");
         confirmation = AddIntegerField(confirmation, "timestamp", TimeCurrent());
         confirmation += "}";
         return confirmation;
