@@ -32,7 +32,7 @@
 #include "WebSocketClient.mqh"
 #include "TradingHelpers.mqh"
 #include "BinaryProtocol.mqh"
-#include "UI/UIIntegrationHelper.mqh"
+#include "UI/SimpleUIIntegration.mqh"
 
 //+------------------------------------------------------------------+
 //| Input Parameters - Professional Settings Interface              |
@@ -140,14 +140,14 @@ int OnInit()
         SendAccountProfile();
     }
 
-    // Initialize UI system
-    if(!InitializeUI()) {
-        Print("[WARNING] UI initialization failed - continuing without UI");
+    // Initialize Simple UI system
+    if(!InitializeSimpleUI()) {
+        Print("[WARNING] Simple UI initialization failed - continuing without UI");
     } else {
-        Print("[SUCCESS] UI system initialized successfully");
+        Print("[SUCCESS] Simple UI system initialized successfully");
         // Update UI with initial connection status
-        UpdateEAUIConnectionStatus(wsClient.IsConnected(), InpServerURL);
-        UpdateEAUITradingStatus("Initialized");
+        UpdateSimpleUIConnectionStatus(wsClient.IsConnected(), InpServerURL);
+        UpdateSimpleUITradingStatus("Initialized");
     }
 
     Print("[SUCCESS] Suho AI Trading EA - Initialization completed successfully");
@@ -169,9 +169,9 @@ void OnDeinit(const int reason)
         SendShutdownNotification();
     }
 
-    // Shutdown UI system
-    ShutdownUI();
-    Print("[SHUTDOWN] UI system shutdown complete");
+    // Shutdown Simple UI system
+    ShutdownSimpleUI();
+    Print("[SHUTDOWN] Simple UI system shutdown complete");
 
     // Print performance summary
     PrintPerformanceSummary();
@@ -184,19 +184,19 @@ void OnDeinit(const int reason)
 //+------------------------------------------------------------------+
 void OnTick()
 {
-    // Process UI events first
-    ProcessEAUIEvents();
+    // Process Simple UI events first
+    ProcessSimpleUIEvents();
 
-    // Check for UI requests
-    if(CheckUIConnectRequest()) {
-        Print("[UI] Connect request received from UI");
+    // Check for Simple UI requests
+    if(CheckSimpleUIConnectRequest()) {
+        Print("[UI] Connect request received from Simple UI");
         ConnectToServer();
     }
 
-    if(CheckUIDisconnectRequest()) {
-        Print("[UI] Disconnect request received from UI");
+    if(CheckSimpleUIDisconnectRequest()) {
+        Print("[UI] Disconnect request received from Simple UI");
         // wsClient.Disconnect();
-        UpdateEAUIConnectionStatus(false, "Disconnected by user");
+        UpdateSimpleUIConnectionStatus(false, "Disconnected by user");
     }
 
     // Connection maintenance
@@ -226,7 +226,7 @@ void OnTick()
             double latency = 5.0; // wsClient.GetLastLatency();
             int dataSize = 144; // wsClient.GetLastDataSize();
             string protocol = InpUseBinaryProtocol ? "Binary" : "JSON";
-            UpdateEAUIPerformanceMetrics(latency, dataSize, protocol);
+            UpdateSimpleUIPerformanceMetrics(latency, dataSize, protocol);
         }
         uiUpdateCounter = 0;
     }
