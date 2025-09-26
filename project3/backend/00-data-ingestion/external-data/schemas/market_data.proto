@@ -1,0 +1,91 @@
+syntax = "proto3";
+
+package aitrading.data;
+
+// Unified Market Data for all external data sources
+message UnifiedMarketData {
+  // Common fields (always present)
+  string symbol = 1;              // EURUSD, CPI, BTC, FEAR_GREED_INDEX
+  int64 timestamp = 2;            // Unix timestamp in milliseconds
+  string source = 3;              // Yahoo, FRED, CoinGecko, etc.
+  string data_type = 4;           // market_price, economic_indicator, cryptocurrency, etc.
+
+  // Price data (for market ticks, forex, commodities)
+  optional double price_open = 10;
+  optional double price_high = 11;
+  optional double price_low = 12;
+  optional double price_close = 13;
+  optional double bid = 14;
+  optional double ask = 15;
+  optional double spread = 16;
+  optional double volume = 17;
+  optional double change_percent = 18;
+
+  // Economic data (for FRED indicators)
+  optional string date = 20;         // "2025-08-01"
+  optional double value = 21;        // Economic value
+  optional string units = 22;        // "Index 1982-84=100"
+  optional string frequency = 23;    // "Monthly"
+
+  // Crypto data (for CoinGecko)
+  optional string crypto_id = 30;    // "bitcoin"
+  optional string vs_currency = 31;  // "USD"
+  optional double market_cap = 32;
+
+  // Exchange rate data
+  optional string base_currency = 40;    // "USD"
+  optional string quote_currency = 41;   // "EUR"
+  optional double rate = 42;
+
+  // Sentiment data (Fear & Greed)
+  optional int32 index_value = 50;               // 0-100
+  optional string value_classification = 51;    // "Fear", "Greed"
+  optional string sentiment_level = 52;         // "extreme_fear"
+  optional string contrarian_signal = 53;       // "buy", "sell"
+  optional double signal_strength = 54;         // 0-1
+
+  // Session data
+  repeated string current_sessions = 60;
+  optional double volatility_multiplier = 61;
+  optional bool is_high_volatility = 62;
+
+  // Metadata
+  optional string session = 70;                 // Current trading session
+  repeated string currency_impact = 71;
+  optional double market_impact_score = 72;
+
+  // Event deduplication
+  optional string event_id = 80;      // External API event ID for UPSERT
+  optional string external_id = 81;   // Alternative unique identifier
+
+  // Raw data for debugging/future processing
+  map<string, string> raw_metadata = 90;
+}
+
+// Market Data Stream for batch processing
+message MarketDataStream {
+  repeated UnifiedMarketData ticks = 1;
+  string source = 2;                    // data-ingestion, oanda-api, etc.
+  int64 batch_time_msc = 3;            // Batch creation time
+  int32 batch_id = 4;                  // Sequence number
+}
+
+// Data quality metrics
+message QualityMetrics {
+  double completeness = 1;      // 0.0-1.0
+  double accuracy = 2;          // 0.0-1.0
+  double timeliness = 3;        // 0.0-1.0
+  double consistency = 4;       // 0.0-1.0
+  int32 total_records = 5;
+  int32 valid_records = 6;
+  repeated string errors = 7;
+}
+
+// Response message for API calls
+message DataIngestionResponse {
+  bool success = 1;
+  string message = 2;
+  int32 records_processed = 3;
+  QualityMetrics quality = 4;
+  int64 processing_time_ms = 5;
+}
