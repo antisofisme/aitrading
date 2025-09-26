@@ -1,4 +1,4 @@
-# Client-MT5 - Account Profile & Trading Execution Client
+# Client-MT5 - Enhanced AI Trading Expert Advisor\n\n## 📁 **Clean Project Structure**\n\n```\n📂 client-mt5/\n├── 📄 SuhoAITrading.mq5        # ✅ Main Expert Advisor (Working)\n├── 📄 WebSocketClient.mqh      # ✅ Dual WebSocket client\n├── 📄 JsonHelper.mqh           # ✅ Protocol Buffers helpers\n└── 📄 README.md                # ✅ Documentation\n```\n\n**🚨 CLEANUP COMPLETED**: Removed duplicate/unused files:\n- ❌ `SuhoAITrading_Simple.mq5` (renamed to main)\n- ❌ `TradingHelpers.mqh` (merged into main EA)\n- ❌ `SuhoAITradingHelper.mqh` (functionality integrated)\n\n**✅ READY FOR PRODUCTION**: Only 3 working files needed!\n\n---\n\n# Client-MT5 - Account Profile & Trading Execution Client
 
 ## 🎯 Purpose
 **MT5 client dengan dual functionality**:
