@@ -289,25 +289,27 @@ bool SendAccountProfile()
 
     Print("📤 Sending account profile to server...");
 
-    // Create profile data
-    string profileData = "UserID=" + UserID;
-    profileData += "&Account=" + IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN));
-    profileData += "&Balance=" + DoubleToString(AccountInfoDouble(ACCOUNT_BALANCE), 2);
-    profileData += "&Equity=" + DoubleToString(AccountInfoDouble(ACCOUNT_EQUITY), 2);
-    profileData += "&Broker=" + AccountInfoString(ACCOUNT_COMPANY);
-    profileData += "&Server=" + AccountInfoString(ACCOUNT_SERVER);
-    profileData += "&Currency=" + AccountInfoString(ACCOUNT_CURRENCY);
-    profileData += "&Leverage=" + IntegerToString(AccountInfoInteger(ACCOUNT_LEVERAGE));
+    // Create Protocol Buffers format profile data
+    string profileProto = JsonHelper::CreateAccountProfileProto(UserID);
 
-    // Add selected trading pairs
-    profileData += "&TradingPairs=";
-    for(int i = 0; i < ArraySize(TradingSymbols); i++) {
-        if(i > 0) profileData += ",";
-        profileData += TradingSymbols[i];
+    // Add selected trading pairs to the proto
+    if(ArraySize(TradingSymbols) > 0) {
+        // Remove closing bracket temporarily
+        StringReplace(profileProto, "}", "");
+
+        // Add trading pairs array
+        profileProto += ",\"trading_pairs\":[";
+        for(int i = 0; i < ArraySize(TradingSymbols); i++) {
+            if(i > 0) profileProto += ",";
+            profileProto += "\"" + TradingSymbols[i] + "\"";
+        }
+        profileProto += "]}";
     }
 
+    Print("📊 Profile data (Protocol Buffers): " + IntegerToString(StringLen(profileProto)) + " characters");
+
     // Send via HTTP client
-    return httpClient.SendAccountProfile(profileData);
+    return httpClient.SendAccountProfile(profileProto);
 }
 
 //+------------------------------------------------------------------+
@@ -317,36 +319,39 @@ bool StreamPricesToServer()
 {
     if(!httpClient.IsConnected()) return false;
 
-    // Create price data with timestamp
-    string priceData = "UserID=" + UserID + "&Timestamp=" + IntegerToString(TimeCurrent());
+    // Create Protocol Buffers format price stream
+    string priceStreamData = "{\"user_id\":\"" + UserID + "\",\"timestamp\":" + IntegerToString(TimeCurrent()) + ",\"prices\":[";
     int priceCount = 0;
 
     if(StreamCurrentChartOnly) {
-        // Stream only current chart symbol
+        // Stream only current chart symbol using Protocol Buffers format
         MqlTick tick;
         if(SymbolInfoTick(_Symbol, tick)) {
-            priceData += "&" + _Symbol + "_bid=" + DoubleToString(tick.bid, 5);
-            priceData += "&" + _Symbol + "_ask=" + DoubleToString(tick.ask, 5);
+            string marketData = JsonHelper::CreateMarketDataProto(UserID, _Symbol, tick.bid, tick.ask, TimeCurrent());
+            priceStreamData += marketData;
             priceCount = 1;
         }
     } else {
-        // Stream selected trading pairs (bid/ask only)
+        // Stream selected trading pairs using Protocol Buffers format
         for(int i = 0; i < ArraySize(TradingSymbols); i++) {
             MqlTick tick;
             if(SymbolInfoTick(TradingSymbols[i], tick)) {
-                priceData += "&" + TradingSymbols[i] + "_bid=" + DoubleToString(tick.bid, 5);
-                priceData += "&" + TradingSymbols[i] + "_ask=" + DoubleToString(tick.ask, 5);
+                if(priceCount > 0) priceStreamData += ",";
+                string marketData = JsonHelper::CreateMarketDataProto(UserID, TradingSymbols[i], tick.bid, tick.ask, TimeCurrent());
+                priceStreamData += marketData;
                 priceCount++;
             }
         }
     }
+
+    priceStreamData += "]}";
 
     // Update last stream time
     LastPriceStream = TimeCurrent();
 
     // Send via HTTP client (only if we have data)
     if(priceCount > 0) {
-        return httpClient.SendPriceData(priceData);
+        return httpClient.SendPriceData(priceStreamData);
     }
 
     return true;
@@ -376,26 +381,64 @@ void ProcessServerCommands()
 //+------------------------------------------------------------------+
 void ParseAndExecuteCommands(string commandsJson)
 {
-    // Basic command parsing - will be enhanced in next phase
-    Print("🧠 Processing AI trading commands...");
+    Print("🧠 Processing AI trading commands (Protocol Buffers)...");
 
-    // Simple command detection for now
-    if(StringFind(commandsJson, "BUY") >= 0) {
-        Print("📈 AI Signal: BUY detected");
-        // TODO: Execute buy order
-    }
-    else if(StringFind(commandsJson, "SELL") >= 0) {
-        Print("📉 AI Signal: SELL detected");
-        // TODO: Execute sell order
-    }
-    else if(StringFind(commandsJson, "CLOSE") >= 0) {
-        Print("🔒 AI Signal: CLOSE positions");
-        // TODO: Close positions
+    // Parse Protocol Buffers command using JsonHelper
+    string action, symbol;
+    double lots, stopLoss, takeProfit;
+
+    if(JsonHelper::ParseTradingCommand(commandsJson, action, symbol, lots, stopLoss, takeProfit)) {
+        Print("📋 Command parsed - Action: " + action + ", Symbol: " + symbol + ", Lots: " + DoubleToString(lots, 2));
+
+        if(action == "BUY") {
+            Print("📈 AI Signal: BUY " + symbol + " " + DoubleToString(lots, 2) + " lots");
+            ExecuteBuyOrder(symbol, lots, stopLoss, takeProfit);
+        }
+        else if(action == "SELL") {
+            Print("📉 AI Signal: SELL " + symbol + " " + DoubleToString(lots, 2) + " lots");
+            ExecuteSellOrder(symbol, lots, stopLoss, takeProfit);
+        }
+        else if(action == "CLOSE") {
+            Print("🔒 AI Signal: CLOSE " + symbol + " positions");
+            ClosePositions(symbol);
+        }
+        else {
+            Print("⚠️ Unknown command action: " + action);
+        }
+    } else {
+        Print("❌ Failed to parse Protocol Buffers command");
     }
 
-    // Send acknowledgment back to server
-    string ackData = "UserID=" + UserID + "&Status=RECEIVED&Timestamp=" + IntegerToString(TimeCurrent());
+    // Send acknowledgment back to server in Protocol Buffers format
+    string ackData = JsonHelper::CreateTradeConfirmationProto(UserID, "RECEIVED", "", 0, 0, 0);
     httpClient.SendTradeConfirmation(ackData);
+}
+
+//+------------------------------------------------------------------+
+//| Execute Buy Order (Placeholder for next phase)                 |
+//+------------------------------------------------------------------+
+void ExecuteBuyOrder(string symbol, double lots, double stopLoss, double takeProfit)
+{
+    Print("🔧 TODO: Execute BUY order for " + symbol);
+    // TODO: Implement actual order execution in next phase
+}
+
+//+------------------------------------------------------------------+
+//| Execute Sell Order (Placeholder for next phase)                |
+//+------------------------------------------------------------------+
+void ExecuteSellOrder(string symbol, double lots, double stopLoss, double takeProfit)
+{
+    Print("🔧 TODO: Execute SELL order for " + symbol);
+    // TODO: Implement actual order execution in next phase
+}
+
+//+------------------------------------------------------------------+
+//| Close Positions (Placeholder for next phase)                   |
+//+------------------------------------------------------------------+
+void ClosePositions(string symbol)
+{
+    Print("🔧 TODO: Close positions for " + symbol);
+    // TODO: Implement position closing in next phase
 }
 
 //+------------------------------------------------------------------+
@@ -403,17 +446,25 @@ void ParseAndExecuteCommands(string commandsJson)
 //+------------------------------------------------------------------+
 void SendShutdownNotification()
 {
-    if(!ServerConnected) return;
+    if(!httpClient.IsConnected()) return;
 
     Print("📤 Sending shutdown notification...");
 
-    string shutdownData = "UserID=" + UserID;
-    shutdownData += "&Event=EA_SHUTDOWN";
-    shutdownData += "&Timestamp=" + IntegerToString(TimeCurrent());
-    shutdownData += "&FinalBalance=" + DoubleToString(AccountInfoDouble(ACCOUNT_BALANCE), 2);
+    // Create Protocol Buffers format shutdown notification
+    string shutdownProto = "{";
+    shutdownProto = JsonHelper::AddStringField(shutdownProto, "user_id", UserID);
+    shutdownProto = JsonHelper::AddStringField(shutdownProto, "event", "EA_SHUTDOWN");
+    shutdownProto = JsonHelper::AddIntegerField(shutdownProto, "timestamp", TimeCurrent());
+    shutdownProto = JsonHelper::AddNumericField(shutdownProto, "final_balance", AccountInfoDouble(ACCOUNT_BALANCE));
+    shutdownProto = JsonHelper::AddNumericField(shutdownProto, "final_equity", AccountInfoDouble(ACCOUNT_EQUITY));
+    shutdownProto = JsonHelper::AddIntegerField(shutdownProto, "open_positions", PositionsTotal());
+    shutdownProto = JsonHelper::AddIntegerField(shutdownProto, "total_trades", TotalTrades);
+    shutdownProto = JsonHelper::AddNumericField(shutdownProto, "total_profit", TotalProfit);
+    shutdownProto += "}";
 
-    // TODO: Implement actual send
-    Print("📊 Shutdown notification prepared");
+    // Send via HTTP client
+    httpClient.SendTradeConfirmation(shutdownProto);
+    Print("📊 Shutdown notification sent (Protocol Buffers)");
 }
 
 //+------------------------------------------------------------------+

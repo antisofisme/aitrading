@@ -89,4 +89,81 @@ public:
         json += "]";
         return json;
     }
+
+    //+------------------------------------------------------------------+
+    //| Protocol Buffers Helper Functions                               |
+    //+------------------------------------------------------------------+
+
+    //+------------------------------------------------------------------+
+    //| Create Protocol Buffers-style market data                       |
+    //+------------------------------------------------------------------+
+    static string CreateMarketDataProto(string userID, string symbol, double bid, double ask, datetime timestamp)
+    {
+        string proto = "{";
+        proto = AddStringField(proto, "user_id", userID);
+        proto = AddStringField(proto, "symbol", symbol);
+        proto = AddNumericField(proto, "bid", bid, 5);
+        proto = AddNumericField(proto, "ask", ask, 5);
+        proto = AddIntegerField(proto, "timestamp", timestamp);
+        proto = AddStringField(proto, "data_type", "market_price");
+        proto = AddStringField(proto, "source", "MT5_CLIENT");
+        proto += "}";
+        return proto;
+    }
+
+    //+------------------------------------------------------------------+
+    //| Create Protocol Buffers-style account profile                   |
+    //+------------------------------------------------------------------+
+    static string CreateAccountProfileProto(string userID)
+    {
+        string proto = "{";
+        proto = AddStringField(proto, "user_id", userID);
+        proto = AddStringField(proto, "account_number", IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)));
+        proto = AddStringField(proto, "broker_name", AccountInfoString(ACCOUNT_COMPANY));
+        proto = AddStringField(proto, "server_name", AccountInfoString(ACCOUNT_SERVER));
+        proto = AddStringField(proto, "base_currency", AccountInfoString(ACCOUNT_CURRENCY));
+        proto = AddNumericField(proto, "balance", AccountInfoDouble(ACCOUNT_BALANCE));
+        proto = AddNumericField(proto, "equity", AccountInfoDouble(ACCOUNT_EQUITY));
+        proto = AddNumericField(proto, "margin_used", AccountInfoDouble(ACCOUNT_MARGIN));
+        proto = AddNumericField(proto, "margin_free", AccountInfoDouble(ACCOUNT_MARGIN_FREE));
+        proto = AddIntegerField(proto, "leverage", AccountInfoInteger(ACCOUNT_LEVERAGE));
+        proto = AddStringField(proto, "platform", "MT5");
+        proto = AddStringField(proto, "ea_version", "1.00");
+        proto = AddIntegerField(proto, "timestamp", TimeCurrent());
+        proto += "}";
+        return proto;
+    }
+
+    //+------------------------------------------------------------------+
+    //| Parse trading command from Protocol Buffers JSON               |
+    //+------------------------------------------------------------------+
+    static bool ParseTradingCommand(string protoJson, string &action, string &symbol, double &lots, double &sl, double &tp)
+    {
+        if(StringLen(protoJson) == 0) return false;
+
+        action = GetJsonValue(protoJson, "action");
+        symbol = GetJsonValue(protoJson, "symbol");
+        lots = StringToDouble(GetJsonValue(protoJson, "lots"));
+        sl = StringToDouble(GetJsonValue(protoJson, "stop_loss"));
+        tp = StringToDouble(GetJsonValue(protoJson, "take_profit"));
+
+        return (StringLen(action) > 0 && StringLen(symbol) > 0 && lots > 0);
+    }
+
+    //+------------------------------------------------------------------+
+    //| Create trade confirmation Protocol Buffers format               |
+    //+------------------------------------------------------------------+
+    static string CreateTradeConfirmationProto(string userID, string status, string symbol, ulong ticket, double price, double lots)
+    {
+        string proto = "{";
+        proto = AddStringField(proto, "user_id", userID);
+        proto = AddStringField(proto, "status", status);
+        proto = AddStringField(proto, "symbol", symbol);
+        proto = AddIntegerField(proto, "ticket", ticket);
+        proto = AddNumericField(proto, "price", price, 5);
+        proto = AddNumericField(proto, "lots", lots, 2);
+        proto = AddIntegerField(proto, "timestamp", TimeCurrent());
+        proto += "}";
+        return proto;
+    }
 }
