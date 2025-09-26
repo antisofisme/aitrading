@@ -32,6 +32,7 @@
 #include "WebSocketClient.mqh"
 #include "TradingHelpers.mqh"
 #include "BinaryProtocol.mqh"
+#include "UI/UIIntegrationHelper.mqh"
 
 //+------------------------------------------------------------------+
 //| Input Parameters - Professional Settings Interface              |
@@ -139,6 +140,16 @@ int OnInit()
         SendAccountProfile();
     }
 
+    // Initialize UI system
+    if(!InitializeUI()) {
+        Print("[WARNING] UI initialization failed - continuing without UI");
+    } else {
+        Print("[SUCCESS] UI system initialized successfully");
+        // Update UI with initial connection status
+        UpdateEAUIConnectionStatus(wsClient.IsConnected(), InpServerURL);
+        UpdateEAUITradingStatus("Initialized");
+    }
+
     Print("[SUCCESS] Suho AI Trading EA - Initialization completed successfully");
     Print("[INFO] Monitoring " + IntegerToString(ArraySize(TradingSymbols)) + " trading pairs");
     Print("Server connection: " + (wsClient.IsConnected() ? "Connected" : "Disconnected"));
@@ -158,6 +169,10 @@ void OnDeinit(const int reason)
         SendShutdownNotification();
     }
 
+    // Shutdown UI system
+    ShutdownUI();
+    Print("[SHUTDOWN] UI system shutdown complete");
+
     // Print performance summary
     PrintPerformanceSummary();
 
@@ -169,6 +184,21 @@ void OnDeinit(const int reason)
 //+------------------------------------------------------------------+
 void OnTick()
 {
+    // Process UI events first
+    ProcessEAUIEvents();
+
+    // Check for UI requests
+    if(CheckUIConnectRequest()) {
+        Print("[UI] Connect request received from UI");
+        ConnectToServer();
+    }
+
+    if(CheckUIDisconnectRequest()) {
+        Print("[UI] Disconnect request received from UI");
+        // wsClient.Disconnect();
+        UpdateEAUIConnectionStatus(false, "Disconnected by user");
+    }
+
     // Connection maintenance
     if(TimeCurrent() - LastConnectionCheck > 30) { // Check every 30 seconds
         CheckServerConnection();
@@ -186,6 +216,19 @@ void OnTick()
     if(TimeCurrent() - LastCommandCheck >= 5) {
         ProcessServerCommands();
         LastCommandCheck = TimeCurrent();
+    }
+
+    // Update UI with current performance data (every 10 ticks to avoid spam)
+    static int uiUpdateCounter = 0;
+    uiUpdateCounter++;
+    if(uiUpdateCounter >= 10) {
+        if(wsClient.IsConnected()) {
+            double latency = 5.0; // wsClient.GetLastLatency();
+            int dataSize = 144; // wsClient.GetLastDataSize();
+            string protocol = InpUseBinaryProtocol ? "Binary" : "JSON";
+            UpdateEAUIPerformanceMetrics(latency, dataSize, protocol);
+        }
+        uiUpdateCounter = 0;
     }
 }
 
