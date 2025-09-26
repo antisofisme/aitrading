@@ -76,9 +76,8 @@ input bool      Correlation_CHFJPY = false;                       // │ CHF/JPY
 
 // === 🔄 DATA STREAMING ===
 input group "🔄 DATA STREAMING"
-input bool      EnablePriceStreaming = true;                      // │ Stream prices to server
 input int       StreamingInterval = 1000;                         // │ Streaming interval (ms)
-input bool      StreamAllPairs = false;                           // │ Stream all pairs or current only
+input bool      StreamCurrentChartOnly = false;                   // │ Stream only current chart (ignore selections above)
 
 // === ⚙️ ADVANCED SETTINGS ===
 input group "⚙️ ADVANCED SETTINGS"
@@ -177,8 +176,8 @@ void OnTick()
         LastConnectionCheck = TimeCurrent();
     }
 
-    // Price streaming
-    if(EnablePriceStreaming && ServerConnected) {
+    // Price streaming - automatically stream selected pairs
+    if(ServerConnected) {
         if(TimeCurrent() - LastPriceStream >= StreamingInterval / 1000) {
             StreamPricesToServer();
         }
@@ -350,13 +349,21 @@ bool SendAccountProfile()
 //+------------------------------------------------------------------+
 bool StreamPricesToServer()
 {
-    if(!ServerConnected || !EnablePriceStreaming) return false;
+    if(!ServerConnected) return false;
 
-    // Create simple price data
+    // Create price data with timestamp
     string priceData = "UserID=" + UserID + "&Timestamp=" + IntegerToString(TimeCurrent());
 
-    if(StreamAllPairs) {
-        // Stream all trading symbols (for AI analysis & trading)
+    if(StreamCurrentChartOnly) {
+        // Stream only current chart symbol
+        MqlTick tick;
+        if(SymbolInfoTick(_Symbol, tick)) {
+            priceData += "&" + _Symbol + "_bid=" + DoubleToString(tick.bid, 5);
+            priceData += "&" + _Symbol + "_ask=" + DoubleToString(tick.ask, 5);
+            priceData += "&" + _Symbol + "_type=current";
+        }
+    } else {
+        // Automatically stream all selected trading pairs
         for(int i = 0; i < ArraySize(TradingSymbols); i++) {
             MqlTick tick;
             if(SymbolInfoTick(TradingSymbols[i], tick)) {
@@ -366,7 +373,7 @@ bool StreamPricesToServer()
             }
         }
 
-        // Stream correlation symbols (for correlation analysis only)
+        // Automatically stream all selected correlation pairs
         for(int i = 0; i < ArraySize(CorrelationSymbols); i++) {
             MqlTick tick;
             if(SymbolInfoTick(CorrelationSymbols[i], tick)) {
@@ -374,14 +381,6 @@ bool StreamPricesToServer()
                 priceData += "&" + CorrelationSymbols[i] + "_ask=" + DoubleToString(tick.ask, 5);
                 priceData += "&" + CorrelationSymbols[i] + "_type=correlation";
             }
-        }
-    } else {
-        // Stream current chart symbol only
-        MqlTick tick;
-        if(SymbolInfoTick(_Symbol, tick)) {
-            priceData += "&" + _Symbol + "_bid=" + DoubleToString(tick.bid, 5);
-            priceData += "&" + _Symbol + "_ask=" + DoubleToString(tick.ask, 5);
-            priceData += "&" + _Symbol + "_type=current";
         }
     }
 
