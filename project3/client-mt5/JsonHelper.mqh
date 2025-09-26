@@ -89,4 +89,138 @@ public:
         json += "]";
         return json;
     }
-}
+
+    //+------------------------------------------------------------------+
+    //| Create Account Profile Protocol Buffer Format                   |
+    //+------------------------------------------------------------------+
+    static string CreateAccountProfileProto(string userId)
+    {
+        string profile = "{";
+        profile = AddStringField(profile, "user_id", userId);
+        profile = AddStringField(profile, "broker_name", AccountInfoString(ACCOUNT_COMPANY));
+        profile = AddStringField(profile, "account_number", IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)));
+        profile = AddStringField(profile, "server", AccountInfoString(ACCOUNT_SERVER));
+        profile = AddNumericField(profile, "balance", AccountInfoDouble(ACCOUNT_BALANCE), 2);
+        profile = AddNumericField(profile, "equity", AccountInfoDouble(ACCOUNT_EQUITY), 2);
+        profile = AddNumericField(profile, "margin", AccountInfoDouble(ACCOUNT_MARGIN), 2);
+        profile = AddNumericField(profile, "free_margin", AccountInfoDouble(ACCOUNT_MARGIN_FREE), 2);
+        profile = AddIntegerField(profile, "leverage", AccountInfoInteger(ACCOUNT_LEVERAGE));
+        profile = AddStringField(profile, "currency", AccountInfoString(ACCOUNT_CURRENCY));
+        profile = AddIntegerField(profile, "timestamp", TimeCurrent());
+        profile += "}";
+        return profile;
+    }
+
+    //+------------------------------------------------------------------+
+    //| Create Market Data Protocol Buffer Format                       |
+    //+------------------------------------------------------------------+
+    static string CreateMarketDataProto(string userId, string symbol, double bid, double ask, datetime timestamp)
+    {
+        string marketData = "{";
+        marketData = AddStringField(marketData, "symbol", symbol);
+        marketData = AddNumericField(marketData, "bid", bid, 5);
+        marketData = AddNumericField(marketData, "ask", ask, 5);
+        marketData = AddNumericField(marketData, "spread", (ask - bid) * MathPow(10, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS)), 1);
+        marketData = AddIntegerField(marketData, "timestamp", timestamp);
+        marketData = AddStringField(marketData, "broker_server", AccountInfoString(ACCOUNT_SERVER));
+        marketData += "}";
+        return marketData;
+    }
+
+    //+------------------------------------------------------------------+
+    //| Parse Trading Command from JSON                                 |
+    //+------------------------------------------------------------------+
+    static bool ParseTradingCommand(string commandJson, string &action, string &symbol, double &lots, double &stopLoss, double &takeProfit)
+    {
+        // Initialize variables
+        action = "";
+        symbol = "";
+        lots = 0.0;
+        stopLoss = 0.0;
+        takeProfit = 0.0;
+
+        // Simple JSON parsing
+        string searchKey;
+        int startPos, endPos;
+
+        // Parse action
+        searchKey = "\"action\":\"";
+        startPos = StringFind(commandJson, searchKey);
+        if(startPos != -1) {
+            startPos += StringLen(searchKey);
+            endPos = StringFind(commandJson, "\"", startPos);
+            if(endPos != -1) {
+                action = StringSubstr(commandJson, startPos, endPos - startPos);
+            }
+        }
+
+        // Parse symbol
+        searchKey = "\"symbol\":\"";
+        startPos = StringFind(commandJson, searchKey);
+        if(startPos != -1) {
+            startPos += StringLen(searchKey);
+            endPos = StringFind(commandJson, "\"", startPos);
+            if(endPos != -1) {
+                symbol = StringSubstr(commandJson, startPos, endPos - startPos);
+            }
+        }
+
+        // Parse lots
+        searchKey = "\"lots\":";
+        startPos = StringFind(commandJson, searchKey);
+        if(startPos != -1) {
+            startPos += StringLen(searchKey);
+            endPos = StringFind(commandJson, ",", startPos);
+            if(endPos == -1) endPos = StringFind(commandJson, "}", startPos);
+            if(endPos != -1) {
+                string lotsStr = StringSubstr(commandJson, startPos, endPos - startPos);
+                lots = StringToDouble(lotsStr);
+            }
+        }
+
+        // Parse stop loss
+        searchKey = "\"stop_loss\":";
+        startPos = StringFind(commandJson, searchKey);
+        if(startPos != -1) {
+            startPos += StringLen(searchKey);
+            endPos = StringFind(commandJson, ",", startPos);
+            if(endPos == -1) endPos = StringFind(commandJson, "}", startPos);
+            if(endPos != -1) {
+                string slStr = StringSubstr(commandJson, startPos, endPos - startPos);
+                stopLoss = StringToDouble(slStr);
+            }
+        }
+
+        // Parse take profit
+        searchKey = "\"take_profit\":";
+        startPos = StringFind(commandJson, searchKey);
+        if(startPos != -1) {
+            startPos += StringLen(searchKey);
+            endPos = StringFind(commandJson, ",", startPos);
+            if(endPos == -1) endPos = StringFind(commandJson, "}", startPos);
+            if(endPos != -1) {
+                string tpStr = StringSubstr(commandJson, startPos, endPos - startPos);
+                takeProfit = StringToDouble(tpStr);
+            }
+        }
+
+        return StringLen(action) > 0 && StringLen(symbol) > 0;
+    }
+
+    //+------------------------------------------------------------------+
+    //| Create Trade Confirmation Protocol Buffer Format                |
+    //+------------------------------------------------------------------+
+    static string CreateTradeConfirmationProto(string userId, string status, string symbol, ulong ticket, double price, double lots)
+    {
+        string confirmation = "{";
+        confirmation = AddStringField(confirmation, "user_id", userId);
+        confirmation = AddStringField(confirmation, "status", status);
+        confirmation = AddStringField(confirmation, "symbol", symbol);
+        confirmation = AddIntegerField(confirmation, "ticket", ticket);
+        confirmation = AddNumericField(confirmation, "price", price, 5);
+        confirmation = AddNumericField(confirmation, "lots", lots, 2);
+        confirmation = AddIntegerField(confirmation, "timestamp", TimeCurrent());
+        confirmation += "}";
+        return confirmation;
+    }
+};

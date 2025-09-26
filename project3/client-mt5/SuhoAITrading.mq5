@@ -11,11 +11,11 @@
 #property description "Server-side AI analysis with client-side execution for optimal performance"
 #property description ""
 #property description "Features:"
-#property description "• Real-time AI trading signals from centralized server"
-#property description "• Automatic price adjustment for broker differences"
-#property description "• Professional risk management and position sizing"
-#property description "• Multi-pair correlation analysis support"
-#property description "• Zero-latency execution with local MT5 integration"
+#property description "- Real-time AI trading signals from centralized server"
+#property description "- Automatic price adjustment for broker differences"
+#property description "- Professional risk management and position sizing"
+#property description "- Multi-pair correlation analysis support"
+#property description "- Zero-latency execution with local MT5 integration"
 #property description ""
 #property description "Support: support@suho.platform"
 
@@ -26,40 +26,58 @@
 #include <Trade\PositionInfo.mqh>
 #include <Trade\AccountInfo.mqh>
 #include <Trade\SymbolInfo.mqh>
+#include <Trade\DealInfo.mqh>
+#include <Trade\HistoryOrderInfo.mqh>
+#include "WebSocketClient.mqh"
 #include "JsonHelper.mqh"
 
 //+------------------------------------------------------------------+
 //| Input Parameters - Professional Settings Interface              |
 //+------------------------------------------------------------------+
 
-// === 🌐 SERVER CONNECTION ===
-input group "🌐 SERVER CONNECTION"
-input string ServerURL = "wss://api.aitrading.suho.platform";  // Production server
-input string AuthToken = "";                                    // JWT Token from web platform
-input string UserID = "";                                      // Your User ID
-input bool TestingMode = false;                                // Enable for localhost testing
+// === ENHANCED SERVER CONNECTION ===
+// Enhanced Server Connection Settings
+input string    InpServerURL = "ws://localhost:8001/ws/trading";    // Trading WebSocket URL
+input string    InpAuthToken = "";                                    // JWT Authentication Token
+input string    InpUserID = "user123";                             // Your unique User ID
+input int       InpMagicNumber = 20241226;                           // EA Magic Number
+input bool      InpTestingMode = true;                               // Enable for localhost testing
 
-// === 💰 TRADING PREFERENCES ===
-input group "💰 TRADING SETTINGS"
-input bool AutoTrading = true;                                 // Enable automatic trading
-input double MaxRiskPerTrade = 2.0;                           // Maximum risk % per trade
-input double MaxDailyLoss = 1000.0;                           // Maximum daily loss (USD)
-input string TradingPairs = "EURUSD,GBPUSD,USDJPY";           // Monitored trading pairs
-input int MaxOpenPositions = 3;                               // Maximum simultaneous positions
-input double PreferredLotSize = 0.1;                          // Preferred position size
+// === TRADING PREFERENCES ===
+input group "TRADING SETTINGS"
+input bool      InpAutoTrading = true;                                // Enable automatic trading
+input double    InpMaxRiskPerTrade = 2.0;                            // Maximum risk % per trade
+input double    InpMaxDailyLoss = 1000.0;                            // Maximum daily loss (USD)
+input int       InpMaxOpenPositions = 3;                             // Maximum simultaneous positions
+input double    InpPreferredLotSize = 0.1;                           // Preferred position size
 
-// === 🔄 DATA STREAMING ===
-input group "🔄 DATA STREAMING"
-input bool EnablePriceStreaming = true;                       // Stream prices to server
-input int StreamingInterval = 1000;                           // Streaming interval (ms)
-input bool StreamAllPairs = false;                            // Stream all pairs or current only
+// === MAJOR PAIRS SELECTION (Trading + Analysis) ===
+input group "MAJOR PAIRS - Trading & AI Analysis"
+input bool      InpTrade_EURUSD = true;                              // EUR/USD - Euro vs US Dollar
+input bool      InpTrade_GBPUSD = true;                              // GBP/USD - British Pound vs US Dollar
+input bool      InpTrade_USDJPY = true;                              // USD/JPY - US Dollar vs Japanese Yen
+input bool      InpTrade_USDCHF = false;                             // USD/CHF - US Dollar vs Swiss Franc
+input bool      InpTrade_AUDUSD = false;                             // AUD/USD - Australian Dollar vs US Dollar
+input bool      InpTrade_USDCAD = false;                             // USD/CAD - US Dollar vs Canadian Dollar
+input bool      InpTrade_NZDUSD = false;                             // NZD/USD - New Zealand Dollar vs US Dollar
 
-// === ⚙️ ADVANCED SETTINGS ===
-input group "⚙️ ADVANCED SETTINGS"
-input bool ConservativeMode = false;                          // Conservative trading mode
-input double MaxDrawdown = 15.0;                              // Maximum drawdown %
-input bool AutoCloseOnFriday = true;                          // Auto-close positions on Friday
-input bool AllowNewsTrading = false;                          // Allow trading during news
+// === PRECIOUS METALS (Trading + Analysis) ===
+input group "PRECIOUS METALS - Trading & AI Analysis"
+input bool      InpTrade_XAUUSD = false;                             // XAU/USD - Gold vs US Dollar
+input bool      InpTrade_XAGUSD = false;                             // XAG/USD - Silver vs US Dollar
+
+
+// === DATA STREAMING ===
+input group "DATA STREAMING"
+input int       InpStreamingInterval = 1000;                         // Streaming interval (ms)
+input bool      InpStreamCurrentChartOnly = false;                   // Stream only current chart (ignore selections above)
+
+// === ADVANCED SETTINGS ===
+input group "ADVANCED SETTINGS"
+input bool      InpConservativeMode = false;                         // Conservative trading mode
+input double    InpMaxDrawdown = 15.0;                               // Maximum drawdown %
+input bool      InpAutoCloseOnFriday = true;                         // Auto-close positions on Friday
+input bool      InpAllowNewsTrading = false;                         // Allow trading during news
 
 //+------------------------------------------------------------------+
 //| Global Variables                                                 |
@@ -68,14 +86,15 @@ CTrade trade;
 CPositionInfo positionInfo;
 CAccountInfo accountInfo;
 CSymbolInfo symbolInfo;
+CWebSocketClient wsClient;
 
 // Connection status
-bool ServerConnected = false;
 datetime LastConnectionCheck = 0;
 datetime LastPriceStream = 0;
+datetime LastCommandCheck = 0;
 
 // Trading symbols array
-string TradingSymbols[];
+string TradingSymbols[];        // Selected major pairs + metals for trading & streaming
 
 // Performance tracking
 int TotalTrades = 0;
@@ -87,36 +106,39 @@ datetime StartTime = 0;
 //+------------------------------------------------------------------+
 int OnInit()
 {
-    Print("🚀 Suho AI Trading EA - Initializing...");
+    Print("[INIT] Suho AI Trading EA - Initializing...");
 
     // Record start time
     StartTime = TimeCurrent();
 
     // Initialize trading objects
-    trade.SetExpertMagicNumber(240626);  // Magic number: 24/06/26 (Suho AI launch date)
+    trade.SetExpertMagicNumber(InpMagicNumber);  // Use configured magic number
     trade.SetDeviationInPoints(10);
     trade.SetTypeFilling(ORDER_FILLING_FOK);
 
     // Initialize symbols
     if(!InitializeTradingSymbols()) {
-        Print("❌ Failed to initialize trading symbols");
+        Print("[ERROR] Failed to initialize trading symbols");
         return INIT_FAILED;
     }
 
+    // Initialize WebSocket client
+    wsClient.SetServer(InpServerURL, InpAuthToken, InpUserID);
+
     // Test server connection
     if(!ConnectToServer()) {
-        Print("⚠️ Initial server connection failed - will retry");
+        Print("[WARNING] Initial server connection failed - will retry");
         // Don't fail initialization, continue with retry logic
     }
 
     // Send account profile on startup
-    if(ServerConnected) {
+    if(wsClient.IsConnected()) {
         SendAccountProfile();
     }
 
-    Print("✅ Suho AI Trading EA - Initialization completed successfully");
-    Print("📊 Monitoring " + IntegerToString(ArraySize(TradingSymbols)) + " trading pairs");
-    Print("🔗 Server connection: " + (ServerConnected ? "Connected" : "Disconnected"));
+    Print("[SUCCESS] Suho AI Trading EA - Initialization completed successfully");
+    Print("[INFO] Monitoring " + IntegerToString(ArraySize(TradingSymbols)) + " trading pairs");
+    Print("Server connection: " + (wsClient.IsConnected() ? "Connected" : "Disconnected"));
 
     return INIT_SUCCEEDED;
 }
@@ -126,17 +148,17 @@ int OnInit()
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason)
 {
-    Print("🛑 Suho AI Trading EA - Shutting down...");
+    Print("[SHUTDOWN] Suho AI Trading EA - Shutting down...");
 
     // Send shutdown notification
-    if(ServerConnected) {
+    if(wsClient.IsConnected()) {
         SendShutdownNotification();
     }
 
     // Print performance summary
     PrintPerformanceSummary();
 
-    Print("👋 Suho AI Trading EA - Shutdown completed");
+    Print("[SHUTDOWN] Suho AI Trading EA - Shutdown completed");
 }
 
 //+------------------------------------------------------------------+
@@ -150,15 +172,18 @@ void OnTick()
         LastConnectionCheck = TimeCurrent();
     }
 
-    // Price streaming
-    if(EnablePriceStreaming && ServerConnected) {
-        if(TimeCurrent() - LastPriceStream >= StreamingInterval / 1000) {
+    // Price streaming - automatically stream selected pairs
+    if(wsClient.IsConnected()) {
+        if(TimeCurrent() - LastPriceStream >= InpStreamingInterval / 1000) {
             StreamPricesToServer();
         }
     }
 
-    // Process any pending server commands
-    ProcessServerCommands();
+    // Process any pending server commands (check every 5 seconds)
+    if(TimeCurrent() - LastCommandCheck >= 5) {
+        ProcessServerCommands();
+        LastCommandCheck = TimeCurrent();
+    }
 }
 
 //+------------------------------------------------------------------+
@@ -166,34 +191,42 @@ void OnTick()
 //+------------------------------------------------------------------+
 bool InitializeTradingSymbols()
 {
-    // Parse trading pairs from input
-    string pairs[];
-    int count = StringSplit(TradingPairs, ',', pairs);
+    // Initialize trading symbols (majors + metals)
+    string tradingPairs[];
+    int tradingCount = 0;
 
-    if(count <= 0) {
-        Print("❌ No trading pairs configured");
-        return false;
-    }
+    // Major pairs
+    if(InpTrade_EURUSD) { ArrayResize(tradingPairs, tradingCount + 1); tradingPairs[tradingCount] = "EURUSD"; tradingCount++; }
+    if(InpTrade_GBPUSD) { ArrayResize(tradingPairs, tradingCount + 1); tradingPairs[tradingCount] = "GBPUSD"; tradingCount++; }
+    if(InpTrade_USDJPY) { ArrayResize(tradingPairs, tradingCount + 1); tradingPairs[tradingCount] = "USDJPY"; tradingCount++; }
+    if(InpTrade_USDCHF) { ArrayResize(tradingPairs, tradingCount + 1); tradingPairs[tradingCount] = "USDCHF"; tradingCount++; }
+    if(InpTrade_AUDUSD) { ArrayResize(tradingPairs, tradingCount + 1); tradingPairs[tradingCount] = "AUDUSD"; tradingCount++; }
+    if(InpTrade_USDCAD) { ArrayResize(tradingPairs, tradingCount + 1); tradingPairs[tradingCount] = "USDCAD"; tradingCount++; }
+    if(InpTrade_NZDUSD) { ArrayResize(tradingPairs, tradingCount + 1); tradingPairs[tradingCount] = "NZDUSD"; tradingCount++; }
 
-    ArrayResize(TradingSymbols, count);
+    // Precious metals
+    if(InpTrade_XAUUSD) { ArrayResize(tradingPairs, tradingCount + 1); tradingPairs[tradingCount] = "XAUUSD"; tradingCount++; }
+    if(InpTrade_XAGUSD) { ArrayResize(tradingPairs, tradingCount + 1); tradingPairs[tradingCount] = "XAGUSD"; tradingCount++; }
 
-    for(int i = 0; i < count; i++) {
-        // Clean up whitespace
-        StringTrimLeft(pairs[i]);
-        StringTrimRight(pairs[i]);
+    // Validate and setup trading symbols
+    if(tradingCount == 0) {
+        Print("[WARNING] No trading pairs selected - EA will run in monitoring mode only");
+    } else {
+        ArrayResize(TradingSymbols, tradingCount);
+        for(int i = 0; i < tradingCount; i++) {
+            TradingSymbols[i] = tradingPairs[i];
 
-        TradingSymbols[i] = pairs[i];
-
-        // Validate symbol
-        if(!SymbolSelect(pairs[i], true)) {
-            Print("⚠️ Symbol not available: " + pairs[i]);
-        } else {
-            Print("✅ Symbol initialized: " + pairs[i]);
+            if(!SymbolSelect(tradingPairs[i], true)) {
+                Print("[WARNING] Trading symbol not available: " + tradingPairs[i]);
+            } else {
+                Print("[SUCCESS] Trading symbol initialized: " + tradingPairs[i]);
+            }
         }
     }
 
-    Print("📊 Trading symbols initialized: " + IntegerToString(count) + " pairs");
-    return true;
+    Print("[INFO] Trading pairs initialized: " + IntegerToString(tradingCount) + " pairs (streaming bid/ask only)");
+
+    return true; // Always return true, allow monitoring mode even without trading pairs
 }
 
 //+------------------------------------------------------------------+
@@ -201,31 +234,36 @@ bool InitializeTradingSymbols()
 //+------------------------------------------------------------------+
 bool ConnectToServer()
 {
-    // For now, simulate connection based on configuration
-    if(StringLen(UserID) == 0) {
-        Print("❌ User ID not configured");
+    // Validate configuration
+    if(StringLen(InpUserID) == 0) {
+        Print("[ERROR] User ID not configured");
         return false;
     }
 
-    if(TestingMode) {
-        Print("🧪 Test mode: Simulating server connection to localhost");
-        ServerConnected = true;
-        return true;
+    if(InpTestingMode) {
+        Print("[TEST] Test mode: Connecting to localhost server");
+        // Update URL for localhost testing
+        string testUrl = "http://localhost:8000";
+        wsClient.SetServer(testUrl, InpAuthToken, InpUserID);
+    } else {
+        if(StringLen(InpAuthToken) == 0) {
+            Print("[ERROR] Auth token not configured for production");
+            return false;
+        }
     }
 
-    if(StringLen(AuthToken) == 0) {
-        Print("❌ Auth token not configured");
-        return false;
+    Print("[CONNECT] Attempting connection to server...");
+
+    // Use actual HTTP client connection
+    bool connected = wsClient.TestConnection();
+
+    if(connected) {
+        Print("[SUCCESS] Connected to server successfully");
+    } else {
+        Print("[ERROR] Server connection failed");
     }
 
-    // TODO: Implement actual WebSocket connection
-    Print("🔗 Attempting connection to: " + ServerURL);
-
-    // Simulate connection for now
-    ServerConnected = true;
-    Print("✅ Connected to server successfully");
-
-    return true;
+    return connected;
 }
 
 //+------------------------------------------------------------------+
@@ -233,14 +271,15 @@ bool ConnectToServer()
 //+------------------------------------------------------------------+
 void CheckServerConnection()
 {
-    if(!ServerConnected) {
-        // Attempt reconnection
-        Print("🔄 Attempting to reconnect to server...");
+    if(!wsClient.IsHealthy()) {
+        Print("[RECONNECT] Connection unhealthy, attempting to reconnect...");
         ConnectToServer();
     }
 
-    // TODO: Implement connection health check
-    // For now, assume connection is stable
+    // Log connection statistics for debugging
+    if(wsClient.GetRetryCount() > 0) {
+        Print("[INFO] Connection retries: " + IntegerToString(wsClient.GetRetryCount()));
+    }
 }
 
 //+------------------------------------------------------------------+
@@ -248,22 +287,31 @@ void CheckServerConnection()
 //+------------------------------------------------------------------+
 bool SendAccountProfile()
 {
-    if(!ServerConnected) return false;
+    if(!wsClient.IsConnected()) return false;
 
-    Print("📤 Sending account profile to server...");
+    Print("[SEND] Sending account profile to server...");
 
-    // Create basic profile data
-    string profileData = "UserID=" + UserID;
-    profileData += "&Account=" + IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN));
-    profileData += "&Balance=" + DoubleToString(AccountInfoDouble(ACCOUNT_BALANCE), 2);
-    profileData += "&Equity=" + DoubleToString(AccountInfoDouble(ACCOUNT_EQUITY), 2);
-    profileData += "&Broker=" + AccountInfoString(ACCOUNT_COMPANY);
-    profileData += "&Server=" + AccountInfoString(ACCOUNT_SERVER);
+    // Create Protocol Buffers format profile data
+    string profileProto = JsonHelper::CreateAccountProfileProto(InpUserID);
 
-    // TODO: Implement actual HTTP/WebSocket send
-    Print("📊 Profile data prepared: " + StringLen(profileData) + " characters");
+    // Add selected trading pairs to the proto
+    if(ArraySize(TradingSymbols) > 0) {
+        // Remove closing bracket temporarily
+        StringReplace(profileProto, "}", "");
 
-    return true;
+        // Add trading pairs array
+        profileProto += ",\"trading_pairs\":[";
+        for(int i = 0; i < ArraySize(TradingSymbols); i++) {
+            if(i > 0) profileProto += ",";
+            profileProto += "\"" + TradingSymbols[i] + "\"";
+        }
+        profileProto += "]}";
+    }
+
+    Print("[INFO] Profile data (Protocol Buffers): " + IntegerToString(StringLen(profileProto)) + " characters");
+
+    // Send via HTTP client
+    return wsClient.SendAccountProfile(profileProto);
 }
 
 //+------------------------------------------------------------------+
@@ -271,33 +319,43 @@ bool SendAccountProfile()
 //+------------------------------------------------------------------+
 bool StreamPricesToServer()
 {
-    if(!ServerConnected || !EnablePriceStreaming) return false;
+    if(!wsClient.IsConnected()) return false;
 
-    // Create simple price data
-    string priceData = "UserID=" + UserID + "&Timestamp=" + IntegerToString(TimeCurrent());
+    // Create Protocol Buffers format price stream
+    string priceStreamData = "{\"user_id\":\"" + InpUserID + "\",\"timestamp\":" + IntegerToString(TimeCurrent()) + ",\"prices\":[";
+    int priceCount = 0;
 
-    if(StreamAllPairs) {
-        // Stream all trading symbols
+    if(InpStreamCurrentChartOnly) {
+        // Stream only current chart symbol using Protocol Buffers format
+        MqlTick tick;
+        if(SymbolInfoTick(_Symbol, tick)) {
+            string marketData = JsonHelper::CreateMarketDataProto(InpUserID, _Symbol, tick.bid, tick.ask, TimeCurrent());
+            priceStreamData += marketData;
+            priceCount = 1;
+        }
+    } else {
+        // Stream selected trading pairs using Protocol Buffers format
         for(int i = 0; i < ArraySize(TradingSymbols); i++) {
             MqlTick tick;
             if(SymbolInfoTick(TradingSymbols[i], tick)) {
-                priceData += "&" + TradingSymbols[i] + "_bid=" + DoubleToString(tick.bid, 5);
-                priceData += "&" + TradingSymbols[i] + "_ask=" + DoubleToString(tick.ask, 5);
+                if(priceCount > 0) priceStreamData += ",";
+                string marketData = JsonHelper::CreateMarketDataProto(InpUserID, TradingSymbols[i], tick.bid, tick.ask, TimeCurrent());
+                priceStreamData += marketData;
+                priceCount++;
             }
         }
-    } else {
-        // Stream current chart symbol only
-        MqlTick tick;
-        if(SymbolInfoTick(_Symbol, tick)) {
-            priceData += "&" + _Symbol + "_bid=" + DoubleToString(tick.bid, 5);
-            priceData += "&" + _Symbol + "_ask=" + DoubleToString(tick.ask, 5);
-        }
     }
+
+    priceStreamData += "]}";
 
     // Update last stream time
     LastPriceStream = TimeCurrent();
 
-    // TODO: Implement actual data send
+    // Send via HTTP client (only if we have data)
+    if(priceCount > 0) {
+        return wsClient.SendPriceData(priceStreamData);
+    }
+
     return true;
 }
 
@@ -306,8 +364,83 @@ bool StreamPricesToServer()
 //+------------------------------------------------------------------+
 void ProcessServerCommands()
 {
-    // TODO: Implement WebSocket command processing
-    // For now, this is a placeholder
+    if(!wsClient.IsConnected()) return;
+
+    // Get pending commands from server
+    string commandsResponse = wsClient.GetServerCommands();
+
+    if(StringLen(commandsResponse) > 0) {
+        Print("[RECV] Received server commands: " + IntegerToString(StringLen(commandsResponse)) + " characters");
+
+        // TODO: Parse JSON commands and execute trades
+        // For now, just log that we received commands
+        ParseAndExecuteCommands(commandsResponse);
+    }
+}
+
+//+------------------------------------------------------------------+
+//| Parse and execute trading commands from server                  |
+//+------------------------------------------------------------------+
+void ParseAndExecuteCommands(string commandsJson)
+{
+    Print("[PROCESS] Processing AI trading commands (Protocol Buffers)...");
+
+    // Parse Protocol Buffers command using JsonHelper
+    string action = "", symbol = "";
+    double lots = 0.0, stopLoss = 0.0, takeProfit = 0.0;
+
+    if(JsonHelper::ParseTradingCommand(commandsJson, action, symbol, lots, stopLoss, takeProfit)) {
+        Print("[PARSED] Command parsed - Action: " + action + ", Symbol: " + symbol + ", Lots: " + DoubleToString(lots, 2));
+
+        if(action == "BUY") {
+            Print("[BUY] AI Signal: BUY " + symbol + " " + DoubleToString(lots, 2) + " lots");
+            ExecuteBuyOrder(symbol, lots, stopLoss, takeProfit);
+        }
+        else if(action == "SELL") {
+            Print("[SELL] AI Signal: SELL " + symbol + " " + DoubleToString(lots, 2) + " lots");
+            ExecuteSellOrder(symbol, lots, stopLoss, takeProfit);
+        }
+        else if(action == "CLOSE") {
+            Print("[CLOSE] AI Signal: CLOSE " + symbol + " positions");
+            ClosePositions(symbol);
+        }
+        else {
+            Print("[WARNING] Unknown command action: " + action);
+        }
+    } else {
+        Print("[ERROR] Failed to parse Protocol Buffers command");
+    }
+
+    // Send acknowledgment back to server in Protocol Buffers format
+    string ackData = JsonHelper::CreateTradeConfirmationProto(InpUserID, "RECEIVED", "", 0, 0, 0);
+    wsClient.SendTradeConfirmation(ackData);
+}
+
+//+------------------------------------------------------------------+
+//| Execute Buy Order (Placeholder for next phase)                 |
+//+------------------------------------------------------------------+
+void ExecuteBuyOrder(string symbol, double lots, double stopLoss, double takeProfit)
+{
+    Print("[TODO] Execute BUY order for " + symbol);
+    // TODO: Implement actual order execution in next phase
+}
+
+//+------------------------------------------------------------------+
+//| Execute Sell Order (Placeholder for next phase)                |
+//+------------------------------------------------------------------+
+void ExecuteSellOrder(string symbol, double lots, double stopLoss, double takeProfit)
+{
+    Print("[TODO] Execute SELL order for " + symbol);
+    // TODO: Implement actual order execution in next phase
+}
+
+//+------------------------------------------------------------------+
+//| Close Positions (Placeholder for next phase)                   |
+//+------------------------------------------------------------------+
+void ClosePositions(string symbol)
+{
+    Print("[TODO] Close positions for " + symbol);
+    // TODO: Implement position closing in next phase
 }
 
 //+------------------------------------------------------------------+
@@ -315,17 +448,25 @@ void ProcessServerCommands()
 //+------------------------------------------------------------------+
 void SendShutdownNotification()
 {
-    if(!ServerConnected) return;
+    if(!wsClient.IsConnected()) return;
 
-    Print("📤 Sending shutdown notification...");
+    Print("[SEND] Sending shutdown notification...");
 
-    string shutdownData = "UserID=" + UserID;
-    shutdownData += "&Event=EA_SHUTDOWN";
-    shutdownData += "&Timestamp=" + IntegerToString(TimeCurrent());
-    shutdownData += "&FinalBalance=" + DoubleToString(AccountInfoDouble(ACCOUNT_BALANCE), 2);
+    // Create Protocol Buffers format shutdown notification
+    string shutdownProto = "{";
+    shutdownProto = JsonHelper::AddStringField(shutdownProto, "user_id", InpUserID);
+    shutdownProto = JsonHelper::AddStringField(shutdownProto, "event", "EA_SHUTDOWN");
+    shutdownProto = JsonHelper::AddIntegerField(shutdownProto, "timestamp", TimeCurrent());
+    shutdownProto = JsonHelper::AddNumericField(shutdownProto, "final_balance", AccountInfoDouble(ACCOUNT_BALANCE));
+    shutdownProto = JsonHelper::AddNumericField(shutdownProto, "final_equity", AccountInfoDouble(ACCOUNT_EQUITY));
+    shutdownProto = JsonHelper::AddIntegerField(shutdownProto, "open_positions", PositionsTotal());
+    shutdownProto = JsonHelper::AddIntegerField(shutdownProto, "total_trades", TotalTrades);
+    shutdownProto = JsonHelper::AddNumericField(shutdownProto, "total_profit", TotalProfit);
+    shutdownProto += "}";
 
-    // TODO: Implement actual send
-    Print("📊 Shutdown notification prepared");
+    // Send via HTTP client
+    wsClient.SendTradeConfirmation(shutdownProto);
+    Print("[INFO] Shutdown notification sent (Protocol Buffers)");
 }
 
 //+------------------------------------------------------------------+
@@ -335,14 +476,14 @@ void PrintPerformanceSummary()
 {
     datetime runtime = TimeCurrent() - StartTime;
 
-    Print("📊 === SUHO AI TRADING PERFORMANCE SUMMARY ===");
-    Print("⏱️ Runtime: " + IntegerToString(runtime) + " seconds (" +
+    Print("[SUMMARY] === SUHO AI TRADING PERFORMANCE SUMMARY ===");
+    Print("[RUNTIME] Runtime: " + IntegerToString(runtime) + " seconds (" +
           DoubleToString(runtime / 3600.0, 1) + " hours)");
-    Print("🎯 Total trades executed: " + IntegerToString(TotalTrades));
-    Print("💰 Total profit/loss: $" + DoubleToString(TotalProfit, 2));
-    Print("📈 Starting balance: $" + DoubleToString(accountInfo.Balance(), 2));
-    Print("📊 Current balance: $" + DoubleToString(AccountInfoDouble(ACCOUNT_BALANCE), 2));
-    Print("🔗 Server connection status: " + (ServerConnected ? "Connected" : "Disconnected"));
+    Print("[TRADES] Total trades executed: " + IntegerToString(TotalTrades));
+    Print("[PROFIT] Total profit/loss: $" + DoubleToString(TotalProfit, 2));
+    Print("[BALANCE] Starting balance: $" + DoubleToString(AccountInfoDouble(ACCOUNT_BALANCE), 2));
+    Print("[BALANCE] Current balance: $" + DoubleToString(AccountInfoDouble(ACCOUNT_BALANCE), 2));
+    Print("[CONNECTION] Server connection status: " + (wsClient.IsConnected() ? "Connected" : "Disconnected"));
     Print("===============================================");
 }
 
@@ -351,14 +492,14 @@ void PrintPerformanceSummary()
 //+------------------------------------------------------------------+
 void HandleEmergencyStop(string reason)
 {
-    Print("🚨 EMERGENCY STOP TRIGGERED: " + reason);
+    Print("[EMERGENCY] EMERGENCY STOP TRIGGERED: " + reason);
 
     // Close all open positions immediately
     for(int i = 0; i < PositionsTotal(); i++) {
         if(positionInfo.SelectByIndex(i)) {
-            if(positionInfo.Symbol() == _Symbol || StreamAllPairs) {
+            if(positionInfo.Symbol() == _Symbol || !InpStreamCurrentChartOnly) {
                 trade.PositionClose(positionInfo.Ticket());
-                Print("🔒 Emergency close: " + positionInfo.Symbol() + " - " + DoubleToString(positionInfo.Volume(), 2) + " lots");
+                Print("[EMERGENCY] Emergency close: " + positionInfo.Symbol() + " - " + DoubleToString(positionInfo.Volume(), 2) + " lots");
             }
         }
     }
@@ -368,9 +509,9 @@ void HandleEmergencyStop(string reason)
         ulong ticket = OrderGetTicket(i);
         if(ticket > 0) {
             trade.OrderDelete(ticket);
-            Print("❌ Emergency cancel order: " + IntegerToString(ticket));
+            Print("[EMERGENCY] Emergency cancel order: " + IntegerToString(ticket));
         }
     }
 
-    Print("🛑 Emergency stop completed - All positions closed");
+    Print("[EMERGENCY] Emergency stop completed - All positions closed");
 }
