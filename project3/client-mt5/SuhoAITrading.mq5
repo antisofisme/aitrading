@@ -43,9 +43,36 @@ input group "💰 TRADING SETTINGS"
 input bool      AutoTrading = true;                                // │ Enable automatic trading
 input double    MaxRiskPerTrade = 2.0;                            // │ Maximum risk % per trade
 input double    MaxDailyLoss = 1000.0;                            // │ Maximum daily loss (USD)
-input string    TradingPairs = "EURUSD,GBPUSD,USDJPY";            // │ Monitored trading pairs
 input int       MaxOpenPositions = 3;                             // │ Maximum simultaneous positions
 input double    PreferredLotSize = 0.1;                           // │ Preferred position size
+
+// === 📊 MAJOR PAIRS SELECTION (Trading + Analysis) ===
+input group "📊 MAJOR PAIRS - Trading & AI Analysis"
+input bool      Trade_EURUSD = true;                              // │ EUR/USD - Euro vs US Dollar
+input bool      Trade_GBPUSD = true;                              // │ GBP/USD - British Pound vs US Dollar
+input bool      Trade_USDJPY = true;                              // │ USD/JPY - US Dollar vs Japanese Yen
+input bool      Trade_USDCHF = false;                             // │ USD/CHF - US Dollar vs Swiss Franc
+input bool      Trade_AUDUSD = false;                             // │ AUD/USD - Australian Dollar vs US Dollar
+input bool      Trade_USDCAD = false;                             // │ USD/CAD - US Dollar vs Canadian Dollar
+input bool      Trade_NZDUSD = false;                             // │ NZD/USD - New Zealand Dollar vs US Dollar
+
+// === 🥇 PRECIOUS METALS (Trading + Analysis) ===
+input group "🥇 PRECIOUS METALS - Trading & AI Analysis"
+input bool      Trade_XAUUSD = false;                             // │ XAU/USD - Gold vs US Dollar
+input bool      Trade_XAGUSD = false;                             // │ XAG/USD - Silver vs US Dollar
+
+// === 🔗 MINOR PAIRS CORRELATION (Server Analysis Only) ===
+input group "🔗 CORRELATION PAIRS - Server Analysis Only"
+input bool      Correlation_EURGBP = true;                        // │ EUR/GBP - For correlation analysis
+input bool      Correlation_EURJPY = true;                        // │ EUR/JPY - For correlation analysis
+input bool      Correlation_GBPJPY = true;                        // │ GBP/JPY - For correlation analysis
+input bool      Correlation_EURCHF = false;                       // │ EUR/CHF - For correlation analysis
+input bool      Correlation_GBPCHF = false;                       // │ GBP/CHF - For correlation analysis
+input bool      Correlation_AUDCAD = false;                       // │ AUD/CAD - For correlation analysis
+input bool      Correlation_AUDCHF = false;                       // │ AUD/CHF - For correlation analysis
+input bool      Correlation_AUDJPY = false;                       // │ AUD/JPY - For correlation analysis
+input bool      Correlation_CADJPY = false;                       // │ CAD/JPY - For correlation analysis
+input bool      Correlation_CHFJPY = false;                       // │ CHF/JPY - For correlation analysis
 
 // === 🔄 DATA STREAMING ===
 input group "🔄 DATA STREAMING"
@@ -73,8 +100,9 @@ bool ServerConnected = false;
 datetime LastConnectionCheck = 0;
 datetime LastPriceStream = 0;
 
-// Trading symbols array
-string TradingSymbols[];
+// Trading symbols arrays
+string TradingSymbols[];        // Major pairs + metals for trading
+string CorrelationSymbols[];    // Minor pairs for correlation analysis only
 
 // Performance tracking
 int TotalTrades = 0;
@@ -165,34 +193,72 @@ void OnTick()
 //+------------------------------------------------------------------+
 bool InitializeTradingSymbols()
 {
-    // Parse trading pairs from input
-    string pairs[];
-    int count = StringSplit(TradingPairs, ',', pairs);
+    // Initialize trading symbols (majors + metals)
+    string tradingPairs[];
+    int tradingCount = 0;
 
-    if(count <= 0) {
-        Print("❌ No trading pairs configured");
-        return false;
-    }
+    // Major pairs
+    if(Trade_EURUSD) { ArrayResize(tradingPairs, tradingCount + 1); tradingPairs[tradingCount] = "EURUSD"; tradingCount++; }
+    if(Trade_GBPUSD) { ArrayResize(tradingPairs, tradingCount + 1); tradingPairs[tradingCount] = "GBPUSD"; tradingCount++; }
+    if(Trade_USDJPY) { ArrayResize(tradingPairs, tradingCount + 1); tradingPairs[tradingCount] = "USDJPY"; tradingCount++; }
+    if(Trade_USDCHF) { ArrayResize(tradingPairs, tradingCount + 1); tradingPairs[tradingCount] = "USDCHF"; tradingCount++; }
+    if(Trade_AUDUSD) { ArrayResize(tradingPairs, tradingCount + 1); tradingPairs[tradingCount] = "AUDUSD"; tradingCount++; }
+    if(Trade_USDCAD) { ArrayResize(tradingPairs, tradingCount + 1); tradingPairs[tradingCount] = "USDCAD"; tradingCount++; }
+    if(Trade_NZDUSD) { ArrayResize(tradingPairs, tradingCount + 1); tradingPairs[tradingCount] = "NZDUSD"; tradingCount++; }
 
-    ArrayResize(TradingSymbols, count);
+    // Precious metals
+    if(Trade_XAUUSD) { ArrayResize(tradingPairs, tradingCount + 1); tradingPairs[tradingCount] = "XAUUSD"; tradingCount++; }
+    if(Trade_XAGUSD) { ArrayResize(tradingPairs, tradingCount + 1); tradingPairs[tradingCount] = "XAGUSD"; tradingCount++; }
 
-    for(int i = 0; i < count; i++) {
-        // Clean up whitespace
-        StringTrimLeft(pairs[i]);
-        StringTrimRight(pairs[i]);
+    // Initialize correlation symbols (minor pairs)
+    string correlationPairs[];
+    int correlationCount = 0;
 
-        TradingSymbols[i] = pairs[i];
+    if(Correlation_EURGBP) { ArrayResize(correlationPairs, correlationCount + 1); correlationPairs[correlationCount] = "EURGBP"; correlationCount++; }
+    if(Correlation_EURJPY) { ArrayResize(correlationPairs, correlationCount + 1); correlationPairs[correlationCount] = "EURJPY"; correlationCount++; }
+    if(Correlation_GBPJPY) { ArrayResize(correlationPairs, correlationCount + 1); correlationPairs[correlationCount] = "GBPJPY"; correlationCount++; }
+    if(Correlation_EURCHF) { ArrayResize(correlationPairs, correlationCount + 1); correlationPairs[correlationCount] = "EURCHF"; correlationCount++; }
+    if(Correlation_GBPCHF) { ArrayResize(correlationPairs, correlationCount + 1); correlationPairs[correlationCount] = "GBPCHF"; correlationCount++; }
+    if(Correlation_AUDCAD) { ArrayResize(correlationPairs, correlationCount + 1); correlationPairs[correlationCount] = "AUDCAD"; correlationCount++; }
+    if(Correlation_AUDCHF) { ArrayResize(correlationPairs, correlationCount + 1); correlationPairs[correlationCount] = "AUDCHF"; correlationCount++; }
+    if(Correlation_AUDJPY) { ArrayResize(correlationPairs, correlationCount + 1); correlationPairs[correlationCount] = "AUDJPY"; correlationCount++; }
+    if(Correlation_CADJPY) { ArrayResize(correlationPairs, correlationCount + 1); correlationPairs[correlationCount] = "CADJPY"; correlationCount++; }
+    if(Correlation_CHFJPY) { ArrayResize(correlationPairs, correlationCount + 1); correlationPairs[correlationCount] = "CHFJPY"; correlationCount++; }
 
-        // Validate symbol
-        if(!SymbolSelect(pairs[i], true)) {
-            Print("⚠️ Symbol not available: " + pairs[i]);
-        } else {
-            Print("✅ Symbol initialized: " + pairs[i]);
+    // Validate and setup trading symbols
+    if(tradingCount == 0) {
+        Print("⚠️ No trading pairs selected - EA will run in monitoring mode only");
+    } else {
+        ArrayResize(TradingSymbols, tradingCount);
+        for(int i = 0; i < tradingCount; i++) {
+            TradingSymbols[i] = tradingPairs[i];
+
+            if(!SymbolSelect(tradingPairs[i], true)) {
+                Print("⚠️ Trading symbol not available: " + tradingPairs[i]);
+            } else {
+                Print("✅ Trading symbol initialized: " + tradingPairs[i]);
+            }
         }
     }
 
-    Print("📊 Trading symbols initialized: " + IntegerToString(count) + " pairs");
-    return true;
+    // Validate and setup correlation symbols
+    if(correlationCount > 0) {
+        ArrayResize(CorrelationSymbols, correlationCount);
+        for(int i = 0; i < correlationCount; i++) {
+            CorrelationSymbols[i] = correlationPairs[i];
+
+            if(!SymbolSelect(correlationPairs[i], true)) {
+                Print("⚠️ Correlation symbol not available: " + correlationPairs[i]);
+            } else {
+                Print("📊 Correlation symbol initialized: " + correlationPairs[i]);
+            }
+        }
+    }
+
+    Print("🎯 Trading pairs initialized: " + IntegerToString(tradingCount) + " pairs");
+    Print("🔗 Correlation pairs initialized: " + IntegerToString(correlationCount) + " pairs");
+
+    return true; // Always return true, allow monitoring mode even without trading pairs
 }
 
 //+------------------------------------------------------------------+
@@ -259,6 +325,20 @@ bool SendAccountProfile()
     profileData += "&Broker=" + AccountInfoString(ACCOUNT_COMPANY);
     profileData += "&Server=" + AccountInfoString(ACCOUNT_SERVER);
 
+    // Add selected trading pairs
+    profileData += "&TradingPairs=";
+    for(int i = 0; i < ArraySize(TradingSymbols); i++) {
+        if(i > 0) profileData += ",";
+        profileData += TradingSymbols[i];
+    }
+
+    // Add selected correlation pairs
+    profileData += "&CorrelationPairs=";
+    for(int i = 0; i < ArraySize(CorrelationSymbols); i++) {
+        if(i > 0) profileData += ",";
+        profileData += CorrelationSymbols[i];
+    }
+
     // TODO: Implement actual HTTP/WebSocket send
     Print("📊 Profile data prepared: " + StringLen(profileData) + " characters");
 
@@ -276,12 +356,23 @@ bool StreamPricesToServer()
     string priceData = "UserID=" + UserID + "&Timestamp=" + IntegerToString(TimeCurrent());
 
     if(StreamAllPairs) {
-        // Stream all trading symbols
+        // Stream all trading symbols (for AI analysis & trading)
         for(int i = 0; i < ArraySize(TradingSymbols); i++) {
             MqlTick tick;
             if(SymbolInfoTick(TradingSymbols[i], tick)) {
                 priceData += "&" + TradingSymbols[i] + "_bid=" + DoubleToString(tick.bid, 5);
                 priceData += "&" + TradingSymbols[i] + "_ask=" + DoubleToString(tick.ask, 5);
+                priceData += "&" + TradingSymbols[i] + "_type=trading";
+            }
+        }
+
+        // Stream correlation symbols (for correlation analysis only)
+        for(int i = 0; i < ArraySize(CorrelationSymbols); i++) {
+            MqlTick tick;
+            if(SymbolInfoTick(CorrelationSymbols[i], tick)) {
+                priceData += "&" + CorrelationSymbols[i] + "_bid=" + DoubleToString(tick.bid, 5);
+                priceData += "&" + CorrelationSymbols[i] + "_ask=" + DoubleToString(tick.ask, 5);
+                priceData += "&" + CorrelationSymbols[i] + "_type=correlation";
             }
         }
     } else {
@@ -290,6 +381,7 @@ bool StreamPricesToServer()
         if(SymbolInfoTick(_Symbol, tick)) {
             priceData += "&" + _Symbol + "_bid=" + DoubleToString(tick.bid, 5);
             priceData += "&" + _Symbol + "_ask=" + DoubleToString(tick.ask, 5);
+            priceData += "&" + _Symbol + "_type=current";
         }
     }
 
