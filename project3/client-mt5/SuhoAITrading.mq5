@@ -33,32 +33,32 @@
 
 // === 🌐 SERVER CONNECTION ===
 input group "🌐 SERVER CONNECTION"
-input string ServerURL = "wss://api.aitrading.suho.platform";  // Production server
-input string AuthToken = "";                                    // JWT Token from web platform
-input string UserID = "";                                      // Your User ID
-input bool TestingMode = false;                                // Enable for localhost testing
+input string    ServerURL = "wss://api.aitrading.suho.platform";  // │ Production server URL
+input string    AuthToken = "";                                    // │ JWT Token from web platform
+input string    UserID = "";                                       // │ Your unique User ID
+input bool      TestingMode = false;                               // │ Enable for localhost testing
 
 // === 💰 TRADING PREFERENCES ===
 input group "💰 TRADING SETTINGS"
-input bool AutoTrading = true;                                 // Enable automatic trading
-input double MaxRiskPerTrade = 2.0;                           // Maximum risk % per trade
-input double MaxDailyLoss = 1000.0;                           // Maximum daily loss (USD)
-input string TradingPairs = "EURUSD,GBPUSD,USDJPY";           // Monitored trading pairs
-input int MaxOpenPositions = 3;                               // Maximum simultaneous positions
-input double PreferredLotSize = 0.1;                          // Preferred position size
+input bool      AutoTrading = true;                                // │ Enable automatic trading
+input double    MaxRiskPerTrade = 2.0;                            // │ Maximum risk % per trade
+input double    MaxDailyLoss = 1000.0;                            // │ Maximum daily loss (USD)
+input string    TradingPairs = "EURUSD,GBPUSD,USDJPY";            // │ Monitored trading pairs
+input int       MaxOpenPositions = 3;                             // │ Maximum simultaneous positions
+input double    PreferredLotSize = 0.1;                           // │ Preferred position size
 
 // === 🔄 DATA STREAMING ===
 input group "🔄 DATA STREAMING"
-input bool EnablePriceStreaming = true;                       // Stream prices to server
-input int StreamingInterval = 1000;                           // Streaming interval (ms)
-input bool StreamAllPairs = false;                            // Stream all pairs or current only
+input bool      EnablePriceStreaming = true;                      // │ Stream prices to server
+input int       StreamingInterval = 1000;                         // │ Streaming interval (ms)
+input bool      StreamAllPairs = false;                           // │ Stream all pairs or current only
 
 // === ⚙️ ADVANCED SETTINGS ===
 input group "⚙️ ADVANCED SETTINGS"
-input bool ConservativeMode = false;                          // Conservative trading mode
-input double MaxDrawdown = 15.0;                              // Maximum drawdown %
-input bool AutoCloseOnFriday = true;                          // Auto-close positions on Friday
-input bool AllowNewsTrading = false;                          // Allow trading during news
+input bool      ConservativeMode = false;                         // │ Conservative trading mode
+input double    MaxDrawdown = 15.0;                               // │ Maximum drawdown %
+input bool      AutoCloseOnFriday = true;                         // │ Auto-close positions on Friday
+input bool      AllowNewsTrading = false;                         // │ Allow trading during news
 
 //+------------------------------------------------------------------+
 //| Global Variables                                                 |
