@@ -1,12 +1,34 @@
 //+------------------------------------------------------------------+
-//|                                            BinaryProtocol.mqh |
-//|                     Custom binary protocol for ultra-low latency |
+//|                                         BinaryProtocol.mqh |
+//|                     Fixed binary protocol for MQL5 compatibility |
 //+------------------------------------------------------------------+
 #ifndef BINARYPROTOCOL_MQH
 #define BINARYPROTOCOL_MQH
 
 //+------------------------------------------------------------------+
-//| Symbol ID enumeration for binary protocol                      |
+//| Protocol constants                                              |
+//+------------------------------------------------------------------+
+#define BINARY_MAGIC       0x53554854  // "SUHO"
+#define BINARY_VERSION     0x0001
+#define HEADER_SIZE        16
+#define PRICE_DATA_SIZE    16
+#define ACCOUNT_DATA_SIZE  64
+#define COMMAND_DATA_SIZE  32
+
+//+------------------------------------------------------------------+
+//| Message types                                                   |
+//+------------------------------------------------------------------+
+enum ENUM_MESSAGE_TYPE
+{
+    MSG_PRICE_STREAM = 1,
+    MSG_ACCOUNT_PROFILE = 2,
+    MSG_TRADE_COMMAND = 3,
+    MSG_TRADE_CONFIRMATION = 4,
+    MSG_HEARTBEAT = 5
+};
+
+//+------------------------------------------------------------------+
+//| Symbol ID enumeration                                           |
 //+------------------------------------------------------------------+
 enum ENUM_SYMBOL_ID
 {
@@ -23,88 +45,15 @@ enum ENUM_SYMBOL_ID
 };
 
 //+------------------------------------------------------------------+
-//| Message type enumeration                                        |
-//+------------------------------------------------------------------+
-enum ENUM_MESSAGE_TYPE
-{
-    MSG_PRICE_STREAM = 1,
-    MSG_ACCOUNT_PROFILE = 2,
-    MSG_TRADE_COMMAND = 3,
-    MSG_TRADE_CONFIRMATION = 4,
-    MSG_HEARTBEAT = 5
-};
-
-//+------------------------------------------------------------------+
-//| Trading Header Structure (16 bytes)                            |
-//+------------------------------------------------------------------+
-struct TradingHeader
-{
-    uint   magic;        // 4 bytes - 0x53554854 ("SUHO")
-    ushort version;      // 2 bytes - Protocol version
-    uchar  msg_type;     // 1 byte  - Message type
-    uchar  pair_count;   // 1 byte  - Number of pairs
-    ulong  timestamp;    // 8 bytes - Batch timestamp
-};
-
-//+------------------------------------------------------------------+
-//| Price Data Structure (16 bytes per pair)                       |
-//+------------------------------------------------------------------+
-struct PriceData
-{
-    uint symbol_id;      // 4 bytes - Symbol enum
-    uint bid;            // 4 bytes - Bid price (fixed point * 100000)
-    uint ask;            // 4 bytes - Ask price (fixed point * 100000)
-    uint flags;          // 4 bytes - Spread + server_id + status flags
-};
-
-//+------------------------------------------------------------------+
-//| Account Profile Structure (64 bytes)                           |
-//+------------------------------------------------------------------+
-struct AccountProfile
-{
-    char   user_id[16];     // 16 bytes - User identifier
-    char   broker[16];      // 16 bytes - Broker name
-    uint   account_number;  // 4 bytes  - Account number
-    uint   balance;         // 4 bytes  - Balance * 100 (fixed point)
-    uint   equity;          // 4 bytes  - Equity * 100
-    uint   margin;          // 4 bytes  - Margin * 100
-    uint   free_margin;     // 4 bytes  - Free margin * 100
-    ushort leverage;        // 2 bytes  - Leverage
-    uchar  currency[3];     // 3 bytes  - Currency code (USD, EUR, etc)
-    uchar  reserved;        // 1 byte   - Padding for alignment
-    ulong  timestamp;       // 8 bytes  - Profile timestamp
-};
-
-//+------------------------------------------------------------------+
-//| Trading Command Structure (32 bytes)                           |
-//+------------------------------------------------------------------+
-struct TradingCommand
-{
-    uint   command_id;      // 4 bytes - Unique command ID
-    uchar  action;          // 1 byte  - BUY=1, SELL=2, CLOSE=3, MODIFY=4
-    uchar  symbol_id;       // 1 byte  - Symbol enum
-    ushort lots_fp;         // 2 bytes - Lots * 100 (0.01 = 1)
-    uint   price;           // 4 bytes - Entry price (fixed point)
-    uint   stop_loss;       // 4 bytes - Stop loss (fixed point)
-    uint   take_profit;     // 4 bytes - Take profit (fixed point)
-    ulong  ticket;          // 8 bytes - Position ticket (for modify/close)
-    uint   magic_number;    // 4 bytes - EA magic number
-};
-
-//+------------------------------------------------------------------+
-//| Custom Binary Protocol Class                                   |
+//| Fixed Binary Protocol Class                                    |
 //+------------------------------------------------------------------+
 class CBinaryProtocol
 {
-private:
-    static const uint PROTOCOL_MAGIC = 0x53554854; // "SUHO"
-    static const ushort PROTOCOL_VERSION = 0x0001;
-
 public:
     //+------------------------------------------------------------------+
     //| Convert symbol string to enum ID                               |
     //+------------------------------------------------------------------+
-    static ENUM_SYMBOL_ID GetSymbolID(string symbol)
+    static int GetSymbolID(string symbol)
     {
         if(symbol == "EURUSD") return SYMBOL_EURUSD;
         if(symbol == "GBPUSD") return SYMBOL_GBPUSD;
@@ -121,7 +70,7 @@ public:
     //+------------------------------------------------------------------+
     //| Convert symbol ID to string                                    |
     //+------------------------------------------------------------------+
-    static string GetSymbolString(ENUM_SYMBOL_ID id)
+    static string GetSymbolString(int id)
     {
         switch(id)
         {
@@ -139,217 +88,216 @@ public:
     }
 
     //+------------------------------------------------------------------+
-    //| Convert double price to fixed point                            |
+    //| Convert price to fixed point (multiply by 100000)             |
     //+------------------------------------------------------------------+
     static uint PriceToFixedPoint(double price)
     {
-        return (uint)(price * 100000.0 + 0.5); // Round to nearest
+        return (uint)(price * 100000.0 + 0.5);
     }
 
     //+------------------------------------------------------------------+
-    //| Convert fixed point to double price                            |
+    //| Convert fixed point to price (divide by 100000)               |
     //+------------------------------------------------------------------+
-    static double FixedPointToPrice(uint fixed_point)
+    static double FixedPointToPrice(uint fixedPoint)
     {
-        return (double)fixed_point / 100000.0;
+        return (double)fixedPoint / 100000.0;
     }
 
     //+------------------------------------------------------------------+
-    //| Calculate checksum for data validation                         |
+    //| Write 32-bit integer to buffer at position                     |
     //+------------------------------------------------------------------+
-    static ushort CalculateChecksum(const char &data[], int size)
+    static void WriteUInt32(char &buffer[], int pos, uint value)
     {
-        uint checksum = 0;
-        for(int i = 0; i < size; i++)
-        {
-            checksum += (uchar)data[i];
-        }
-        return (ushort)(checksum & 0xFFFF);
+        buffer[pos + 0] = (char)(value & 0xFF);
+        buffer[pos + 1] = (char)((value >> 8) & 0xFF);
+        buffer[pos + 2] = (char)((value >> 16) & 0xFF);
+        buffer[pos + 3] = (char)((value >> 24) & 0xFF);
     }
 
     //+------------------------------------------------------------------+
-    //| Create binary price stream packet                              |
+    //| Write 16-bit integer to buffer at position                     |
     //+------------------------------------------------------------------+
-    static int CreatePriceStreamPacket(const string user_id, string &symbols[], MqlTick &ticks[], char &buffer[])
+    static void WriteUInt16(char &buffer[], int pos, ushort value)
+    {
+        buffer[pos + 0] = (char)(value & 0xFF);
+        buffer[pos + 1] = (char)((value >> 8) & 0xFF);
+    }
+
+    //+------------------------------------------------------------------+
+    //| Write 64-bit integer to buffer at position                     |
+    //+------------------------------------------------------------------+
+    static void WriteUInt64(char &buffer[], int pos, ulong value)
+    {
+        buffer[pos + 0] = (char)(value & 0xFF);
+        buffer[pos + 1] = (char)((value >> 8) & 0xFF);
+        buffer[pos + 2] = (char)((value >> 16) & 0xFF);
+        buffer[pos + 3] = (char)((value >> 24) & 0xFF);
+        buffer[pos + 4] = (char)((value >> 32) & 0xFF);
+        buffer[pos + 5] = (char)((value >> 40) & 0xFF);
+        buffer[pos + 6] = (char)((value >> 48) & 0xFF);
+        buffer[pos + 7] = (char)((value >> 56) & 0xFF);
+    }
+
+    //+------------------------------------------------------------------+
+    //| Read 32-bit integer from buffer at position                    |
+    //+------------------------------------------------------------------+
+    static uint ReadUInt32(const char &buffer[], int pos)
+    {
+        return ((uint)(uchar)buffer[pos + 0]) |
+               ((uint)(uchar)buffer[pos + 1] << 8) |
+               ((uint)(uchar)buffer[pos + 2] << 16) |
+               ((uint)(uchar)buffer[pos + 3] << 24);
+    }
+
+    //+------------------------------------------------------------------+
+    //| Read 16-bit integer from buffer at position                    |
+    //+------------------------------------------------------------------+
+    static ushort ReadUInt16(const char &buffer[], int pos)
+    {
+        return ((ushort)(uchar)buffer[pos + 0]) |
+               ((ushort)(uchar)buffer[pos + 1] << 8);
+    }
+
+    //+------------------------------------------------------------------+
+    //| Read 64-bit integer from buffer at position                    |
+    //+------------------------------------------------------------------+
+    static ulong ReadUInt64(const char &buffer[], int pos)
+    {
+        return ((ulong)(uchar)buffer[pos + 0]) |
+               ((ulong)(uchar)buffer[pos + 1] << 8) |
+               ((ulong)(uchar)buffer[pos + 2] << 16) |
+               ((ulong)(uchar)buffer[pos + 3] << 24) |
+               ((ulong)(uchar)buffer[pos + 4] << 32) |
+               ((ulong)(uchar)buffer[pos + 5] << 40) |
+               ((ulong)(uchar)buffer[pos + 6] << 48) |
+               ((ulong)(uchar)buffer[pos + 7] << 56);
+    }
+
+    //+------------------------------------------------------------------+
+    //| Create binary price stream packet (MQL5 compatible)            |
+    //+------------------------------------------------------------------+
+    static int CreatePriceStreamPacket(string userId, string &symbols[], MqlTick &ticks[], char &buffer[])
     {
         int pairs = ArraySize(symbols);
-        if(pairs > 255) pairs = 255; // Max pairs per packet
+        if(pairs > 255) pairs = 255;
 
-        // Calculate total size: header(16) + pairs * pricedata(16)
-        int total_size = 16 + (pairs * 16);
-        ArrayResize(buffer, total_size);
+        int totalSize = HEADER_SIZE + (pairs * PRICE_DATA_SIZE);
+        ArrayResize(buffer, totalSize);
         ArrayInitialize(buffer, 0);
 
         int pos = 0;
 
-        // Create header
-        TradingHeader header;
-        header.magic = PROTOCOL_MAGIC;
-        header.version = PROTOCOL_VERSION;
-        header.msg_type = MSG_PRICE_STREAM;
-        header.pair_count = (uchar)pairs;
-        header.timestamp = (ulong)GetTickCount();
+        // Write header (16 bytes)
+        WriteUInt32(buffer, pos, BINARY_MAGIC); pos += 4;          // Magic number
+        WriteUInt16(buffer, pos, BINARY_VERSION); pos += 2;       // Version
+        buffer[pos++] = (char)MSG_PRICE_STREAM;                   // Message type
+        buffer[pos++] = (char)pairs;                              // Pair count
+        WriteUInt64(buffer, pos, (ulong)GetTickCount()); pos += 8; // Timestamp
 
-        // Copy header to buffer
-        ArrayCopy(buffer, header, pos, 0, sizeof(TradingHeader));
-        pos += sizeof(TradingHeader);
-
-        // Add price data
+        // Write price data (16 bytes per pair)
         for(int i = 0; i < pairs; i++)
         {
-            PriceData price;
-            price.symbol_id = GetSymbolID(symbols[i]);
-            price.bid = PriceToFixedPoint(ticks[i].bid);
-            price.ask = PriceToFixedPoint(ticks[i].ask);
+            WriteUInt32(buffer, pos, GetSymbolID(symbols[i])); pos += 4;        // Symbol ID
+            WriteUInt32(buffer, pos, PriceToFixedPoint(ticks[i].bid)); pos += 4; // Bid
+            WriteUInt32(buffer, pos, PriceToFixedPoint(ticks[i].ask)); pos += 4; // Ask
 
-            // Pack spread (points), server_id, and flags
-            int spread_points = (int)((ticks[i].ask - ticks[i].bid) / SymbolInfoDouble(symbols[i], SYMBOL_POINT));
-            price.flags = (spread_points & 0xFFFF) | (1 << 16); // Server ID = 1
-
-            // Copy price data to buffer
-            ArrayCopy(buffer, price, pos, 0, sizeof(PriceData));
-            pos += sizeof(PriceData);
+            // Calculate spread and flags
+            int spread = (int)((ticks[i].ask - ticks[i].bid) / SymbolInfoDouble(symbols[i], SYMBOL_POINT));
+            uint flags = (spread & 0xFFFF) | (1 << 16); // Server ID = 1
+            WriteUInt32(buffer, pos, flags); pos += 4;                          // Flags
         }
 
-        return total_size;
+        Print("[BINARY] Created price stream packet: ", totalSize, " bytes for ", pairs, " symbols");
+        return totalSize;
     }
 
     //+------------------------------------------------------------------+
     //| Create binary account profile packet                           |
     //+------------------------------------------------------------------+
-    static int CreateAccountProfilePacket(const string user_id, char &buffer[])
+    static int CreateAccountProfilePacket(string userId, char &buffer[])
     {
-        int total_size = 16 + 64; // header + profile
-        ArrayResize(buffer, total_size);
+        int totalSize = HEADER_SIZE + ACCOUNT_DATA_SIZE;
+        ArrayResize(buffer, totalSize);
         ArrayInitialize(buffer, 0);
 
         int pos = 0;
 
-        // Create header
-        TradingHeader header;
-        header.magic = PROTOCOL_MAGIC;
-        header.version = PROTOCOL_VERSION;
-        header.msg_type = MSG_ACCOUNT_PROFILE;
-        header.pair_count = 1; // One profile
-        header.timestamp = (ulong)GetTickCount();
+        // Write header (16 bytes)
+        WriteUInt32(buffer, pos, BINARY_MAGIC); pos += 4;
+        WriteUInt16(buffer, pos, BINARY_VERSION); pos += 2;
+        buffer[pos++] = (char)MSG_ACCOUNT_PROFILE;
+        buffer[pos++] = (char)1; // One profile
+        WriteUInt64(buffer, pos, (ulong)GetTickCount()); pos += 8;
 
-        // Copy header to buffer
-        ArrayCopy(buffer, header, pos, 0, sizeof(TradingHeader));
-        pos += sizeof(TradingHeader);
+        // Write account profile (64 bytes)
+        // User ID (16 bytes)
+        string safeUserId = StringSubstr(userId, 0, 15);
+        for(int i = 0; i < 16; i++)
+        {
+            if(i < StringLen(safeUserId))
+                buffer[pos + i] = (char)StringGetCharacter(safeUserId, i);
+            else
+                buffer[pos + i] = 0;
+        }
+        pos += 16;
 
-        // Create account profile
-        AccountProfile profile;
-        ArrayInitialize(profile, 0);
+        // Broker name (16 bytes)
+        string broker = StringSubstr(AccountInfoString(ACCOUNT_COMPANY), 0, 15);
+        for(int i = 0; i < 16; i++)
+        {
+            if(i < StringLen(broker))
+                buffer[pos + i] = (char)StringGetCharacter(broker, i);
+            else
+                buffer[pos + i] = 0;
+        }
+        pos += 16;
 
-        // Copy user ID (max 15 chars + null terminator)
-        string safe_user_id = StringSubstr(user_id, 0, 15);
-        StringToCharArray(safe_user_id, profile.user_id, 0, StringLen(safe_user_id));
+        // Account data (32 bytes)
+        WriteUInt32(buffer, pos, (uint)AccountInfoInteger(ACCOUNT_LOGIN)); pos += 4;
+        WriteUInt32(buffer, pos, (uint)(AccountInfoDouble(ACCOUNT_BALANCE) * 100)); pos += 4;
+        WriteUInt32(buffer, pos, (uint)(AccountInfoDouble(ACCOUNT_EQUITY) * 100)); pos += 4;
+        WriteUInt32(buffer, pos, (uint)(AccountInfoDouble(ACCOUNT_MARGIN) * 100)); pos += 4;
+        WriteUInt32(buffer, pos, (uint)(AccountInfoDouble(ACCOUNT_MARGIN_FREE) * 100)); pos += 4;
+        WriteUInt16(buffer, pos, (ushort)AccountInfoInteger(ACCOUNT_LEVERAGE)); pos += 2;
 
-        // Copy broker name
-        string broker = AccountInfoString(ACCOUNT_COMPANY);
-        broker = StringSubstr(broker, 0, 15);
-        StringToCharArray(broker, profile.broker, 0, StringLen(broker));
+        // Currency (3 bytes + 1 padding)
+        string currency = StringSubstr(AccountInfoString(ACCOUNT_CURRENCY), 0, 3);
+        for(int i = 0; i < 3; i++)
+        {
+            if(i < StringLen(currency))
+                buffer[pos + i] = (char)StringGetCharacter(currency, i);
+            else
+                buffer[pos + i] = 0;
+        }
+        pos += 4; // Include padding
 
-        profile.account_number = (uint)AccountInfoInteger(ACCOUNT_LOGIN);
-        profile.balance = (uint)(AccountInfoDouble(ACCOUNT_BALANCE) * 100);
-        profile.equity = (uint)(AccountInfoDouble(ACCOUNT_EQUITY) * 100);
-        profile.margin = (uint)(AccountInfoDouble(ACCOUNT_MARGIN) * 100);
-        profile.free_margin = (uint)(AccountInfoDouble(ACCOUNT_MARGIN_FREE) * 100);
-        profile.leverage = (ushort)AccountInfoInteger(ACCOUNT_LEVERAGE);
-        profile.timestamp = (ulong)GetTickCount();
+        // Timestamp (8 bytes)
+        WriteUInt64(buffer, pos, (ulong)GetTickCount());
 
-        // Copy currency
-        string currency = AccountInfoString(ACCOUNT_CURRENCY);
-        currency = StringSubstr(currency, 0, 3);
-        StringToCharArray(currency, profile.currency, 0, StringLen(currency));
-
-        // Copy profile to buffer
-        ArrayCopy(buffer, profile, pos, 0, sizeof(AccountProfile));
-
-        return total_size;
+        Print("[BINARY] Created account profile packet: ", totalSize, " bytes");
+        return totalSize;
     }
 
     //+------------------------------------------------------------------+
-    //| Parse binary trading command from buffer                       |
-    //+------------------------------------------------------------------+
-    static bool ParseTradingCommand(const char &buffer[], int size, TradingCommand &command)
-    {
-        if(size < 16) return false; // Minimum header size
-
-        // Extract header
-        TradingHeader header;
-        ArrayCopy(header, buffer, 0, 0, sizeof(TradingHeader));
-
-        // Validate magic and version
-        if(header.magic != PROTOCOL_MAGIC)
-        {
-            Print("[ERROR] Invalid binary protocol magic: ", IntegerToString(header.magic, 16));
-            return false;
-        }
-
-        if(header.version != PROTOCOL_VERSION)
-        {
-            Print("[WARNING] Protocol version mismatch: ", header.version);
-        }
-
-        if(header.msg_type != MSG_TRADE_COMMAND)
-        {
-            Print("[ERROR] Expected trading command, got type: ", header.msg_type);
-            return false;
-        }
-
-        if(size < 16 + 32) // header + command
-        {
-            Print("[ERROR] Buffer too small for trading command");
-            return false;
-        }
-
-        // Extract trading command
-        ArrayCopy(command, buffer, 0, 16, sizeof(TradingCommand));
-
-        Print("[SUCCESS] Binary trading command parsed - Action: ", command.action,
-              " Symbol: ", GetSymbolString((ENUM_SYMBOL_ID)command.symbol_id));
-
-        return true;
-    }
-
-    //+------------------------------------------------------------------+
-    //| Validate binary packet integrity                               |
+    //| Validate binary packet                                         |
     //+------------------------------------------------------------------+
     static bool ValidatePacket(const char &buffer[], int size)
     {
-        if(size < 16) return false;
-
-        // Extract header
-        TradingHeader header;
-        ArrayCopy(header, buffer, 0, 0, sizeof(TradingHeader));
+        if(size < HEADER_SIZE) return false;
 
         // Check magic number
-        if(header.magic != PROTOCOL_MAGIC)
+        uint magic = ReadUInt32(buffer, 0);
+        if(magic != BINARY_MAGIC)
         {
-            Print("[VALIDATION] Invalid magic number: ", IntegerToString(header.magic, 16));
+            Print("[VALIDATION] Invalid magic: ", IntegerToString(magic, 16), " expected: ", IntegerToString(BINARY_MAGIC, 16));
             return false;
         }
 
-        // Check size consistency
-        int expected_size = 16; // Header
-        switch(header.msg_type)
+        // Check version
+        ushort version = ReadUInt16(buffer, 4);
+        if(version != BINARY_VERSION)
         {
-            case MSG_PRICE_STREAM:
-                expected_size += header.pair_count * 16;
-                break;
-            case MSG_ACCOUNT_PROFILE:
-                expected_size += 64;
-                break;
-            case MSG_TRADE_COMMAND:
-                expected_size += 32;
-                break;
-        }
-
-        if(size != expected_size)
-        {
-            Print("[VALIDATION] Size mismatch - Expected: ", expected_size, " Got: ", size);
-            return false;
+            Print("[VALIDATION] Version mismatch: ", version, " expected: ", BINARY_VERSION);
         }
 
         return true;
@@ -360,17 +308,20 @@ public:
     //+------------------------------------------------------------------+
     static string GetPacketInfo(const char &buffer[], int size)
     {
-        if(size < 16) return "Invalid packet - too small";
+        if(size < HEADER_SIZE) return "Invalid packet - too small";
 
-        TradingHeader header;
-        ArrayCopy(header, buffer, 0, 0, sizeof(TradingHeader));
+        uint magic = ReadUInt32(buffer, 0);
+        ushort version = ReadUInt16(buffer, 4);
+        uchar msgType = (uchar)buffer[6];
+        uchar count = (uchar)buffer[7];
+        ulong timestamp = ReadUInt64(buffer, 8);
 
         string info = "Binary Packet Info:\n";
-        info += "Magic: " + IntegerToString(header.magic, 16) + "\n";
-        info += "Version: " + IntegerToString(header.version) + "\n";
-        info += "Type: " + IntegerToString(header.msg_type) + "\n";
-        info += "Count: " + IntegerToString(header.pair_count) + "\n";
-        info += "Timestamp: " + IntegerToString(header.timestamp) + "\n";
+        info += "Magic: " + IntegerToString(magic, 16) + "\n";
+        info += "Version: " + IntegerToString(version) + "\n";
+        info += "Type: " + IntegerToString(msgType) + "\n";
+        info += "Count: " + IntegerToString(count) + "\n";
+        info += "Timestamp: " + IntegerToString(timestamp) + "\n";
         info += "Size: " + IntegerToString(size) + " bytes";
 
         return info;
