@@ -1,0 +1,112 @@
+# OANDA v20 API Configuration
+oanda:
+  # API Credentials (set via environment variables)
+  api_token: ${OANDA_API_TOKEN}
+  account_id: ${OANDA_ACCOUNT_ID}
+
+  # Environment: "practice" or "live"
+  environment: "practice"
+
+  # Instruments to stream (OANDA format with underscore)
+  instruments:
+    - "EUR_USD"    # Major pairs
+    - "GBP_USD"
+    - "USD_JPY"
+    - "USD_CHF"
+    - "AUD_USD"
+    - "USD_CAD"
+    - "NZD_USD"
+
+    # Commodities
+    - "XAU_USD"    # Gold
+    - "XAG_USD"    # Silver
+
+    # Additional majors
+    - "EUR_GBP"
+    - "EUR_JPY"
+    - "GBP_JPY"
+
+# API Settings
+api_settings:
+  # Connection management
+  stream_timeout: 30
+  reconnect_attempts: 5
+  connection_timeout: 10
+
+  # Rate limiting (OANDA allows 120 requests/second)
+  rate_limit_per_second: 100
+  burst_limit: 150
+
+  # Buffer settings
+  tick_buffer_size: 1000
+  batch_size: 100
+  flush_interval: 1.0
+
+# Data Quality Settings
+data_quality:
+  # Spread filtering (reject ticks with spread > threshold)
+  max_spread_pips:
+    EUR_USD: 2.0
+    GBP_USD: 3.0
+    USD_JPY: 2.5
+    default: 5.0
+
+  # Price validation
+  min_price_change: 0.00001  # 0.1 pip minimum change
+  max_price_change: 0.01     # 100 pip maximum change (spike detection)
+
+  # Timestamp validation
+  max_delay_seconds: 5       # Reject ticks older than 5 seconds
+
+# Real-time Processing
+processing:
+  # Enable real-time indicator calculation
+  enable_indicators: true
+
+  # Sliding window sizes for indicators
+  sma_periods: [20, 50, 200]
+  ema_periods: [12, 26]
+  rsi_period: 14
+
+  # Signal generation
+  enable_signals: true
+  signal_confidence_threshold: 0.7
+
+# Storage Configuration
+storage:
+  # Batch insert settings
+  batch_insert_size: 100
+  batch_timeout_seconds: 5
+
+  # Data retention
+  tick_retention_hours: 24
+  candle_retention_days: 30
+
+  # Database routing (use external-data hybrid schema)
+  route_to_market_ticks: true
+  route_to_market_context: false
+
+# Monitoring & Logging
+monitoring:
+  # Performance metrics
+  enable_metrics: true
+  metrics_interval_seconds: 60
+
+  # Health checks
+  health_check_interval: 30
+  max_connection_failures: 5
+
+  # Alerting
+  enable_alerts: true
+  alert_on_connection_loss: true
+  alert_on_data_gaps: true
+
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+  # File logging
+  enable_file_logging: true
+  log_file: "/var/log/oanda-collector.log"
+  max_file_size: "10MB"
+  backup_count: 5

@@ -1,40 +1,38 @@
 # Data Ingestion Service
 
 ## 🎯 Purpose
-**Server-side market data collection dan AI trading decision service** yang mengumpulkan real-time tick data dari approved brokers, melakukan ML/AI analysis internal, dan mengirimkan trading execution commands ke client MT5 terminals.
+**Server-side market data collection service** yang mengumpulkan real-time tick data dari approved brokers, convert ke Protocol Buffers, dan stream ke NATS/Kafka untuk processing di downstream services.
 
 ---
 
 ## 📊 ChainFlow Diagram
 
 ```
-4-Category Input Sources → Supporting Services → ML/AI Analysis → Trading Execution
-            ↓                     ↓                     ↓               ↓
-Broker-MT5 (IC Markets)     Ingestion Gateway    AI Trading Engine  Client-MT5
-Broker-API (FXCM)          Market Aggregator    ML Prediction     Execution Commands
-External-Data (News)       Stream Orchestrator  Decision Making   Account Management
-Historical-Broker          Service Discovery    Risk Assessment   99.9% Efficiency
+Single Source Strategy → UnifiedMarketData → Hybrid Database → Universal Signals
+            ↓                    ↓                 ↓                 ↓
+OANDA v20 API              Proto Convert      market_ticks        Signal Generation
+External-Data (8 APIs)     Schema Validation  market_context      AI Analysis
+Historical References      Binary Format      Optimized Indexes   Broadcast to Users
 ```
 
 ---
 
 ## 🏗️ Service Architecture
 
-### **Input Flow**: 4-category data collection for internal AI processing
+### **Input Flow**: 4-category raw data collection
 **Data Sources**:
-- Broker-MT5: IC Markets, Pepperstone (MetaTrader5 API) - approved brokers only
-- Broker-API: FXCM, OANDA (Native REST/WebSocket APIs) - approved brokers only
-- External-Data: News, economic calendar, sentiment analysis
-- Historical-Broker: Bulk historical data untuk ML training
-**Format**: Protocol Buffers untuk internal processing
-**Frequency**: Real-time (50+ ticks/sec) untuk AI analysis
-**Performance Target**: <10ms AI analysis + decision making
+- **broker-api**: OANDA v20 API (Single, reliable live tick source)
+- **external-data**: 8 collectors (Yahoo Finance, FRED, CoinGecko, etc.)
+- **Historical References**: Dukascopy Swiss-grade validation data
+**Format**: Raw data converted to Protocol Buffers
+**Frequency**: Real-time (50+ ticks/sec) streaming
+**Performance Target**: <2ms data collection + proto conversion
 
-### **Output Flow**: Trading execution commands ke Client-MT5
-**Destination**: Client-MT5 terminals via API Gateway
-**Format**: Trading execution commands (Protocol Buffers)
-**Processing**: ML/AI analysis → Trading decisions → Risk management
-**Performance Target**: <5ms execution command delivery
+### **Output Flow**: NATS/Kafka streaming to Data Bridge
+**Destination**: NATS/Kafka message queues → Data Bridge (direct consumer subscription)
+**Format**: Protocol Buffers binary streams
+**Processing**: Raw data → Proto serialization → NATS/Kafka publish → Data Bridge consumer
+**Performance Target**: <3ms proto conversion + NATS/Kafka delivery
 
 ---
 
@@ -50,64 +48,59 @@ CPU: 3000x duplicate processing
 Memory: 3000x data buffers
 ```
 
-#### **AI Trading Architecture (Optimal):**
+#### **Simplified Data Collection Architecture:**
 ```
-4-Category Data Collection + AI Engine + Supporting Services:
-- Broker-MT5: 2 connections (approved brokers only)
-- Broker-API: 2 connections (approved brokers only)
-- External-Data: Multiple API connections (news, calendar, sentiment)
-- AI Trading Engine: ML analysis + decision making
-- Supporting Services: Gateway + Aggregator + Orchestrator
-Total: Server-side processing → Trading commands to 1000+ clients
+4-Category Data Collection → Protocol Buffers → NATS/Kafka → Data Bridge:
+- Broker-API: OANDA v20 API (single, reliable live tick source)
+- External-Data: 8 API connections (Yahoo Finance, FRED, CoinGecko, etc.)
+- Historical-References: Dukascopy batch data import processes
+- Secure Stream: Raw data → Proto → NATS/Kafka → Data Bridge (direct consumer)
+Total: ~10 data collection processes → Secure message queue streaming
 ```
 
-### **AI Trading Benefits:**
+### **Data Collection Benefits:**
 ```
-Resource & Intelligence Optimization:
-- Client Connections: 1000+ clients → Server handles broker connections
-- Data Processing: Server-side AI analysis (no client processing)
-- Trading Intelligence: ML/AI decisions with multi-source data
-- Risk Management: Centralized risk assessment and control
-- Broker Policy: Only approved, regulated brokers accepted
+Resource & Efficiency Optimization:
+- Connection Reduction: 1000+ clients → ~10 server collectors (99% reduction)
+- Secure Message Queues: NATS/Kafka for security, durability, and scalability
+- Protocol Efficiency: 60% smaller payloads vs JSON with Protocol Buffers
+- High Throughput: Handle 50+ ticks/second with back-pressure management
 - Cost Efficiency: 99.3% reduction vs traditional client-broker model
-- Added Intelligence: AI + News + Economic + Sentiment analysis
+- Centralized Collection: Single data source for all downstream services
 ```
 
 ---
 
-## 🔄 Data Ingestion Pipeline
+## 🔄 Simplified Data Collection Pipeline
 
-### **1. Broker Connection Management**:
+### **1. Raw Data Collection**:
 ```python
-class BrokerCollector:
-    async def connect_mt5_broker(self, broker_config: BrokerConfig):
-        """Establish single MT5 connection per broker"""
+class BrokerDataCollector:
+    async def collect_broker_data(self, broker_config: BrokerConfig):
+        """Collect raw data from approved broker"""
 
-        # Initialize MT5 connection
-        mt5_connection = MT5Connection(
-            server=broker_config.server,
-            login=broker_config.login,
-            password=broker_config.password
-        )
+        # Connect to approved broker only
+        if not await self.validate_approved_broker(broker_config.name):
+            raise Exception(f"Broker {broker_config.name} not approved")
 
-        # Subscribe to all major pairs
-        symbols = ["EURUSD", "GBPUSD", "USDJPY", "USDCHF", "AUDUSD",
-                  "USDCAD", "NZDUSD", "EURGBP", "EURJPY", "GBPJPY"]
+        # Collect raw tick data
+        raw_data = await self.get_raw_tick_data(broker_config)
 
-        for symbol in symbols:
-            await mt5_connection.subscribe_tick_data(symbol, self.on_tick_received)
+        # Convert to Protocol Buffers
+        proto_data = self.convert_to_protobuf(raw_data)
 
-        # Performance tracking
-        self.logger.info(f"Broker {broker_config.name} connected - streaming {len(symbols)} symbols")
+        # Stream to NATS/Kafka for secure delivery
+        await self.stream_to_message_queue(proto_data)
+```
 
-    async def on_tick_received(self, tick_data: MqlTick):
-        """Process incoming tick from broker"""
+### **2. Protocol Buffer Conversion**:
+```python
+async def convert_to_protobuf(self, raw_tick_data) -> bytes:
+    """Convert raw tick data to Protocol Buffers binary"""
 
-        # Convert to our protocol buffer format
-        market_tick = self.convert_mql_to_protobuf(tick_data)
-
-        # Add broker source info
-        market_tick.source = self.broker_name
+    # Create protobuf message
+    market_data = MarketDataStream()
+    market_data.source = self.broker_name
         market_tick.broker_timestamp = int(time.time() * 1000)
 
         # Send to aggregator
@@ -150,42 +143,50 @@ class MarketAggregator:
         await self.quality_tracker.update_metrics(broker_tick, price_spread)
 ```
 
-### **3. Data Distribution Engine**:
+### **3. NATS/Kafka Distribution Engine**:
 ```python
-class DistributionEngine:
+class SecureDistributionEngine:
     def __init__(self):
         self.nats_client = NATSClient()
-        self.subscriber_map = {}  # Track user subscriptions
+        self.kafka_client = KafkaProducer()
+        self.central_hub_client = CentralHubClient()
 
-    async def distribute_to_subscribers(self, market_stream: MarketDataStream):
-        """Distribute data ke subscribed users"""
+    async def stream_to_message_queue(self, market_stream: MarketDataStream):
+        """Stream data via NATS/Kafka for secure, scalable delivery"""
 
-        for tick in market_stream.ticks:
-            symbol = tick.symbol
+        # Serialize Protocol Buffers data
+        binary_data = market_stream.SerializeToString()
 
-            # Get all users subscribed to this symbol
-            subscribers = self.subscriber_map.get(symbol, [])
-
-            # Serialize once, send to many
-            binary_data = market_stream.SerializeToString()
-
-            # NATS fanout - single publish, multiple deliveries
-            subject = f"market.{symbol}.ticks"
+        try:
+            # Primary: NATS streaming (fast, low-latency)
+            subject = f"market.{market_stream.source}.ticks"
             await self.nats_client.publish(subject, binary_data)
 
-            # Performance tracking
-            self.logger.debug(f"Distributed {symbol} to {len(subscribers)} subscribers")
+            # Backup: Kafka streaming (durability, replay capability)
+            await self.kafka_client.produce(
+                topic="market-data-stream",
+                key=market_stream.source,
+                value=binary_data
+            )
 
-    async def manage_subscriptions(self, user_id: str, symbols: List[str]):
-        """Manage user symbol subscriptions"""
+            self.logger.debug(f"Streamed {len(market_stream.ticks)} ticks via NATS/Kafka")
 
-        for symbol in symbols:
-            if symbol not in self.subscriber_map:
-                self.subscriber_map[symbol] = set()
+        except Exception as e:
+            self.logger.error(f"Failed to stream to message queue: {e}")
+            # Register with Central Hub for health monitoring
+            await self.register_failure_with_central_hub(e)
 
-            self.subscriber_map[symbol].add(user_id)
-
-        self.logger.info(f"User {user_id} subscribed to {len(symbols)} symbols")
+    async def register_with_central_hub(self):
+        """Register data-ingestion service dengan Central Hub"""
+        await self.central_hub_client.register_service({
+            "name": "data-ingestion",
+            "host": "data-ingestion",
+            "port": 8002,
+            "protocol": "nats+kafka",
+            "health_endpoint": "/health",
+            "topics": ["market-data-stream"],
+            "subjects": ["market.*.ticks"]
+        })
 ```
 
 ---
@@ -320,16 +321,16 @@ class DataQualityManager:
 ## 🔗 Integration Points
 
 ### **Service Dependencies**:
-- **MT5 Terminal Connections**: Direct connections ke broker servers
-- **Data Bridge**: NATS/Kafka streaming untuk processed data
-- **Central Hub**: Service registration dan health reporting
-- **Database Service**: Configuration storage untuk broker settings
+- **OANDA v20 API**: Direct connection to primary data source
+- **NATS/Kafka Cluster**: Secure message streaming untuk processed data
+- **Central Hub**: Service discovery, registration, dan health reporting
+- **External Data APIs**: 8 data collectors (Yahoo Finance, FRED, etc.)
 
 ### **External Dependencies**:
-- **Broker MT5 Servers**: IC Markets, Pepperstone, FXCM terminals
-- **Network Infrastructure**: Stable connections ke broker datacenters
-- **NATS/Kafka Cluster**: High-throughput message distribution
-- **Monitoring System**: Real-time broker connection monitoring
+- **OANDA v20 Servers**: Primary market data provider
+- **External API Providers**: News, calendar, sentiment data sources
+- **NATS/Kafka Infrastructure**: High-throughput message distribution
+- **Monitoring System**: Real-time data collection monitoring
 
 ---
 
@@ -391,6 +392,6 @@ async def ingestion_health_check():
 
 ---
 
-**Input Flow**: Multiple Brokers (MT5) → Data Ingestion (aggregation & quality control)
-**Output Flow**: Data Ingestion → Data Bridge (NATS/Kafka stream distribution)
-**Key Innovation**: Server-side broker aggregation dengan 99.9% resource efficiency gains untuk scalable multi-tenant market data distribution
+**Input Flow**: OANDA v20 API + External Data APIs → Data Ingestion (aggregation & quality control)
+**Output Flow**: Data Ingestion → NATS/Kafka (secure streaming) → Data Bridge (direct consumer subscription)
+**Key Innovation**: Server-side data aggregation dengan secure message queue streaming untuk optimal performance, security, dan scalability
