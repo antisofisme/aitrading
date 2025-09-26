@@ -122,23 +122,24 @@ int OnInit()
         return INIT_FAILED;
     }
 
-    // Initialize HTTP client
-    httpClient.SetServer(ServerURL, AuthToken);
+    // Initialize enhanced WebSocket client
+    wsClient.SetServer(ServerURL, AuthToken, UserID);
 
-    // Test server connection
+    // Test dual connection
     if(!ConnectToServer()) {
-        Print("⚠️ Initial server connection failed - will retry");
+        Print("⚠️ Initial dual connection failed - will retry");
         // Don't fail initialization, continue with retry logic
     }
 
     // Send account profile on startup
-    if(httpClient.IsConnected()) {
+    if(wsClient.IsConnected()) {
         SendAccountProfile();
     }
 
     Print("✅ Suho AI Trading EA - Initialization completed successfully");
     Print("📊 Monitoring " + IntegerToString(ArraySize(TradingSymbols)) + " trading pairs");
-    Print("🔗 Server connection: " + (httpClient.IsConnected() ? "Connected" : "Disconnected"));
+    Print("🔗 Trading WebSocket: " + (wsClient.IsConnected() ? "Connected" : "Disconnected"));
+    Print("📡 Price WebSocket: " + (wsClient.IsPriceStreamConnected() ? "Connected" : "Disconnected"));
 
     return INIT_SUCCEEDED;
 }
@@ -151,7 +152,7 @@ void OnDeinit(const int reason)
     Print("🛑 Suho AI Trading EA - Shutting down...");
 
     // Send shutdown notification
-    if(httpClient.IsConnected()) {
+    if(wsClient.IsConnected()) {
         SendShutdownNotification();
     }
 
@@ -166,23 +167,33 @@ void OnDeinit(const int reason)
 //+------------------------------------------------------------------+
 void OnTick()
 {
-    // Connection maintenance
-    if(TimeCurrent() - LastConnectionCheck > 30) { // Check every 30 seconds
+    // Enhanced dual connection health check
+    if(TimeCurrent() - LastConnectionCheck > 30) {
         CheckServerConnection();
         LastConnectionCheck = TimeCurrent();
     }
 
-    // Price streaming - automatically stream selected pairs
-    if(httpClient.IsConnected()) {
+    // Process incoming trading commands
+    ProcessTradingCommands();
+
+    // Price streaming via dedicated WebSocket
+    if(wsClient.IsPriceStreamConnected()) {
         if(TimeCurrent() - LastPriceStream >= StreamingInterval / 1000) {
             StreamPricesToServer();
         }
     }
 
-    // Process any pending server commands (check every 5 seconds)
-    if(TimeCurrent() - LastCommandCheck >= 5) {
-        ProcessServerCommands();
+    // Check server for new commands (every 2 seconds)
+    if(TimeCurrent() - LastCommandCheck >= 2) {
+        CheckForServerCommands();
         LastCommandCheck = TimeCurrent();
+    }
+
+    // Periodic account updates
+    static datetime lastAccountUpdate = 0;
+    if(TimeCurrent() - lastAccountUpdate > 60) {
+        SendAccountUpdate();
+        lastAccountUpdate = TimeCurrent();
     }
 }
 
@@ -243,8 +254,8 @@ bool ConnectToServer()
     if(TestingMode) {
         Print("🧪 Test mode: Connecting to localhost server");
         // Update URL for localhost testing
-        string testUrl = "http://localhost:8000";
-        httpClient.SetServer(testUrl, AuthToken);
+        string testUrl = "ws://localhost:8001/ws/trading";
+        wsClient.SetServer(testUrl, AuthToken, UserID);
     } else {
         if(StringLen(AuthToken) == 0) {
             Print("❌ Auth token not configured for production");
@@ -254,8 +265,8 @@ bool ConnectToServer()
 
     Print("🔗 Attempting connection to server...");
 
-    // Use actual HTTP client connection
-    bool connected = httpClient.TestConnection();
+    // Use enhanced WebSocket client connections
+    bool connected = wsClient.ConnectToServer();
 
     if(connected) {
         Print("✅ Connected to server successfully");
@@ -271,14 +282,21 @@ bool ConnectToServer()
 //+------------------------------------------------------------------+
 void CheckServerConnection()
 {
-    if(!httpClient.IsHealthy()) {
-        Print("🔄 Connection unhealthy, attempting to reconnect...");
+    if(!wsClient.IsHealthy()) {
+        Print("🔄 Dual connection unhealthy, attempting to reconnect...");
         ConnectToServer();
     }
 
     // Log connection statistics for debugging
-    if(httpClient.GetRetryCount() > 0) {
-        Print("📊 Connection retries: " + IntegerToString(httpClient.GetRetryCount()));
+    if(wsClient.GetRetryCount() > 0) {
+        Print("📊 Connection retries: " + IntegerToString(wsClient.GetRetryCount()));
+    }
+
+    // Show status periodically
+    static datetime lastStatusLog = 0;
+    if(TimeCurrent() - lastStatusLog > 300) {
+        Print(wsClient.GetConnectionStats());
+        lastStatusLog = TimeCurrent();
     }
 }
 
@@ -287,19 +305,16 @@ void CheckServerConnection()
 //+------------------------------------------------------------------+
 bool SendAccountProfile()
 {
-    if(!httpClient.IsConnected()) return false;
+    if(!wsClient.IsConnected()) return false;
 
-    Print("📤 Sending account profile to server...");
+    Print("📤 Sending account profile via WebSocket...");
 
     // Create Protocol Buffers format profile data
     string profileProto = JsonHelper::CreateAccountProfileProto(UserID);
 
     // Add selected trading pairs to the proto
     if(ArraySize(TradingSymbols) > 0) {
-        // Remove closing bracket temporarily
         StringReplace(profileProto, "}", "");
-
-        // Add trading pairs array
         profileProto += ",\"trading_pairs\":[";
         for(int i = 0; i < ArraySize(TradingSymbols); i++) {
             if(i > 0) profileProto += ",";
@@ -310,8 +325,8 @@ bool SendAccountProfile()
 
     Print("📊 Profile data (Protocol Buffers): " + IntegerToString(StringLen(profileProto)) + " characters");
 
-    // Send via HTTP client
-    return httpClient.SendAccountProfile(profileProto);
+    // Send via enhanced WebSocket client
+    return wsClient.SendAccountProfile(profileProto);
 }
 
 //+------------------------------------------------------------------+
@@ -319,128 +334,226 @@ bool SendAccountProfile()
 //+------------------------------------------------------------------+
 bool StreamPricesToServer()
 {
-    if(!httpClient.IsConnected()) return false;
+    if(!wsClient.IsPriceStreamConnected()) return false;
 
-    // Create Protocol Buffers format price stream
-    string priceStreamData = "{\"user_id\":\"" + UserID + "\",\"timestamp\":" + IntegerToString(TimeCurrent()) + ",\"prices\":[";
-    int priceCount = 0;
-
-    if(StreamCurrentChartOnly) {
-        // Stream only current chart symbol using Protocol Buffers format
-        MqlTick tick;
-        if(SymbolInfoTick(_Symbol, tick)) {
-            string marketData = JsonHelper::CreateMarketDataProto(UserID, _Symbol, tick.bid, tick.ask, TimeCurrent());
-            priceStreamData += marketData;
-            priceCount = 1;
-        }
-    } else {
-        // Stream selected trading pairs using Protocol Buffers format
-        for(int i = 0; i < ArraySize(TradingSymbols); i++) {
-            MqlTick tick;
-            if(SymbolInfoTick(TradingSymbols[i], tick)) {
-                if(priceCount > 0) priceStreamData += ",";
-                string marketData = JsonHelper::CreateMarketDataProto(UserID, TradingSymbols[i], tick.bid, tick.ask, TimeCurrent());
-                priceStreamData += marketData;
-                priceCount++;
-            }
-        }
-    }
-
-    priceStreamData += "]}";
+    // Create Protocol Buffers client price stream
+    string priceStreamData = CreateClientPriceStream();
+    int priceCount = GetPriceCount();
 
     // Update last stream time
     LastPriceStream = TimeCurrent();
 
-    // Send via HTTP client (only if we have data)
+    // Send via dedicated price WebSocket
     if(priceCount > 0) {
-        return httpClient.SendPriceData(priceStreamData);
+        bool success = wsClient.StreamPriceData(priceStreamData);
+        if(success) {
+            // Reduce log frequency
+            static datetime lastLog = 0;
+            if(TimeCurrent() - lastLog > 60) {
+                Print("📡 Streaming " + IntegerToString(priceCount) + " pairs via price WebSocket");
+                lastLog = TimeCurrent();
+            }
+        }
+        return success;
     }
 
     return true;
 }
 
 //+------------------------------------------------------------------+
-//| Process Server Commands                                         |
+//| Process queued trading commands                                 |
 //+------------------------------------------------------------------+
-void ProcessServerCommands()
+void ProcessTradingCommands()
 {
-    if(!httpClient.IsConnected()) return;
-
-    // Get pending commands from server
-    string commandsResponse = httpClient.GetServerCommands();
-
-    if(StringLen(commandsResponse) > 0) {
-        Print("📨 Received server commands: " + IntegerToString(StringLen(commandsResponse)) + " characters");
-
-        // TODO: Parse JSON commands and execute trades
-        // For now, just log that we received commands
-        ParseAndExecuteCommands(commandsResponse);
+    // Process commands from WebSocket queue
+    string command = wsClient.GetNextCommand();
+    if(StringLen(command) > 0) {
+        ExecuteTradingCommand(command);
     }
 }
 
 //+------------------------------------------------------------------+
-//| Parse and execute trading commands from server                  |
+//| Check server for new commands                                   |
 //+------------------------------------------------------------------+
-void ParseAndExecuteCommands(string commandsJson)
+void CheckForServerCommands()
 {
-    Print("🧠 Processing AI trading commands (Protocol Buffers)...");
+    if(!wsClient.IsConnected()) return;
 
-    // Parse Protocol Buffers command using JsonHelper
+    // Get new commands from server
+    string commandsResponse = wsClient.GetServerCommands();
+
+    if(StringLen(commandsResponse) > 0) {
+        Print("📨 New server commands received");
+        ExecuteTradingCommand(commandsResponse);
+    }
+}
+
+//+------------------------------------------------------------------+
+//| Execute AI trading command from server                          |
+//+------------------------------------------------------------------+
+void ExecuteTradingCommand(string commandJson)
+{
+    if(StringLen(commandJson) == 0) return;
+
+    Print("🧠 Processing AI trading command (Protocol Buffers)...");
+
+    // Parse Protocol Buffers command
     string action, symbol;
     double lots, stopLoss, takeProfit;
 
-    if(JsonHelper::ParseTradingCommand(commandsJson, action, symbol, lots, stopLoss, takeProfit)) {
-        Print("📋 Command parsed - Action: " + action + ", Symbol: " + symbol + ", Lots: " + DoubleToString(lots, 2));
+    if(JsonHelper::ParseTradingCommand(commandJson, action, symbol, lots, stopLoss, takeProfit)) {
+        Print("📋 Command: " + action + " " + symbol + " " + DoubleToString(lots, 2) + " lots");
 
+        // Check for price adjustment info
+        string originalEntry = GetJsonValue(commandJson, "original_entry");
+        string priceAdjustment = GetJsonValue(commandJson, "price_adjustment");
+
+        if(StringLen(originalEntry) > 0 && StringLen(priceAdjustment) > 0) {
+            Print("💱 Price adjusted from OANDA " + originalEntry + " (adjustment: " + priceAdjustment + ")");
+        }
+
+        // Execute command
+        bool success = false;
         if(action == "BUY") {
-            Print("📈 AI Signal: BUY " + symbol + " " + DoubleToString(lots, 2) + " lots");
-            ExecuteBuyOrder(symbol, lots, stopLoss, takeProfit);
+            success = ExecuteBuyOrder(symbol, lots, stopLoss, takeProfit);
+        } else if(action == "SELL") {
+            success = ExecuteSellOrder(symbol, lots, stopLoss, takeProfit);
+        } else if(action == "CLOSE") {
+            success = ClosePositions(symbol);
+        } else if(action == "CLOSE_ALL") {
+            success = CloseAllPositions("Server Command");
         }
-        else if(action == "SELL") {
-            Print("📉 AI Signal: SELL " + symbol + " " + DoubleToString(lots, 2) + " lots");
-            ExecuteSellOrder(symbol, lots, stopLoss, takeProfit);
-        }
-        else if(action == "CLOSE") {
-            Print("🔒 AI Signal: CLOSE " + symbol + " positions");
-            ClosePositions(symbol);
-        }
-        else {
-            Print("⚠️ Unknown command action: " + action);
-        }
+
+        // Send execution confirmation
+        SendTradeConfirmation(action, symbol, lots, success);
     } else {
         Print("❌ Failed to parse Protocol Buffers command");
     }
-
-    // Send acknowledgment back to server in Protocol Buffers format
-    string ackData = JsonHelper::CreateTradeConfirmationProto(UserID, "RECEIVED", "", 0, 0, 0);
-    httpClient.SendTradeConfirmation(ackData);
 }
 
 //+------------------------------------------------------------------+
-//| Execute Buy Order (Placeholder for next phase)                 |
+//| Execute Buy Order                                               |
 //+------------------------------------------------------------------+
-void ExecuteBuyOrder(string symbol, double lots, double stopLoss, double takeProfit)
+bool ExecuteBuyOrder(string symbol, double lots, double stopLoss, double takeProfit)
 {
-    Print("🔧 TODO: Execute BUY order for " + symbol);
-    // TODO: Implement actual order execution in next phase
+    if(!IsTradeAllowed() || !AutoTrading) {
+        Print("❌ Trading not allowed");
+        return false;
+    }
+
+    // Validate lot size
+    double minLot = SymbolInfoDouble(symbol, SYMBOL_VOLUME_MIN);
+    double maxLot = SymbolInfoDouble(symbol, SYMBOL_VOLUME_MAX);
+    lots = MathMax(minLot, MathMin(maxLot, lots));
+
+    // Get current ask price
+    double ask = SymbolInfoDouble(symbol, SYMBOL_ASK);
+    if(ask <= 0) {
+        Print("❌ Invalid ask price for " + symbol);
+        return false;
+    }
+
+    // Execute buy order
+    bool result = trade.Buy(lots, symbol, ask, stopLoss, takeProfit, "Suho AI Buy");
+
+    if(result) {
+        Print("✅ BUY executed: " + symbol + " " + DoubleToString(lots, 2) + " @ " + DoubleToString(ask, 5));
+        TotalTrades++;
+        return true;
+    } else {
+        Print("❌ BUY failed: " + symbol + " - Code " + IntegerToString(trade.ResultRetcode()));
+        return false;
+    }
 }
 
 //+------------------------------------------------------------------+
-//| Execute Sell Order (Placeholder for next phase)                |
+//| Execute Sell Order                                              |
 //+------------------------------------------------------------------+
-void ExecuteSellOrder(string symbol, double lots, double stopLoss, double takeProfit)
+bool ExecuteSellOrder(string symbol, double lots, double stopLoss, double takeProfit)
 {
-    Print("🔧 TODO: Execute SELL order for " + symbol);
-    // TODO: Implement actual order execution in next phase
+    if(!IsTradeAllowed() || !AutoTrading) {
+        Print("❌ Trading not allowed");
+        return false;
+    }
+
+    // Validate lot size
+    double minLot = SymbolInfoDouble(symbol, SYMBOL_VOLUME_MIN);
+    double maxLot = SymbolInfoDouble(symbol, SYMBOL_VOLUME_MAX);
+    lots = MathMax(minLot, MathMin(maxLot, lots));
+
+    // Get current bid price
+    double bid = SymbolInfoDouble(symbol, SYMBOL_BID);
+    if(bid <= 0) {
+        Print("❌ Invalid bid price for " + symbol);
+        return false;
+    }
+
+    // Execute sell order
+    bool result = trade.Sell(lots, symbol, bid, stopLoss, takeProfit, "Suho AI Sell");
+
+    if(result) {
+        Print("✅ SELL executed: " + symbol + " " + DoubleToString(lots, 2) + " @ " + DoubleToString(bid, 5));
+        TotalTrades++;
+        return true;
+    } else {
+        Print("❌ SELL failed: " + symbol + " - Code " + IntegerToString(trade.ResultRetcode()));
+        return false;
+    }
 }
 
 //+------------------------------------------------------------------+
-//| Close Positions (Placeholder for next phase)                   |
+//| Close Positions for Symbol                                      |
 //+------------------------------------------------------------------+
-void ClosePositions(string symbol)
+bool ClosePositions(string symbol)
 {
-    Print("🔧 TODO: Close positions for " + symbol);
-    // TODO: Implement position closing in next phase
+    bool success = true;
+    int closedCount = 0;
+
+    for(int i = PositionsTotal() - 1; i >= 0; i--) {
+        if(PositionGetSymbol(i) == symbol && PositionGetInteger(POSITION_MAGIC) == MagicNumber) {
+            ulong ticket = PositionGetInteger(POSITION_TICKET);
+            if(trade.PositionClose(ticket)) {
+                Print("✅ Closed position " + IntegerToString(ticket) + " for " + symbol);
+                closedCount++;
+            } else {
+                Print("❌ Failed to close position " + IntegerToString(ticket));
+                success = false;
+            }
+        }
+    }
+
+    if(closedCount > 0) {
+        Print("🔒 Closed " + IntegerToString(closedCount) + " positions for " + symbol);
+    }
+
+    return success;
+}
+
+//+------------------------------------------------------------------+
+//| Close All Positions                                             |
+//+------------------------------------------------------------------+
+bool CloseAllPositions(string reason)
+{
+    Print("🚨 Closing all positions: " + reason);
+    bool success = true;
+    int closedCount = 0;
+
+    for(int i = PositionsTotal() - 1; i >= 0; i--) {
+        if(PositionGetInteger(POSITION_MAGIC) == MagicNumber) {
+            ulong ticket = PositionGetInteger(POSITION_TICKET);
+            string symbol = PositionGetString(POSITION_SYMBOL);
+            if(trade.PositionClose(ticket)) {
+                Print("✅ Closed position " + IntegerToString(ticket) + " (" + symbol + ")");
+                closedCount++;
+            } else {
+                Print("❌ Failed to close position " + IntegerToString(ticket));
+                success = false;
+            }
+        }
+    }
+
+    Print("🔒 Total positions closed: " + IntegerToString(closedCount));
+    return success;
 }
 
 //+------------------------------------------------------------------+
@@ -464,8 +577,8 @@ void SendShutdownNotification()
     shutdownProto = JsonHelper::AddNumericField(shutdownProto, "total_profit", TotalProfit);
     shutdownProto += "}";
 
-    // Send via HTTP client
-    httpClient.SendTradeConfirmation(shutdownProto);
+    // Send via WebSocket client
+    wsClient.SendTradeConfirmation(shutdownProto);
     Print("📊 Shutdown notification sent (Protocol Buffers)");
 }
 
@@ -483,7 +596,8 @@ void PrintPerformanceSummary()
     Print("💰 Total profit/loss: $" + DoubleToString(TotalProfit, 2));
     Print("📈 Starting balance: $" + DoubleToString(AccountInfoDouble(ACCOUNT_BALANCE), 2));
     Print("📊 Current balance: $" + DoubleToString(AccountInfoDouble(ACCOUNT_BALANCE), 2));
-    Print("🔗 Server connection status: " + (httpClient.IsConnected() ? "Connected" : "Disconnected"));
+    Print("🔗 Trading WebSocket: " + (wsClient.IsConnected() ? "Connected" : "Disconnected"));
+    Print("📡 Price WebSocket: " + (wsClient.IsPriceStreamConnected() ? "Connected" : "Disconnected"));
     Print("===============================================");
 }
 
