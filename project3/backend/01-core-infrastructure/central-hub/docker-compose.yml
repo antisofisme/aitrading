@@ -1,0 +1,42 @@
+version: '3.8'
+
+services:
+  # Central Hub - Core orchestration service
+  central-hub:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: suho-central-hub
+    restart: unless-stopped
+    ports:
+      - "3001:3001"   # HTTP API server
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - LOG_LEVEL=info
+      - REDIS_URL=redis://:dragonfly_secure_2024@dragonflydb:6379
+      - NATS_URL=nats://nats-server:4222
+    volumes:
+      - ./logs:/app/logs
+      - ./shared:/app/shared:ro
+    networks:
+      - suho-network
+    depends_on: []
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3001/health', (res) => process.exit(res.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    labels:
+      - "com.suho.service=central-hub"
+      - "com.suho.version=1.0.0"
+
+
+networks:
+  suho-network:
+    driver: bridge
+    name: suho-trading-network
+    external: true
+    labels:
+      - "com.suho.network=main"

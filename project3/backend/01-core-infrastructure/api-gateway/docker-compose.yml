@@ -1,0 +1,77 @@
+version: '3.8'
+
+services:
+  # API Gateway - Main service
+  api-gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: suho-api-gateway
+    restart: unless-stopped
+    ports:
+      - "8000:8000"   # HTTP API server
+      - "8001:8001"   # Trading WebSocket channel
+      - "8002:8002"   # Price Stream WebSocket channel
+    environment:
+      - NODE_ENV=production
+      - PORT=8000
+      - JWT_SECRET=your-super-secret-jwt-key-change-in-production
+      - JWT_EXPIRES_IN=24h
+      - JWT_ISSUER=suho-api-gateway
+      - JWT_AUDIENCE=suho-trading
+      - CENTRAL_HUB_URL=http://localhost:3001
+      - LOG_LEVEL=info
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+    volumes:
+      - ./logs:/app/logs
+      - ./contracts:/app/contracts:ro
+    networks:
+      - suho-network
+    depends_on: []
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:8000/health', (res) => process.exit(res.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    labels:
+      - "com.suho.service=api-gateway"
+      - "com.suho.version=2.0.0"
+
+
+
+
+  # Client-MT5 Test Client (for testing)
+  client-mt5-test:
+    build:
+      context: .
+      dockerfile: Dockerfile.test-client
+    container_name: suho-client-mt5-test
+    restart: "no"
+    depends_on:
+      api-gateway:
+        condition: service_healthy
+    environment:
+      - API_GATEWAY_URL=http://api-gateway:8000
+      - WEBSOCKET_TRADING_URL=ws://api-gateway:8001/ws/trading
+      - WEBSOCKET_PRICE_URL=ws://api-gateway:8002/ws/price-stream
+      - DATABASE_SERVICE_URL=http://database-service:3003
+      - TEST_MODE=true
+      - LOG_LEVEL=debug
+    networks:
+      - suho-network
+    profiles:
+      - testing
+    labels:
+      - "com.suho.service=test-client"
+
+volumes:
+  api_logs:
+
+networks:
+  suho-network:
+    driver: bridge
+    name: suho-trading-network
+    labels:
+      - "com.suho.network=main"

@@ -16,6 +16,11 @@
 const WebSocket = require('ws');
 const { SuhoBinaryProtocol } = require('../protocols/suho-binary-protocol');
 const { EventEmitter } = require('events');
+const AuthMiddleware = require('../middleware/auth');
+const logger = require('../utils/logger');
+
+// ✅ NEW: Import Client-MT5 handler from webhook transfer method (corrected structure)
+const { ClientMT5NatsKafkaHandler } = require('../../contracts/webhook/from-client-mt5');
 
 /**
  * Client-MT5 WebSocket Connection Handler
@@ -38,6 +43,21 @@ class ClientMT5Handler extends EventEmitter {
             trading: null,
             priceStream: null
         };
+
+        // ✅ NEW: Use contract input handler untuk Client-MT5 data
+        this.clientMT5InputHandler = new ClientMT5NatsKafkaHandler({
+            enableConversion: false, // TERIMA SAJA, TIDAK CONVERT
+            enableValidation: true,
+            enableRouting: true
+        });
+
+        // Initialize authentication
+        this.authMiddleware = new AuthMiddleware({
+            jwtSecret: process.env.JWT_SECRET,
+            jwtExpiresIn: process.env.JWT_EXPIRES_IN || '24h',
+            issuer: process.env.JWT_ISSUER || 'api-gateway',
+            audience: process.env.JWT_AUDIENCE || 'suho-trading'
+        });
 
         this.initializeServers();
     }
@@ -70,36 +90,64 @@ class ClientMT5Handler extends EventEmitter {
      * Setup Trading Commands WebSocket Server
      */
     setupTradingServer() {
-        this.servers.trading.on('connection', (ws, req) => {
-            const userId = this.extractUserId(req);
-            console.log(`[MT5-TRADING] New trading connection: ${userId}`);
+        this.servers.trading.on('connection', async (ws, req) => {
+            try {
+                // Authenticate WebSocket connection
+                const authResult = await this.authMiddleware.authenticateWebSocket(req);
 
-            // Initialize connection data
-            if (!this.connections.has(userId)) {
-                this.connections.set(userId, {
+                if (!authResult.success) {
+                    logger.warn('WebSocket authentication failed', {
+                        ip: req.socket.remoteAddress,
+                        error: authResult.error
+                    });
+
+                    ws.close(1008, `Authentication failed: ${authResult.error}`);
+                    return;
+                }
+
+                const { userContext } = authResult;
+                const userId = userContext.userId;
+
+                logger.info('Trading WebSocket authenticated', {
                     userId,
-                    tradingWs: null,
-                    priceStreamWs: null,
-                    authenticated: false,
-                    lastHeartbeat: Date.now(),
-                    protocolType: 'auto', // auto-detect
-                    subscriptions: new Set()
+                    subscriptionTier: userContext.subscriptionTier,
+                    ip: req.socket.remoteAddress
                 });
+
+                // Initialize connection data
+                if (!this.connections.has(userId)) {
+                    this.connections.set(userId, {
+                        userId,
+                        userContext,
+                        tradingWs: null,
+                        priceStreamWs: null,
+                        authenticated: true,
+                        lastHeartbeat: Date.now(),
+                        protocolType: 'auto', // auto-detect
+                        subscriptions: new Set()
+                    });
+                }
+
+                const connection = this.connections.get(userId);
+                connection.tradingWs = ws;
+                connection.authenticated = true;
+                connection.userContext = userContext;
+
+                // Setup message handling
+                ws.on('message', (data) => {
+                    this.handleTradingMessage(userId, data);
+                });
+
+                // Setup connection events
+                this.setupConnectionEvents(ws, userId, 'trading');
+
+                // Send welcome message
+                this.sendWelcomeMessage(ws, 'trading');
+
+            } catch (error) {
+                logger.error('Trading WebSocket connection error', { error });
+                ws.close(1011, 'Internal server error');
             }
-
-            const connection = this.connections.get(userId);
-            connection.tradingWs = ws;
-
-            // Setup message handling
-            ws.on('message', (data) => {
-                this.handleTradingMessage(userId, data);
-            });
-
-            // Setup connection events
-            this.setupConnectionEvents(ws, userId, 'trading');
-
-            // Send welcome message
-            this.sendWelcomeMessage(ws, 'trading');
         });
     }
 
@@ -107,36 +155,64 @@ class ClientMT5Handler extends EventEmitter {
      * Setup Price Streaming WebSocket Server
      */
     setupPriceStreamServer() {
-        this.servers.priceStream.on('connection', (ws, req) => {
-            const userId = this.extractUserId(req);
-            console.log(`[MT5-PRICE] New price stream connection: ${userId}`);
+        this.servers.priceStream.on('connection', async (ws, req) => {
+            try {
+                // Authenticate WebSocket connection
+                const authResult = await this.authMiddleware.authenticateWebSocket(req);
 
-            // Get or create connection data
-            if (!this.connections.has(userId)) {
-                this.connections.set(userId, {
+                if (!authResult.success) {
+                    logger.warn('Price stream authentication failed', {
+                        ip: req.socket.remoteAddress,
+                        error: authResult.error
+                    });
+
+                    ws.close(1008, `Authentication failed: ${authResult.error}`);
+                    return;
+                }
+
+                const { userContext } = authResult;
+                const userId = userContext.userId;
+
+                logger.info('Price stream WebSocket authenticated', {
                     userId,
-                    tradingWs: null,
-                    priceStreamWs: null,
-                    authenticated: false,
-                    lastHeartbeat: Date.now(),
-                    protocolType: 'auto',
-                    subscriptions: new Set()
+                    subscriptionTier: userContext.subscriptionTier,
+                    ip: req.socket.remoteAddress
                 });
+
+                // Get or create connection data
+                if (!this.connections.has(userId)) {
+                    this.connections.set(userId, {
+                        userId,
+                        userContext,
+                        tradingWs: null,
+                        priceStreamWs: null,
+                        authenticated: true,
+                        lastHeartbeat: Date.now(),
+                        protocolType: 'auto',
+                        subscriptions: new Set()
+                    });
+                }
+
+                const connection = this.connections.get(userId);
+                connection.priceStreamWs = ws;
+                connection.authenticated = true;
+                connection.userContext = userContext;
+
+                // Setup message handling
+                ws.on('message', (data) => {
+                    this.handlePriceStreamMessage(userId, data);
+                });
+
+                // Setup connection events
+                this.setupConnectionEvents(ws, userId, 'price_stream');
+
+                // Send welcome message
+                this.sendWelcomeMessage(ws, 'price_stream');
+
+            } catch (error) {
+                logger.error('Price stream WebSocket connection error', { error });
+                ws.close(1011, 'Internal server error');
             }
-
-            const connection = this.connections.get(userId);
-            connection.priceStreamWs = ws;
-
-            // Setup message handling
-            ws.on('message', (data) => {
-                this.handlePriceStreamMessage(userId, data);
-            });
-
-            // Setup connection events
-            this.setupConnectionEvents(ws, userId, 'price_stream');
-
-            // Send welcome message
-            this.sendWelcomeMessage(ws, 'price_stream');
         });
     }
 
@@ -150,26 +226,42 @@ class ClientMT5Handler extends EventEmitter {
             const connection = this.connections.get(userId);
             if (!connection) return;
 
-            let parsedMessage;
-
             // Auto-detect protocol type
             if (connection.protocolType === 'auto') {
                 connection.protocolType = this.detectProtocolType(data);
                 console.log(`[MT5-TRADING] Protocol detected for ${userId}: ${connection.protocolType}`);
             }
 
-            // Parse message based on protocol
-            if (connection.protocolType === 'binary') {
-                parsedMessage = this.binaryProtocol.parsePacket(data);
-            } else {
-                parsedMessage = JSON.parse(data.toString());
-            }
+            // ✅ NEW: Use contract input handler
+            const metadata = {
+                contentType: connection.protocolType === 'binary' ? 'application/octet-stream' : 'application/json',
+                correlationId: `ws_trading_${userId}_${Date.now()}`,
+                userAgent: 'WebSocket-Client-MT5',
+                tenantId: connection.tenantId || 'default',
+                channel: 'trading',
+                transport: 'websocket'
+            };
+
+            const context = {
+                tenant_id: connection.tenantId || 'default',
+                user_id: userId,
+                session_id: connection.sessionId || `ws_${userId}`,
+                channel: 'trading'
+            };
+
+            // Convert data to Buffer if needed
+            const binaryData = Buffer.isBuffer(data) ? data : Buffer.from(data);
+
+            // Process through contract input handler
+            const result = await this.clientMT5InputHandler.handleInput(binaryData, metadata, context);
 
             // Update heartbeat
             connection.lastHeartbeat = Date.now();
 
-            // Route message based on type
-            await this.routeTradingMessage(userId, parsedMessage);
+            // Route message based on centralized handler result
+            await this.routeTradingMessage(userId, result.data.parsed_data || { raw: true, type: 'binary_data' });
+
+            console.log(`[MT5-TRADING] ${userId} → processed via contract handler (${connection.protocolType})`);
 
         } catch (error) {
             console.error(`[MT5-TRADING] Error handling message from ${userId}:`, error);
@@ -187,26 +279,42 @@ class ClientMT5Handler extends EventEmitter {
             const connection = this.connections.get(userId);
             if (!connection) return;
 
-            let parsedMessage;
-
             // Auto-detect protocol type
             if (connection.protocolType === 'auto') {
                 connection.protocolType = this.detectProtocolType(data);
                 console.log(`[MT5-PRICE] Protocol detected for ${userId}: ${connection.protocolType}`);
             }
 
-            // Parse message based on protocol
-            if (connection.protocolType === 'binary') {
-                parsedMessage = this.binaryProtocol.parsePacket(data);
-            } else {
-                parsedMessage = JSON.parse(data.toString());
-            }
+            // ✅ NEW: Use contract input handler
+            const metadata = {
+                contentType: connection.protocolType === 'binary' ? 'application/octet-stream' : 'application/json',
+                correlationId: `ws_price_${userId}_${Date.now()}`,
+                userAgent: 'WebSocket-Client-MT5',
+                tenantId: connection.tenantId || 'default',
+                channel: 'price_stream',
+                transport: 'websocket'
+            };
+
+            const context = {
+                tenant_id: connection.tenantId || 'default',
+                user_id: userId,
+                session_id: connection.sessionId || `ws_${userId}`,
+                channel: 'price_stream'
+            };
+
+            // Convert data to Buffer if needed
+            const binaryData = Buffer.isBuffer(data) ? data : Buffer.from(data);
+
+            // Process through contract input handler
+            const result = await this.clientMT5InputHandler.handleInput(binaryData, metadata, context);
 
             // Update heartbeat
             connection.lastHeartbeat = Date.now();
 
-            // Route message to backend services
-            await this.routePriceStreamMessage(userId, parsedMessage);
+            // Route message based on centralized handler result
+            await this.routePriceStreamMessage(userId, result.data.parsed_data || { raw: true, type: 'binary_data' });
+
+            console.log(`[MT5-PRICE] ${userId} → processed via contract handler (${connection.protocolType})`);
 
         } catch (error) {
             console.error(`[MT5-PRICE] Error handling message from ${userId}:`, error);

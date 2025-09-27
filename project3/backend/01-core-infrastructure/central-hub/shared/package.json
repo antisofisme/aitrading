@@ -1,13 +1,18 @@
 {
-  "name": "@suho/shared-protocols",
-  "version": "1.0.0",
-  "description": "Shared Protocol Buffers and Suho Binary Protocol definitions for Suho AI Trading System",
-  "main": "generated/nodejs/index.js",
+  "name": "@suho/shared-components",
+  "version": "2.0.0",
+  "description": "Shared components, protocols, and transfer layer for Suho AI Trading System",
+  "main": "index.js",
   "types": "generated/nodejs/index.d.ts",
   "files": [
+    "transfer/**/*",
+    "logging/**/*",
+    "proto/**/*.proto",
     "generated/nodejs/**/*",
     "protobuf/**/*.proto",
-    "suho-binary/specs/**/*"
+    "suho-binary/specs/**/*",
+    "utils/**/*",
+    "config/**/*"
   ],
   "scripts": {
     "generate": "npm run generate:nodejs && npm run generate:python && npm run generate:go",
@@ -32,7 +37,12 @@
     "typescript": "^5.0.0"
   },
   "dependencies": {
-    "google-protobuf": "^3.21.0"
+    "google-protobuf": "^3.21.0",
+    "@grpc/grpc-js": "^1.9.0",
+    "@grpc/proto-loader": "^0.7.8",
+    "axios": "^1.5.0",
+    "kafkajs": "^2.2.4",
+    "nats": "^2.16.0"
   },
   "engines": {
     "node": ">=18.0.0"
@@ -43,7 +53,12 @@
     "trading",
     "mt5",
     "suho",
-    "shared-protocols"
+    "shared-protocols",
+    "transfer-layer",
+    "nats",
+    "kafka",
+    "grpc",
+    "shared-components"
   ],
   "author": "Suho AI Trading Team",
   "license": "PRIVATE",

@@ -20,14 +20,25 @@ const compression = require('compression');
 const ClientMT5Handler = require('./websocket/client-mt5-handler');
 const BidirectionalRouter = require('./routing/bidirectional-router');
 const { SuhoBinaryProtocol } = require('./protocols/suho-binary-protocol');
+const AuthMiddleware = require('./middleware/auth');
+const logger = require('./utils/logger');
+
+// Import shared components from Central Hub
+const shared = require('../../../01-core-infrastructure/central-hub/shared');
+const { APIGatewayService } = require('./core/APIGatewayService');
+
+// Import modular handlers organized by transfer method (corrected structure)
+const { ClientMT5NatsKafkaHandler } = require('../contracts/webhook/from-client-mt5');
+const { FrontendWebhookHandler } = require('../contracts/webhook/from-frontend');
+const { TelegramWebhookHandler } = require('../contracts/webhook/from-telegram');
 
 /**
- * API Gateway Application
+ * API Gateway Application - Updated to use ServiceTemplate
  */
 class APIGateway {
     constructor(options = {}) {
         this.options = {
-            port: process.env.PORT || 3000,
+            port: process.env.PORT || 8000,
             env: process.env.NODE_ENV || 'development',
             centralHubUrl: process.env.CENTRAL_HUB_URL || 'http://localhost:3001',
             enableCors: true,
@@ -40,12 +51,42 @@ class APIGateway {
         this.app = express();
         this.server = null;
 
-        // Core components
+        // ✅ NEW: Initialize ServiceTemplate-based service
+        this.apiGatewayService = new APIGatewayService(this.options);
+
+        // ✅ NEW: Initialize modular handlers per transfer method
+        this.inputHandlers = {
+            // NATS+Kafka: High-throughput binary data (Client-MT5)
+            clientMT5: new ClientMT5NatsKafkaHandler({
+                enableConversion: false, // TERIMA SAJA, TIDAK CONVERT
+                enableValidation: true,
+                enableRouting: true
+            }),
+            // Webhook: External integrations (Frontend, Telegram)
+            frontend: new FrontendWebhookHandler({
+                enableValidation: true,
+                enableRouting: true,
+                requireAuth: true
+            }),
+            telegram: new TelegramWebhookHandler({
+                enableValidation: true,
+                enableRouting: true,
+                botToken: process.env.TELEGRAM_BOT_TOKEN
+            })
+        };
+
+        // Legacy components (akan di-migrate bertahap)
         this.clientMT5Handler = null;
         this.bidirectionalRouter = null;
         this.binaryProtocol = new SuhoBinaryProtocol();
+        this.authMiddleware = new AuthMiddleware({
+            jwtSecret: process.env.JWT_SECRET,
+            jwtExpiresIn: process.env.JWT_EXPIRES_IN || '24h',
+            issuer: process.env.JWT_ISSUER || 'api-gateway',
+            audience: process.env.JWT_AUDIENCE || 'suho-trading'
+        });
 
-        // Statistics
+        // Statistics (akan menggunakan metrics dari ServiceTemplate)
         this.stats = {
             startTime: Date.now(),
             requestCount: 0,
@@ -57,7 +98,6 @@ class APIGateway {
 
         this.initializeMiddleware();
         this.initializeRoutes();
-        this.initializeComponents();
     }
 
     /**
@@ -94,20 +134,31 @@ class APIGateway {
 
         // Request logging middleware
         this.app.use((req, res, next) => {
+            const correlationId = req.headers['x-correlation-id'] ||
+                                 `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+            req.correlationId = correlationId;
+
             this.stats.requestCount++;
-            console.log(`[API-GATEWAY] ${req.method} ${req.path} - ${req.ip}`);
+            logger.logRequest(req, res, correlationId);
             next();
         });
 
         // Error handling middleware
         this.app.use((error, req, res, next) => {
             this.stats.errorCount++;
-            console.error('[API-GATEWAY] Error:', error);
+            logger.error('API Gateway Error', {
+                error: error.message,
+                stack: error.stack,
+                correlationId: req.correlationId,
+                path: req.path,
+                method: req.method
+            });
 
             res.status(500).json({
                 error: 'Internal Server Error',
                 message: this.options.env === 'development' ? error.message : 'Something went wrong',
-                timestamp: new Date().toISOString()
+                timestamp: new Date().toISOString(),
+                correlationId: req.correlationId
             });
         });
     }
@@ -116,10 +167,18 @@ class APIGateway {
      * Initialize HTTP routes
      */
     initializeRoutes() {
-        // Health check endpoint
-        this.app.get('/health', (req, res) => {
-            const healthData = this.getHealthStatus();
-            res.status(healthData.status === 'healthy' ? 200 : 503).json(healthData);
+        // Health check endpoint - Updated to use ServiceTemplate
+        this.app.get('/health', async (req, res) => {
+            try {
+                const healthData = await this.apiGatewayService.healthCheck();
+                res.status(healthData.status === 'healthy' ? 200 : 503).json(healthData);
+            } catch (error) {
+                res.status(503).json({
+                    status: 'unhealthy',
+                    error: error.message,
+                    timestamp: new Date().toISOString()
+                });
+            }
         });
 
         // Statistics endpoint
@@ -127,19 +186,158 @@ class APIGateway {
             res.json(this.getStatistics());
         });
 
-        // Binary protocol test endpoint
-        this.app.post('/test/binary', (req, res) => {
+        // ✅ MODULAR: Client-MT5 input handler (binary data dari MT5 terminal)
+        this.app.post('/api/client-mt5/input', express.raw({ type: '*/*', limit: '10mb' }), async (req, res) => {
             try {
-                const testData = this.binaryProtocol.parsePacket(req.body);
+                // Prepare metadata from headers
+                const metadata = {
+                    contentType: req.headers['content-type'] || 'application/octet-stream',
+                    correlationId: req.correlationId,
+                    userAgent: req.headers['user-agent'],
+                    tenantId: req.headers['x-tenant-id'],
+                    transport: 'http'
+                };
+
+                // Prepare context
+                const context = {
+                    tenant_id: req.headers['x-tenant-id'] || 'default',
+                    user_id: req.headers['x-user-id'] || 'anonymous',
+                    session_id: req.headers['x-session-id'] || `http_${Date.now()}`
+                };
+
+                // Use Client-MT5 specific input handler
+                const result = await this.inputHandlers.clientMT5.handleInput(req.body, metadata, context);
+
+                // Update stats
+                this.stats.binaryMessages++;
+
+                // Send response
+                res.status(result.success ? 200 : 400).json(result);
+
+                console.log('📥 [CENTRALIZED-INPUT] HTTP data processed:', {
+                    tenantId: context.tenant_id,
+                    dataLength: req.body?.length,
+                    processingTime: result.data?.processing_time_ms,
+                    routingTargets: result.routing_targets?.length
+                });
+
+            } catch (error) {
+                console.error('❌ [CENTRALIZED-INPUT] Error:', error);
+                res.status(500).json({
+                    success: false,
+                    error: {
+                        type: 'INTERNAL_ERROR',
+                        message: error.message,
+                        correlationId: req.correlationId
+                    }
+                });
+            }
+        });
+
+        // ✅ MODULAR: Frontend input handler (JSON data dari web/mobile dashboard)
+        this.app.post('/api/frontend/input', express.json({ limit: '10mb' }), async (req, res) => {
+            try {
+                const metadata = {
+                    contentType: req.headers['content-type'] || 'application/json',
+                    correlationId: req.correlationId,
+                    userAgent: req.headers['user-agent'],
+                    endpoint: req.url,
+                    method: req.method,
+                    transport: 'http'
+                };
+
+                const context = {
+                    user_id: req.headers['x-user-id'] || req.user?.id,
+                    session_id: req.headers['x-session-id'] || req.sessionID,
+                    permissions: req.user?.permissions || []
+                };
+
+                // Use Frontend specific input handler
+                const result = await this.inputHandlers.frontend.handleInput(req.body, metadata, context);
+
+                this.stats.jsonMessages++;
+
+                res.status(result.success ? 200 : 400).json(result);
+
+                console.log('🖥️ [FRONTEND-INPUT] HTTP data processed:', {
+                    endpoint: metadata.endpoint,
+                    userId: context.user_id,
+                    processingTime: result.data?.processing_time_ms
+                });
+
+            } catch (error) {
+                console.error('❌ [FRONTEND-INPUT] Error:', error);
+                res.status(500).json({
+                    success: false,
+                    error: { type: 'INTERNAL_ERROR', message: error.message }
+                });
+            }
+        });
+
+        // ✅ MODULAR: Telegram input handler (webhook dari Telegram Bot)
+        this.app.post('/api/telegram/webhook', express.json({ limit: '1mb' }), async (req, res) => {
+            try {
+                const metadata = {
+                    contentType: req.headers['content-type'] || 'application/json',
+                    correlationId: req.correlationId,
+                    userAgent: req.headers['user-agent'],
+                    botToken: req.headers['x-telegram-bot-api-secret-token'],
+                    transport: 'webhook'
+                };
+
+                const context = {
+                    telegram_user_id: this.getTelegramUserId(req.body),
+                    chat_id: this.getTelegramChatId(req.body)
+                };
+
+                // Use Telegram specific input handler
+                const result = await this.inputHandlers.telegram.handleInput(req.body, metadata, context);
+
+                res.status(result.success ? 200 : 400).json({ ok: result.success });
+
+                console.log('💬 [TELEGRAM-INPUT] Webhook processed:', {
+                    updateId: req.body.update_id,
+                    userId: context.telegram_user_id,
+                    processingTime: result.data?.processing_time_ms
+                });
+
+            } catch (error) {
+                console.error('❌ [TELEGRAM-INPUT] Error:', error);
+                res.status(500).json({ ok: false });
+            }
+        });
+
+        // Binary protocol test endpoint - Updated to use ServiceTemplate
+        this.app.post('/test/binary', async (req, res) => {
+            try {
+                // Use ServiceTemplate untuk process binary data dengan tenant support
+                const inputData = {
+                    tenant_id: req.headers['x-tenant-id'] || 'test_tenant',
+                    binary_data: req.body,
+                    metadata: {
+                        correlationId: req.correlationId,
+                        source: 'test-endpoint'
+                    }
+                };
+
+                const result = await this.apiGatewayService.processInput(
+                    inputData,
+                    'test-client',
+                    'client-mt5-binary'
+                );
+
                 res.json({
                     success: true,
-                    parsed_data: testData,
-                    protocol_version: '2.0'
+                    parsed_data: result.data.parsed_data,
+                    tenant_id: result.data.tenant_id,
+                    protocol_version: '2.1',
+                    routing_targets: result.routing_targets
                 });
             } catch (error) {
                 res.status(400).json({
                     success: false,
-                    error: error.message
+                    error: error.message,
+                    correlationId: req.correlationId
                 });
             }
         });
@@ -161,30 +359,131 @@ class APIGateway {
             });
         });
 
-        // Backend service endpoints (HTTP POST for Protocol Buffers)
+        // Backend service endpoints (HTTP POST for Protocol Buffers) - Protected with JWT
+        const authenticateBackend = this.authMiddleware.authenticateHTTP();
 
-        // Trading Engine output → Client-MT5
-        this.app.post('/api/trading-engine/output', (req, res) => {
-            this.handleBackendMessage('trading-engine', req.body, req.headers);
-            res.json({ status: 'received' });
+        // Trading Engine output → Client-MT5 - Updated to use ServiceTemplate
+        this.app.post('/api/trading-engine/output', authenticateBackend, async (req, res) => {
+            try {
+                const inputData = {
+                    tenant_id: req.headers['x-tenant-id'] || req.userContext?.tenantId,
+                    data: req.body,
+                    metadata: {
+                        correlationId: req.correlationId,
+                        userId: req.headers['x-user-id'] || req.userContext?.userId,
+                        source: 'trading-engine'
+                    }
+                };
+
+                await this.apiGatewayService.processInput(
+                    inputData,
+                    'trading-engine',
+                    'backend-service-message'
+                );
+
+                res.json({
+                    status: 'received',
+                    correlationId: req.correlationId,
+                    processedBy: req.userContext?.userId || 'system',
+                    tenant_id: inputData.tenant_id
+                });
+            } catch (error) {
+                res.status(500).json({
+                    status: 'error',
+                    error: error.message,
+                    correlationId: req.correlationId
+                });
+            }
         });
 
         // Analytics Service output → Client-MT5 + Frontend
-        this.app.post('/api/analytics-service/output', (req, res) => {
+        this.app.post('/api/analytics-service/output', authenticateBackend, (req, res) => {
             this.handleBackendMessage('analytics-service', req.body, req.headers);
-            res.json({ status: 'received' });
+            res.json({
+                status: 'received',
+                correlationId: req.correlationId,
+                processedBy: req.userContext?.userId || 'system'
+            });
         });
 
         // ML Processing output → Multiple destinations
-        this.app.post('/api/ml-processing/output', (req, res) => {
+        this.app.post('/api/ml-processing/output', authenticateBackend, (req, res) => {
             this.handleBackendMessage('ml-processing', req.body, req.headers);
-            res.json({ status: 'received' });
+            res.json({
+                status: 'received',
+                correlationId: req.correlationId,
+                processedBy: req.userContext?.userId || 'system'
+            });
         });
 
         // Notification Hub output → Multiple channels
-        this.app.post('/api/notification-hub/output', (req, res) => {
+        this.app.post('/api/notification-hub/output', authenticateBackend, (req, res) => {
             this.handleBackendMessage('notification-hub', req.body, req.headers);
-            res.json({ status: 'received' });
+            res.json({
+                status: 'received',
+                correlationId: req.correlationId,
+                processedBy: req.userContext?.userId || 'system'
+            });
+        });
+
+        // Authentication endpoints
+        this.app.post('/auth/login', (req, res) => {
+            // Mock login for testing
+            const { username, password } = req.body;
+
+            if (username && password) {
+                const token = this.authMiddleware.generateToken({
+                    sub: username,
+                    user_id: username,
+                    permissions: ['mt5_trading', 'websocket_access'],
+                    subscription_tier: 'pro'
+                });
+
+                const refreshToken = this.authMiddleware.generateRefreshToken(username);
+
+                res.json({
+                    success: true,
+                    access_token: token,
+                    refresh_token: refreshToken,
+                    expires_in: '24h',
+                    user: {
+                        id: username,
+                        permissions: ['mt5_trading', 'websocket_access'],
+                        subscription_tier: 'pro'
+                    }
+                });
+            } else {
+                res.status(400).json({
+                    success: false,
+                    error: 'Username and password required'
+                });
+            }
+        });
+
+        this.app.post('/auth/refresh', async (req, res) => {
+            try {
+                const { refresh_token } = req.body;
+
+                if (!refresh_token) {
+                    return res.status(400).json({
+                        success: false,
+                        error: 'Refresh token required'
+                    });
+                }
+
+                const newToken = await this.authMiddleware.refreshAccessToken(refresh_token);
+
+                res.json({
+                    success: true,
+                    access_token: newToken,
+                    expires_in: '24h'
+                });
+            } catch (error) {
+                res.status(401).json({
+                    success: false,
+                    error: 'Invalid refresh token'
+                });
+            }
         });
 
         // Default route
@@ -214,20 +513,34 @@ class APIGateway {
     }
 
     /**
-     * Initialize core components
+     * Initialize core components - Updated to use ServiceTemplate
      */
-    initializeComponents() {
-        // Initialize bidirectional router
-        this.bidirectionalRouter = new BidirectionalRouter({
-            centralHubUrl: this.options.centralHubUrl
-        });
+    async initializeComponents() {
+        try {
+            // ✅ Initialize ServiceTemplate-based service first
+            await this.apiGatewayService.initialize();
+            logger.info('ServiceTemplate-based API Gateway Service initialized');
 
-        // Initialize Client-MT5 WebSocket handler
-        this.clientMT5Handler = new ClientMT5Handler({
-            binaryProtocolEnabled: true
-        });
+            // Initialize legacy components (akan di-migrate bertahap)
+            this.bidirectionalRouter = new BidirectionalRouter({
+                centralHubUrl: this.options.centralHubUrl
+            });
 
-        this.setupComponentIntegration();
+            // Initialize transport after router is created
+            logger.info('Initializing NATS+Kafka transport...');
+
+            // Initialize Client-MT5 WebSocket handler
+            this.clientMT5Handler = new ClientMT5Handler({
+                binaryProtocolEnabled: true
+            });
+
+            this.setupComponentIntegration();
+
+            logger.info('All API Gateway components initialized successfully');
+        } catch (error) {
+            logger.error('Failed to initialize API Gateway components', { error });
+            throw error;
+        }
     }
 
     /**
@@ -456,10 +769,13 @@ class APIGateway {
     }
 
     /**
-     * Start the API Gateway server
+     * Start the API Gateway server - Updated to use ServiceTemplate
      */
     async start() {
         try {
+            // ✅ Initialize ServiceTemplate-based components first
+            await this.initializeComponents();
+
             // Create HTTP server
             this.server = http.createServer(this.app);
 
@@ -480,16 +796,18 @@ class APIGateway {
             }
 
             console.log('🚀 Suho AI Trading API Gateway Started Successfully!');
-            console.log('='.repeat(60));
+            console.log('='.repeat(70));
             console.log(`📡 HTTP API Server: http://localhost:${this.options.port}`);
             console.log(`🎯 Trading WebSocket: ws://localhost:8001/ws/trading`);
             console.log(`📊 Price Stream WebSocket: ws://localhost:8002/ws/price-stream`);
-            console.log(`🛡️  Binary Protocol: Suho v2.0 (92% bandwidth reduction)`);
-            console.log(`🔄 Bidirectional Routing: Enabled`);
+            console.log(`🛡️  Binary Protocol: Suho v2.1 (Client-MT5 Compatible)`);
+            console.log(`🏢 Multi-tenant: Enabled (tenant_id required)`);
+            console.log(`🔄 Shared TransferManager: NATS+Kafka, gRPC, HTTP`);
+            console.log(`📋 ServiceTemplate: Implemented`);
             console.log(`🌐 Environment: ${this.options.env}`);
             console.log(`⚡ Central Hub: ${this.options.centralHubUrl}`);
-            console.log('='.repeat(60));
-            console.log('✅ Ready to handle Client-MT5 connections with binary protocol!');
+            console.log('='.repeat(70));
+            console.log('✅ Ready to handle Client-MT5 with SERVICE_ARCHITECTURE.md patterns!');
 
         } catch (error) {
             console.error('❌ Failed to start API Gateway:', error);
@@ -498,18 +816,23 @@ class APIGateway {
     }
 
     /**
-     * Graceful shutdown
+     * Graceful shutdown - Updated to use ServiceTemplate
      */
     async shutdown() {
         console.log('\n🔄 Shutting down API Gateway...');
 
         try {
-            // Close Client-MT5 handler
+            // ✅ Shutdown ServiceTemplate-based service first
+            if (this.apiGatewayService) {
+                await this.apiGatewayService.shutdown();
+                console.log('✅ ServiceTemplate-based service shutdown complete');
+            }
+
+            // Close legacy components
             if (this.clientMT5Handler) {
                 this.clientMT5Handler.shutdown();
             }
 
-            // Close bidirectional router
             if (this.bidirectionalRouter) {
                 this.bidirectionalRouter.shutdown();
             }

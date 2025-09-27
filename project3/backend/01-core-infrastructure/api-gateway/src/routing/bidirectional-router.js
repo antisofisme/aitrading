@@ -14,6 +14,7 @@
 
 const { EventEmitter } = require('events');
 const { SuhoBinaryProtocol } = require('../protocols/suho-binary-protocol');
+const NATSKafkaClient = require('../transport/nats-kafka-client');
 
 /**
  * Route Configuration - Flexible Architecture
@@ -197,8 +198,27 @@ class BidirectionalRouter extends EventEmitter {
         this.messageQueue = [];
         this.isProcessing = false;
 
+        // Initialize NATS+Kafka transport
+        this.natsKafkaClient = new NATSKafkaClient({
+            nats: {
+                servers: process.env.NATS_SERVERS?.split(',') || ['nats://localhost:4222'],
+                reconnectTimeWait: parseInt(process.env.NATS_RECONNECT_TIME_WAIT) || 250,
+                maxReconnectAttempts: parseInt(process.env.NATS_MAX_RECONNECT_ATTEMPTS) || -1,
+                pingInterval: parseInt(process.env.NATS_PING_INTERVAL) || 30000
+            },
+            kafka: {
+                clientId: process.env.KAFKA_CLIENT_ID || 'api-gateway',
+                brokers: process.env.KAFKA_BROKERS?.split(',') || ['localhost:9092'],
+                retry: {
+                    initialRetryTime: parseInt(process.env.KAFKA_RETRY_INITIAL_TIME) || 100,
+                    retries: parseInt(process.env.KAFKA_RETRY_ATTEMPTS) || 8
+                }
+            }
+        });
+
         this.initializeRoutes();
         this.startHealthMonitoring();
+        this.initializeTransport();
     }
 
     /**
@@ -224,6 +244,18 @@ class BidirectionalRouter extends EventEmitter {
         }
 
         console.log('[ROUTER] Routing table initialized with', this.routingTable.size, 'routes');
+    }
+
+    /**
+     * Initialize NATS+Kafka transport
+     */
+    async initializeTransport() {
+        try {
+            await this.natsKafkaClient.initialize();
+            console.log('[ROUTER] NATS+Kafka transport initialized successfully');
+        } catch (error) {
+            console.error('[ROUTER] Failed to initialize NATS+Kafka transport:', error);
+        }
     }
 
     /**
@@ -669,18 +701,19 @@ class BidirectionalRouter extends EventEmitter {
      */
     async sendViaNATS(subject, payload) {
         try {
-            // Implementation would use NATS client
-            // For now, emit event for NATS handler
-            this.emit('nats_publish', {
-                subject,
-                data: payload,
-                timestamp: Date.now()
-            });
-
+            // Use real NATS client
+            await this.natsKafkaClient.publishViaNATS(subject, payload);
             console.log(`[ROUTER] NATS publish to subject: ${subject}`);
 
         } catch (error) {
             console.error('[ROUTER] NATS publish failed:', error);
+            // Fallback: emit event for backup handler
+            this.emit('nats_publish_failed', {
+                subject,
+                data: payload,
+                error: error.message,
+                timestamp: Date.now()
+            });
             throw error;
         }
     }
@@ -692,20 +725,26 @@ class BidirectionalRouter extends EventEmitter {
      */
     async sendViaKafka(topic, payload) {
         try {
-            // Implementation would use Kafka client
-            // For now, emit event for Kafka handler
-            this.emit('kafka_publish', {
-                topic,
-                partition: this.getKafkaPartition(payload.metadata.userId), // Partition by user
-                key: payload.metadata.userId,
-                value: payload,
-                timestamp: Date.now()
-            });
+            // Use real Kafka client with proper metadata
+            const metadata = {
+                userId: payload.metadata?.userId,
+                partition: this.getKafkaPartition(payload.metadata?.userId)
+            };
 
+            await this.natsKafkaClient.publishViaKafka(topic, payload, metadata);
             console.log(`[ROUTER] Kafka publish to topic: ${topic}`);
 
         } catch (error) {
             console.error('[ROUTER] Kafka publish failed:', error);
+            // Fallback: emit event for backup handler
+            this.emit('kafka_publish_failed', {
+                topic,
+                partition: this.getKafkaPartition(payload.metadata?.userId),
+                key: payload.metadata?.userId,
+                value: payload,
+                error: error.message,
+                timestamp: Date.now()
+            });
             throw error;
         }
     }
@@ -777,37 +816,20 @@ class BidirectionalRouter extends EventEmitter {
             correlationId
         };
 
-        // HYBRID: Send to BOTH NATS and Kafka simultaneously
-        const promises = [];
-
-        // NATS: Real-time processing (speed priority)
-        promises.push(
-            this.sendViaNATS('data-bridge.binary-input', {
-                message: binaryMessage,  // RAW binary data (no conversion)
-                metadata: {
-                    ...baseMetadata,
-                    transport: 'nats',
-                    purpose: 'real-time'
-                }
-            })
-        );
-
-        // Kafka: Durability & replay capability (reliability priority)
-        promises.push(
-            this.sendViaKafka('data-bridge-binary-input', {
-                message: binaryMessage,  // RAW binary data (no conversion)
-                metadata: {
-                    ...baseMetadata,
-                    transport: 'kafka',
-                    purpose: 'durability'
-                }
-            })
-        );
-
         try {
-            // Execute both transports simultaneously
-            await Promise.allSettled(promises);
-            console.log('[ROUTER] High volume binary data sent via HYBRID (NATS+Kafka) to Data Bridge');
+            // Use the real hybrid client for simultaneous NATS+Kafka
+            const result = await this.natsKafkaClient.publishHybrid(
+                'data-bridge.binary-input',
+                'data-bridge-binary-input',
+                binaryMessage,
+                baseMetadata
+            );
+
+            if (result.success) {
+                console.log('[ROUTER] High volume binary data sent via HYBRID (NATS+Kafka) to Data Bridge');
+            } else {
+                console.warn('[ROUTER] Hybrid transport had partial failures:', result.results);
+            }
 
         } catch (error) {
             console.error('[ROUTER] Hybrid transport error (some may succeed):', error);
@@ -985,16 +1007,25 @@ class BidirectionalRouter extends EventEmitter {
     /**
      * Shutdown the router
      */
-    shutdown() {
+    async shutdown() {
         console.log('[ROUTER] Shutting down bidirectional router...');
 
-        // Clear caches and timers
-        this.serviceRegistry.clear();
-        this.routingTable.clear();
-        this.loadBalancers.clear();
-        this.messageQueue = [];
+        try {
+            // Shutdown NATS+Kafka transport
+            if (this.natsKafkaClient) {
+                await this.natsKafkaClient.shutdown();
+            }
 
-        console.log('[ROUTER] Shutdown complete');
+            // Clear caches and timers
+            this.serviceRegistry.clear();
+            this.routingTable.clear();
+            this.loadBalancers.clear();
+            this.messageQueue = [];
+
+            console.log('[ROUTER] Shutdown complete');
+        } catch (error) {
+            console.error('[ROUTER] Error during shutdown:', error);
+        }
     }
 }
 
