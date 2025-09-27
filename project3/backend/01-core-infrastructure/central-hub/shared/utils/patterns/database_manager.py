@@ -4,7 +4,7 @@ Menyediakan consistent database access patterns
 """
 
 import asyncio
-import logging
+import logging as python_logging
 from typing import Any, Dict, List, Optional, Union
 from dataclasses import dataclass
 from datetime import datetime
@@ -68,7 +68,7 @@ class PostgreSQLConnection(DatabaseConnection):
         self.config = config
         self.service_name = service_name
         self.pool = None
-        self.logger = logging.getLogger(f"{service_name}.database")
+        self.logger = python_logging.getLogger(f"{service_name}.database")
 
     async def connect(self):
         """Establish PostgreSQL connection pool"""
@@ -181,7 +181,7 @@ class StandardDatabaseManager:
         self.service_name = service_name
         self.max_connections = max_connections
         self.connections: Dict[str, DatabaseConnection] = {}
-        self.logger = logging.getLogger(f"{service_name}.database_manager")
+        self.logger = python_logging.getLogger(f"{service_name}.database_manager")
 
     async def add_connection(self,
                            name: str,

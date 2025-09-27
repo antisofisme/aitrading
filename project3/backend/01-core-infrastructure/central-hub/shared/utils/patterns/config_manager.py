@@ -5,7 +5,7 @@ Menyediakan consistent configuration management patterns
 
 import json
 import os
-import logging
+import logging as python_logging
 from typing import Any, Dict, Optional, Union, List
 from dataclasses import dataclass, asdict
 from datetime import datetime
@@ -35,7 +35,7 @@ class StandardConfigManager:
         self.environment = environment
         self.config_data: Dict[str, Any] = {}
         self.sources: List[ConfigSource] = []
-        self.logger = logging.getLogger(f"{service_name}.config")
+        self.logger = python_logging.getLogger(f"{service_name}.config")
 
         # Default configuration sources
         self._add_default_sources()

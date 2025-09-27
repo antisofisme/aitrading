@@ -5,7 +5,7 @@ Menyediakan consistent tracing patterns untuk performance monitoring
 
 import time
 import uuid
-import logging
+import logging as python_logging
 from typing import Any, Dict, Optional, List, ContextManager
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
@@ -104,7 +104,7 @@ class RequestTracer:
         self.active_traces: Dict[str, TraceContext] = {}
         self.completed_traces: List[TraceContext] = []
         self.max_completed_traces = 1000
-        self.logger = logging.getLogger(f"{service_name}.tracer")
+        self.logger = python_logging.getLogger(f"{service_name}.tracer")
 
         # Performance metrics
         self.operation_metrics = defaultdict(list)

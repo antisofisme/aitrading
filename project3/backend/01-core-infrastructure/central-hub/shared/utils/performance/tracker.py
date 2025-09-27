@@ -6,7 +6,7 @@ Menyediakan comprehensive performance monitoring dan metrics collection
 import time
 import asyncio
 import psutil
-import logging
+import logging as python_logging
 from typing import Any, Dict, List, Optional, Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -70,7 +70,7 @@ class PerformanceTracker:
         self.metrics: deque = deque(maxlen=max_metrics)
         self.system_metrics: deque = deque(maxlen=1000)
         self.start_time = time.time()
-        self.logger = logging.getLogger(f"{service_name}.performance")
+        self.logger = python_logging.getLogger(f"{service_name}.performance")
 
         # Thread-safe lock for metrics
         self._lock = threading.Lock()

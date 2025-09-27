@@ -5,7 +5,7 @@ Menganalisis error patterns untuk predictive issue detection
 
 import re
 import hashlib
-import logging
+import logging as python_logging
 from typing import Any, Dict, List, Optional, Tuple, Set
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -91,7 +91,7 @@ class ErrorDNAAnalyzer:
 
     def __init__(self, service_name: str):
         self.service_name = service_name
-        self.logger = logging.getLogger(f"{service_name}.error_dna")
+        self.logger = python_logging.getLogger(f"{service_name}.error_dna")
 
         # Error storage
         self.error_occurrences: deque = deque(maxlen=10000)

@@ -5,7 +5,7 @@ Menyediakan consistent circuit breaker patterns untuk external service protectio
 
 import time
 import asyncio
-import logging
+import logging as python_logging
 from typing import Any, Dict, Optional, Callable, Union
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -58,7 +58,7 @@ class CircuitBreaker:
         self.half_open_calls = 0
         self.half_open_successes = 0
         self.last_state_change = time.time()
-        self.logger = logging.getLogger(f"circuit_breaker.{name}")
+        self.logger = python_logging.getLogger(f"circuit_breaker.{name}")
 
     def _clean_old_failures(self):
         """Remove failures outside monitoring window"""
@@ -234,7 +234,7 @@ class StandardCircuitBreaker:
         self.service_name = service_name
         self.circuit_breakers: Dict[str, CircuitBreaker] = {}
         self.default_config = CircuitBreakerConfig()
-        self.logger = logging.getLogger(f"{service_name}.circuit_breaker_manager")
+        self.logger = python_logging.getLogger(f"{service_name}.circuit_breaker_manager")
 
     def add_circuit_breaker(self, name: str, config: Optional[CircuitBreakerConfig] = None) -> CircuitBreaker:
         """Add circuit breaker for external service"""

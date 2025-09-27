@@ -5,7 +5,7 @@ Digunakan oleh semua backend services untuk konsistensi
 
 import time
 import asyncio
-import logging
+import logging as python_logging
 from typing import Any, Dict, Optional, Callable
 from dataclasses import dataclass
 from datetime import datetime
@@ -95,17 +95,17 @@ class BaseService(ABC):
                 service_name=self.service_name
             )
 
-    def _setup_logging(self) -> logging.Logger:
+    def _setup_logging(self) -> python_logging.Logger:
         """Setup structured logging"""
-        logger = logging.getLogger(self.service_name)
-        logger.setLevel(logging.INFO)
+        logger = python_logging.getLogger(self.service_name)
+        logger.setLevel(python_logging.INFO)
 
         # Structured formatter
-        formatter = logging.Formatter(
+        formatter = python_logging.Formatter(
             '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
         )
 
-        handler = logging.StreamHandler()
+        handler = python_logging.StreamHandler()
         handler.setFormatter(formatter)
         logger.addHandler(handler)
 

@@ -1,0 +1,19 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install dependencies
+RUN pip install fastapi uvicorn
+
+# Copy minimal app
+COPY app.minimal.py ./app.py
+
+# Expose port
+EXPOSE 7000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+    CMD python -c "import requests; requests.get('http://localhost:7000/health')" || exit 1
+
+# Start application
+CMD ["python", "app.py"]

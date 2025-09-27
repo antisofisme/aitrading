@@ -5,7 +5,7 @@ Menyediakan consistent caching patterns dengan multiple backends
 
 import asyncio
 import json
-import logging
+import logging as python_logging
 import time
 from typing import Any, Dict, Optional, Union, List
 from dataclasses import dataclass
@@ -71,7 +71,7 @@ class RedisBackend(CacheBackend):
         self.config = config
         self.service_name = service_name
         self.redis = None
-        self.logger = logging.getLogger(f"{service_name}.cache.redis")
+        self.logger = python_logging.getLogger(f"{service_name}.cache.redis")
 
     async def connect(self):
         """Connect to Redis"""
@@ -208,7 +208,7 @@ class MemoryBackend(CacheBackend):
         self.config = config
         self.service_name = service_name
         self.cache = TTLCache(maxsize=config.memory_max_size, ttl=config.default_ttl)
-        self.logger = logging.getLogger(f"{service_name}.cache.memory")
+        self.logger = python_logging.getLogger(f"{service_name}.cache.memory")
 
     async def get(self, key: str) -> Optional[Any]:
         """Get value from memory cache"""
@@ -273,7 +273,7 @@ class StandardCacheManager:
         self.default_ttl = default_ttl
         self.backends: Dict[str, CacheBackend] = {}
         self.primary_backend = None
-        self.logger = logging.getLogger(f"{service_name}.cache_manager")
+        self.logger = python_logging.getLogger(f"{service_name}.cache_manager")
 
     async def add_backend(self, name: str, config: CacheConfig) -> CacheBackend:
         """Add cache backend"""

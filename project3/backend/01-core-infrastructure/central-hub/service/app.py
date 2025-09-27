@@ -16,13 +16,13 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import uvicorn
-import logging
+import logging as python_logging
 from typing import Dict, Any
 
 # Import shared utilities
 from utils.base_service import BaseService, ServiceConfig
 from utils.patterns.response_formatter import StandardResponse
-from logging.error_dna.analyzer import ErrorDNA
+from python_logging.error_dna.analyzer import ErrorDNA
 
 # Import service components
 from api.health import health_router
@@ -35,7 +35,7 @@ from api.metrics import metrics_router
 async def lifespan(app: FastAPI):
     """Application lifespan management"""
     # Startup
-    logging.info("🚀 Central Hub Service starting...")
+    python_python_logging.info("🚀 Central Hub Service starting...")
 
     # Initialize service components
     await central_hub_service.startup()
@@ -43,7 +43,7 @@ async def lifespan(app: FastAPI):
     yield
 
     # Shutdown
-    logging.info("🛑 Central Hub Service shutting down...")
+    python_python_logging.info("🛑 Central Hub Service shutting down...")
     await central_hub_service.shutdown()
 
 
