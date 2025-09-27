@@ -33,6 +33,94 @@ Direct Database   Schema Management    Multi-tenant
 **Connection Management**: Pool connections per tenant untuk optimal performance
 **Performance Target**: <5ms untuk simple queries, <50ms untuk complex analytics (within <30ms total system budget)
 
+## 🚀 3 Transport Methods for Backend Communication
+
+### **🚀 Transport Decision Matrix for Database Service**
+
+Database Service utilizes all 3 transport methods based on data volume, criticality, and performance requirements:
+
+#### **Method 1: NATS+Kafka Hybrid (High Volume + Mission Critical)**
+**Usage**: High-frequency trading data and real-time analytics
+**Services**: Data Bridge → Database Service, Trading Engine → Database Service
+**Architecture**: Simultaneous dual transport (not fallback)
+
+**NATS Transport**:
+- **Subject**: `database.trading-data`, `database.real-time-analytics`
+- **Purpose**: Real-time data persistence (speed priority)
+- **Latency**: <1ms
+- **Protocol**: Protocol Buffers for typed database operations
+
+**Kafka Transport**:
+- **Topic**: `database-trading-data`, `database-analytics-data`
+- **Purpose**: Durability & data integrity (reliability priority)
+- **Latency**: <5ms
+- **Protocol**: Protocol Buffers with transaction metadata
+
+**Performance Benefits**:
+- 5000+ database operations/second aggregate throughput
+- NATS: Speed-optimized for immediate persistence
+- Kafka: Durability-optimized for data integrity and replay
+- Hybrid resilience: If one transport fails, the other continues
+
+#### **Method 2: gRPC (Medium Volume + Important)**
+**Usage**: Complex queries, transaction management, and schema operations
+**Services**: Database Service ↔ All Backend Services (complex operations)
+
+**gRPC Features**:
+- **Protocol**: HTTP/2 with Protocol Buffers
+- **Communication**: Bi-directional streaming for large result sets
+- **Performance**: 1000+ queries/second
+- **Latency**: 2-5ms
+- **Benefits**: Type safety, streaming results, transaction support
+
+**Example Endpoints**:
+```protobuf
+service DatabaseService {
+  // Query operations
+  rpc ExecuteQuery(QueryRequest) returns (stream QueryResult);
+  rpc ExecuteTransaction(TransactionRequest) returns (TransactionResponse);
+
+  // Bulk operations
+  rpc BulkInsert(stream BulkInsertRequest) returns (BulkInsertResponse);
+  rpc BulkUpdate(stream BulkUpdateRequest) returns (BulkUpdateResponse);
+
+  // Analytics queries
+  rpc ExecuteAnalyticsQuery(AnalyticsQueryRequest) returns (stream AnalyticsResult);
+  rpc GetTimeSeriesData(TimeSeriesRequest) returns (stream TimeSeriesData);
+
+  // Schema management
+  rpc CreateTenantSchema(SchemaRequest) returns (SchemaResponse);
+  rpc ManagePartitions(PartitionRequest) returns (PartitionResponse);
+
+  // Health and monitoring
+  rpc HealthCheck(HealthRequest) returns (HealthResponse);
+  rpc GetPerformanceMetrics(MetricsRequest) returns (PerformanceMetrics);
+}
+```
+
+#### **Method 3: HTTP REST (Low Volume + Standard)**
+**Usage**: Administrative operations, health checks, and external integrations
+**Services**: Database Service → External monitoring, admin operations
+
+**HTTP Endpoints**:
+- `POST /api/v1/admin/schema/create` - Create new tenant schema
+- `GET /api/v1/health` - Health check endpoint
+- `POST /api/v1/maintenance/backup` - Database backup operations
+- `GET /api/v1/metrics/performance` - Performance metrics export
+- `POST /api/v1/admin/migration` - Schema migration operations
+
+**Performance**: 200+ requests/second, 5-10ms latency
+
+### **🎯 Transport Method Selection Criteria**
+
+| Data Type | Volume | Criticality | Transport Method | Rationale |
+|-----------|--------|-------------|------------------|-----------|
+| Trading data persistence | Very High | Mission Critical | NATS+Kafka Hybrid | Real-time persistence + integrity |
+| Complex analytics queries | High | Important | gRPC | Large result streaming + type safety |
+| Transaction management | Medium | Mission Critical | gRPC | ACID compliance + error handling |
+| Schema operations | Low | Important | HTTP REST | Administrative simplicity |
+| Health monitoring | Low | Standard | HTTP REST | Monitoring tool compatibility |
+
 ---
 
 ## 🚀 Database Architecture & Multi-Tenant Strategy
@@ -431,6 +519,369 @@ async def multi_database_health():
             "transaction_consistency": await check_multi_db_consistency()
         }
     }
+```
+
+## 🚀 Performance Optimization Roadmap
+
+### **🎯 Current Performance & 5-10x Improvement Potential**
+
+**Current Baseline**: 5ms query execution, 1000+ queries/second
+**Target Goal**: 0.5ms query execution, 10,000+ queries/second (10x improvement)
+
+#### **Level 1: Connection Pool Optimization (3-4x improvement)**
+**Implementation Timeline**: 2-3 weeks
+
+```python
+# Current: Basic connection pooling
+def get_database_connection():
+    return psycopg2.connect(DATABASE_URL)  # New connection per query
+
+# Optimized: Advanced connection pooling with load balancing
+class OptimizedDatabaseConnectionManager:
+    def __init__(self):
+        # Separate pools for different workload types
+        self.oltp_pool = asyncpg.create_pool(
+            database_url=POSTGRESQL_URL,
+            min_size=20,
+            max_size=100,
+            max_queries=50000,
+            max_inactive_connection_lifetime=300
+        )
+
+        self.olap_pool = asyncpg.create_pool(
+            database_url=CLICKHOUSE_URL,
+            min_size=10,
+            max_size=50,
+            max_queries=10000,
+            max_inactive_connection_lifetime=600
+        )
+
+        # Read/write connection separation
+        self.read_pool = asyncpg.create_pool(
+            database_url=POSTGRESQL_READ_REPLICA_URL,
+            min_size=30,
+            max_size=150,
+            max_queries=100000
+        )
+
+        # Tenant-specific connection pools
+        self.tenant_pools = {}
+
+    async def get_optimized_connection(self, query_type, tenant_id, read_only=False):
+        # Route to appropriate pool based on query characteristics
+        if query_type == 'analytics':
+            return await self.olap_pool.acquire()
+        elif read_only:
+            return await self.read_pool.acquire()
+        elif tenant_id in self.tenant_pools:
+            return await self.tenant_pools[tenant_id].acquire()
+        else:
+            return await self.oltp_pool.acquire()
+
+    async def create_tenant_pool(self, tenant_id):
+        # Dedicated connection pool for high-volume tenants
+        tenant_pool = asyncpg.create_pool(
+            database_url=f"{POSTGRESQL_URL}?options=-csearch_path=tenant_{tenant_id}",
+            min_size=5,
+            max_size=25,
+            max_queries=25000
+        )
+        self.tenant_pools[tenant_id] = tenant_pool
+```
+
+**Benefits**:
+- 3-4x improvement through optimized connection reuse
+- 60% reduction in connection establishment overhead
+- Better resource utilization across different workload types
+
+#### **Level 2: Query Optimization & Caching (3-5x improvement)**
+**Implementation Timeline**: 3-4 weeks
+
+```python
+# Advanced query optimization with intelligent caching
+class SmartQueryOptimizer:
+    def __init__(self):
+        # Multi-tier caching strategy
+        self.l1_cache = cachetools.LRUCache(maxsize=1000)  # Hot queries
+        self.l2_cache = DragonflyDB()  # Warm queries
+        self.prepared_statements = {}  # Pre-compiled queries
+
+        # Query plan analysis
+        self.query_analyzer = QueryPlanAnalyzer()
+        self.index_advisor = AutoIndexAdvisor()
+
+    async def execute_optimized_query(self, query, params, tenant_id):
+        # Generate cache key with tenant isolation
+        cache_key = f"{tenant_id}:{hash(query)}:{hash(str(params))}"
+
+        # L1 cache check (fastest)
+        if cache_key in self.l1_cache:
+            return self.l1_cache[cache_key]
+
+        # L2 cache check (DragonflyDB)
+        l2_result = await self.l2_cache.get(cache_key)
+        if l2_result:
+            # Promote to L1
+            self.l1_cache[cache_key] = l2_result
+            return l2_result
+
+        # Optimize query before execution
+        optimized_query = await self.optimize_query(query, tenant_id)
+
+        # Use prepared statement if available
+        if optimized_query in self.prepared_statements:
+            result = await self.execute_prepared(optimized_query, params)
+        else:
+            # Create and cache prepared statement
+            stmt = await self.prepare_statement(optimized_query)
+            self.prepared_statements[optimized_query] = stmt
+            result = await stmt.fetch(*params)
+
+        # Cache result with intelligent TTL
+        ttl = self.calculate_cache_ttl(query, result)
+        await self.cache_result(cache_key, result, ttl)
+
+        return result
+
+    async def optimize_query(self, query, tenant_id):
+        # Automatic query optimization
+        plan = await self.query_analyzer.analyze(query, tenant_id)
+
+        # Suggest missing indexes
+        missing_indexes = await self.index_advisor.suggest_indexes(plan)
+        if missing_indexes:
+            await self.create_recommended_indexes(missing_indexes, tenant_id)
+
+        # Rewrite query for better performance
+        optimized = await self.query_analyzer.rewrite_query(query, plan)
+        return optimized
+```
+
+**Benefits**:
+- 3-5x improvement through intelligent caching and query optimization
+- 80-90% cache hit rate for frequently accessed data
+- Automatic index creation for optimal performance
+
+#### **Level 3: Partitioning & Sharding Optimization (2-3x improvement)**
+**Implementation Timeline**: 4-5 weeks
+
+```python
+# Advanced partitioning strategy for multi-tenant data
+class TenantPartitionManager:
+    def __init__(self):
+        self.partition_strategy = {
+            'time_series': TimeBasedPartitioning(),
+            'tenant_data': TenantBasedPartitioning(),
+            'analytics': HybridPartitioning()
+        }
+
+    async def create_optimized_partitions(self, table_name, tenant_id):
+        # Time-based partitioning for trading data
+        if table_name.startswith('trading_'):
+            await self.create_time_partitions(table_name, tenant_id)
+
+        # Tenant-based partitioning for user data
+        elif table_name.startswith('user_'):
+            await self.create_tenant_partitions(table_name, tenant_id)
+
+        # Hybrid partitioning for analytics
+        elif table_name.startswith('analytics_'):
+            await self.create_hybrid_partitions(table_name, tenant_id)
+
+    async def create_time_partitions(self, table_name, tenant_id):
+        # Create monthly partitions with automatic cleanup
+        for month_offset in range(-3, 13):  # 3 months history + 12 months future
+            partition_date = datetime.now() + relativedelta(months=month_offset)
+            partition_name = f"{table_name}_{tenant_id}_{partition_date.strftime('%Y_%m')}"
+
+            await self.execute_ddl(f"""
+                CREATE TABLE IF NOT EXISTS {partition_name} PARTITION OF {table_name}
+                FOR VALUES FROM ('{partition_date.strftime('%Y-%m-01')}')
+                TO ('{(partition_date + relativedelta(months=1)).strftime('%Y-%m-01')}')
+            """)
+
+        # Create indexes on partitions
+        await self.create_partition_indexes(table_name, tenant_id)
+
+    async def optimize_partition_pruning(self, query, tenant_id):
+        # Analyze query to enable partition pruning
+        query_analysis = await self.analyze_query_predicates(query)
+
+        if query_analysis.has_time_filter:
+            # Add partition constraint to enable pruning
+            optimized_query = self.add_partition_constraints(query, query_analysis)
+            return optimized_query
+
+        return query
+```
+
+**Benefits**:
+- 2-3x improvement through efficient data partitioning
+- 90% reduction in query scan time for time-series data
+- Better parallel query execution across partitions
+
+#### **Level 4: Memory Optimization & Buffer Management (2x improvement)**
+**Implementation Timeline**: 2-3 weeks
+
+```python
+# Advanced memory management for database operations
+class DatabaseMemoryOptimizer:
+    def __init__(self):
+        # Shared memory buffers
+        self.shared_buffer_pool = SharedBufferPool(size_gb=4)
+        self.result_buffer_pool = ResultBufferPool(size_gb=2)
+
+        # Memory-mapped query results
+        self.result_mmap = {}
+
+    async def execute_memory_optimized_query(self, query, params):
+        # Allocate shared memory buffer for large results
+        if self.is_large_result_query(query):
+            buffer = await self.shared_buffer_pool.allocate()
+
+            # Execute query directly into shared memory
+            result = await self.execute_to_buffer(query, params, buffer)
+
+            # Memory-map result for zero-copy access
+            result_mmap = mmap.mmap(buffer.fd, buffer.size)
+            self.result_mmap[query_hash] = result_mmap
+
+            return MemoryMappedResult(result_mmap)
+        else:
+            # Standard execution for small results
+            return await self.execute_standard(query, params)
+
+    async def optimize_buffer_management(self):
+        # Dynamic buffer size adjustment
+        current_load = await self.get_current_query_load()
+
+        if current_load > 0.8:  # High load
+            await self.increase_buffer_pool_size()
+        elif current_load < 0.3:  # Low load
+            await self.decrease_buffer_pool_size()
+
+        # Preload frequently accessed data
+        hot_queries = await self.get_hot_queries()
+        for query in hot_queries:
+            await self.preload_query_data(query)
+```
+
+**Benefits**:
+- 2x improvement through optimized memory usage
+- 50% reduction in memory allocations
+- Zero-copy operations for large result sets
+
+#### **Level 5: Distributed Query Processing (1.5-2x improvement)**
+**Implementation Timeline**: 5-6 weeks
+
+```python
+# Distributed query processing across database clusters
+class DistributedQueryProcessor:
+    def __init__(self):
+        self.database_cluster = {
+            'pg_master': PostgreSQLMaster(),
+            'pg_replicas': [PostgreSQLReplica(i) for i in range(3)],
+            'clickhouse_cluster': ClickHouseCluster(nodes=4),
+            'dragonflydb_cluster': DragonflyDBCluster(nodes=2)
+        }
+
+        self.query_router = QueryRouter()
+        self.result_aggregator = ResultAggregator()
+
+    async def execute_distributed_query(self, complex_query, tenant_id):
+        # Analyze query for distribution opportunities
+        query_plan = await self.query_router.create_distribution_plan(
+            complex_query, tenant_id
+        )
+
+        # Split query across appropriate database nodes
+        sub_queries = []
+
+        for node_type, sub_query in query_plan.sub_queries.items():
+            if node_type == 'analytics':
+                # Route analytics to ClickHouse cluster
+                task = self.execute_on_clickhouse_cluster(sub_query)
+                sub_queries.append(task)
+
+            elif node_type == 'transactional':
+                # Route OLTP to PostgreSQL replicas
+                task = self.execute_on_postgres_replica(sub_query)
+                sub_queries.append(task)
+
+            elif node_type == 'cache':
+                # Route cache queries to DragonflyDB
+                task = self.execute_on_dragonflydb_cluster(sub_query)
+                sub_queries.append(task)
+
+        # Execute sub-queries in parallel
+        sub_results = await asyncio.gather(*sub_queries)
+
+        # Aggregate results
+        final_result = await self.result_aggregator.merge_results(
+            sub_results, query_plan.merge_strategy
+        )
+
+        return final_result
+
+    async def execute_on_clickhouse_cluster(self, analytics_query):
+        # Distribute analytics query across ClickHouse nodes
+        cluster_nodes = self.database_cluster['clickhouse_cluster']
+
+        # Parallel execution on multiple nodes
+        node_tasks = []
+        for node in cluster_nodes.nodes:
+            task = node.execute_query(analytics_query)
+            node_tasks.append(task)
+
+        return await asyncio.gather(*node_tasks)
+```
+
+**Benefits**:
+- 1.5-2x improvement through distributed processing
+- Better resource utilization across database cluster
+- Scalable query processing for complex analytics
+
+### **🎯 Combined Performance Benefits**
+
+**Cumulative Improvement**: 5.4-240x theoretical maximum
+- Level 1 (Connection optimization): 4x
+- Level 2 (Query optimization): 4x
+- Level 3 (Partitioning): 2.5x
+- Level 4 (Memory optimization): 2x
+- Level 5 (Distributed processing): 1.5x
+
+**Realistic Achievable**: 8-15x improvement (considering overhead and real-world constraints)
+
+**Performance Monitoring**:
+```python
+# Performance tracking for optimization validation
+class DatabasePerformanceTracker:
+    def __init__(self):
+        self.baseline_metrics = {
+            'query_execution_ms': 5.0,
+            'throughput_queries_sec': 1000,
+            'connection_pool_utilization': 0.7,
+            'cache_hit_rate': 0.6,
+            'memory_usage_mb': 2048,
+            'cpu_usage_percent': 40
+        }
+
+        self.target_metrics = {
+            'query_execution_ms': 0.5,    # 10x improvement
+            'throughput_queries_sec': 10000, # 10x improvement
+            'connection_pool_utilization': 0.9, # 30% improvement
+            'cache_hit_rate': 0.95,       # 58% improvement
+            'memory_usage_mb': 1536,      # 25% reduction
+            'cpu_usage_percent': 30       # 25% reduction
+        }
+
+    async def measure_database_improvement(self):
+        current = await self.get_current_metrics()
+        improvement_factor = {
+            metric: self.baseline_metrics[metric] / current[metric]
+            for metric in self.baseline_metrics
+        }
+        return improvement_factor
 ```
 
 ---

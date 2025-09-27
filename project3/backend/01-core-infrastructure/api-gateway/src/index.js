@@ -279,6 +279,11 @@ class APIGateway {
             this.sendToBackendService('notification-hub', message, metadata);
         });
 
+        // Handle OUTPUT messages to Data Bridge (binary passthrough)
+        this.bidirectionalRouter.on('to-data-bridge', ({ message, metadata }) => {
+            this.sendToDataBridge(message, metadata);
+        });
+
         // Monitor user connections
         this.clientMT5Handler.on('user_disconnected', ({ userId }) => {
             console.log(`[API-GATEWAY] User ${userId} disconnected`);
@@ -315,6 +320,32 @@ class APIGateway {
 
         } catch (error) {
             console.error(`[API-GATEWAY] Error sending to ${serviceName}:`, error);
+        }
+    }
+
+    /**
+     * Send Suho Binary data to Data Bridge (no conversion)
+     * @param {Object} binaryMessage - Suho Binary message (no conversion)
+     * @param {Object} metadata - Message metadata
+     */
+    async sendToDataBridge(binaryMessage, metadata) {
+        try {
+            console.log(`[API-GATEWAY] Binary passthrough to Data Bridge:`, binaryMessage.type || 'binary-data');
+
+            // Send raw binary data to Data Bridge via HTTP POST
+            // Data Bridge will handle Suho Binary → Protocol Buffers conversion
+            this.emit('data_bridge_call', {
+                service: 'data-bridge',
+                message: binaryMessage,
+                metadata: {
+                    ...metadata,
+                    protocol: 'suho-binary',
+                    noConversion: true  // Flag indicating no conversion at API Gateway
+                }
+            });
+
+        } catch (error) {
+            console.error(`[API-GATEWAY] Error sending to Data Bridge:`, error);
         }
     }
 

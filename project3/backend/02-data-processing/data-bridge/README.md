@@ -38,21 +38,81 @@ Database Service ← Enriched Data ← Data Bridge → Client Distribution
 
 ---
 
-## 🚀 Transport Architecture & Contract Integration
+## 🚀 3 Transport Methods for Backend Communication
 
-### **Transport Decision Matrix Applied**:
+### **🚀 Transport Decision Matrix for Data Bridge Service**
 
-#### **Kategori A: High Volume + Mission Critical**
-- **Primary Transport**: NATS + Direct Objects (00-data-ingestion → Data Bridge)
-- **Secondary Transport**: WebSocket Binary + Protocol Buffers (Data Bridge → Client subscribers)
-- **Backup Transport**: HTTP/2 streaming for fallback
-- **Services**: Data ingestion streaming + real-time client distribution
-- **Performance**: <3ms data filtering dan distribution
+Data Bridge service utilizes all 3 transport methods based on data volume, criticality, and performance requirements:
 
-#### **Kategori B: Medium Volume + Important**
-- **Transport**: HTTP + Direct Objects
-- **Connection**: Direct connection pooling
-- **Services**: Data Bridge → Database Service (enriched data storage)
+#### **Method 1: NATS+Kafka Hybrid (High Volume + Mission Critical)**
+**Usage**: Primary input from API Gateway binary passthrough data
+**Services**: API Gateway → Data Bridge (binary price streams, trading commands)
+**Architecture**: Simultaneous dual transport (not fallback)
+
+**NATS Transport**:
+- **Subject**: `data-bridge.binary-input`
+- **Purpose**: Real-time processing (speed priority)
+- **Latency**: <1ms
+- **Protocol**: Raw binary passthrough (Suho Binary Protocol)
+
+**Kafka Transport**:
+- **Topic**: `data-bridge-binary-input`
+- **Purpose**: Durability & replay capability (reliability priority)
+- **Latency**: <5ms
+- **Protocol**: Raw binary with metadata wrapper
+
+**Performance Benefits**:
+- 5000+ messages/second aggregate throughput
+- NATS: Speed-optimized for immediate processing
+- Kafka: Durability-optimized for replay & backup
+- Hybrid resilience: If one transport fails, the other continues
+
+#### **Method 2: gRPC (Medium Volume + Important)**
+**Usage**: Bi-directional communication with other backend services
+**Services**: Data Bridge ↔ Feature Engineering, Data Bridge ↔ ML Processing
+
+**gRPC Features**:
+- **Protocol**: HTTP/2 with Protocol Buffers
+- **Communication**: Bi-directional streaming
+- **Performance**: 1000+ requests/second
+- **Latency**: 2-5ms
+- **Benefits**: Type safety, connection reuse, multiplexing
+
+**Example Endpoints**:
+```protobuf
+service DataBridgeService {
+  // Send processed market data to Feature Engineering
+  rpc SendMarketData(MarketDataRequest) returns (ProcessingResponse);
+
+  // Receive ML model updates
+  rpc ReceiveModelUpdates(stream ModelUpdate) returns (stream UpdateResponse);
+
+  // Health check and metrics
+  rpc HealthCheck(HealthRequest) returns (HealthResponse);
+}
+```
+
+#### **Method 3: HTTP REST (Low Volume + Standard)**
+**Usage**: Configuration, health checks, and administrative operations
+**Services**: Data Bridge → Database Service, Central Hub interactions
+
+**HTTP Endpoints**:
+- `POST /api/v1/store-enhanced-data` - Send processed data to Database Service
+- `GET /api/v1/health` - Health check endpoint
+- `POST /api/v1/metrics` - Performance metrics reporting
+- `GET /api/v1/config` - Service configuration
+
+**Performance**: 100+ requests/second, 5-10ms latency
+
+### **🎯 Transport Method Selection Criteria**
+
+| Data Type | Volume | Criticality | Transport Method | Rationale |
+|-----------|--------|-------------|------------------|-----------|
+| Binary price streams | Very High | Mission Critical | NATS+Kafka Hybrid | Real-time processing + durability |
+| Market data processing | High | Important | gRPC | Efficient streaming + type safety |
+| Database storage | Medium | Important | HTTP REST | Simple, reliable, well-tested |
+| Health/config | Low | Standard | HTTP REST | Administrative simplicity |
+| ML model updates | Medium | Important | gRPC | Bi-directional streaming |
 
 ### **⚠️ Service Communication Pattern**
 
@@ -582,6 +642,221 @@ enhanced_data = {
 - **Batch Quality**: Overall batch health score
 - **User Relevance**: Personalized relevance scoring
 - **Market Context**: Session and volatility context
+```
+
+## 🚀 Performance Optimization Roadmap
+
+### **🎯 Current Performance & 5-10x Improvement Potential**
+
+**Current Baseline**: 3ms processing time, 50+ ticks/second
+**Target Goal**: 0.3-0.6ms processing time, 500+ ticks/second (8-10x improvement)
+
+#### **Level 1: Zero-Copy Processing (2-3x improvement)**
+**Implementation Timeline**: 2-3 weeks
+
+```python
+# Current: Multiple data copies
+def process_binary_data(binary_data):
+    parsed_data = parse_binary(binary_data)  # Copy 1
+    validated_data = validate(parsed_data)   # Copy 2
+    enriched_data = enrich(validated_data)   # Copy 3
+    return enriched_data
+
+# Optimized: In-place processing with memory views
+def process_binary_data_optimized(binary_data):
+    data_view = memoryview(binary_data)      # Zero-copy view
+    parse_in_place(data_view)                # Direct memory manipulation
+    validate_in_place(data_view)             # No additional copies
+    enrich_in_place(data_view)               # Memory-efficient processing
+    return data_view
+```
+
+**Benefits**:
+- 60-70% memory allocation reduction
+- 2-3x faster processing for high-volume data
+- Reduced garbage collection pressure
+
+#### **Level 2: Connection Pooling & Keep-Alive (2x improvement)**
+**Implementation Timeline**: 1-2 weeks
+
+```python
+# Advanced connection pooling for all transport methods
+class OptimizedConnectionManager:
+    def __init__(self):
+        # NATS connection pool
+        self.nats_pool = aiofiles.ClientPool(
+            max_connections=50,
+            connection_timeout=1.0,
+            keep_alive=True
+        )
+
+        # gRPC channel pool with multiplexing
+        self.grpc_channels = {
+            'feature-engineering': grpc.aio.insecure_channel(
+                'feature-engineering:50051',
+                options=[
+                    ('grpc.keepalive_time_ms', 30000),
+                    ('grpc.keepalive_timeout_ms', 5000),
+                    ('grpc.keepalive_permit_without_calls', True),
+                    ('grpc.http2.max_pings_without_data', 0)
+                ]
+            )
+        }
+
+        # HTTP/2 connection reuse
+        self.http_session = aiohttp.ClientSession(
+            connector=aiohttp.TCPConnector(
+                limit=100,
+                ttl_dns_cache=300,
+                enable_cleanup_closed=True,
+                force_close=False,
+                enable_cleanup_closed=True
+            )
+        )
+```
+
+**Benefits**:
+- 50% reduction in connection establishment overhead
+- 2x improvement in sustained throughput
+- Better resource utilization
+
+#### **Level 3: Worker Thread Pool (1.5-2x improvement)**
+**Implementation Timeline**: 2-3 weeks
+
+```python
+# Dedicated worker threads for CPU-intensive tasks
+class WorkerThreadProcessor:
+    def __init__(self):
+        self.indicator_pool = ThreadPoolExecutor(
+            max_workers=4,
+            thread_name_prefix="indicator_calc"
+        )
+        self.validation_pool = ThreadPoolExecutor(
+            max_workers=2,
+            thread_name_prefix="data_validation"
+        )
+
+    async def process_with_workers(self, market_data):
+        # Parallel processing of indicators
+        loop = asyncio.get_event_loop()
+
+        # Category 1 indicators in parallel
+        indicator_tasks = [
+            loop.run_in_executor(self.indicator_pool, self.calculate_rsi, market_data),
+            loop.run_in_executor(self.indicator_pool, self.calculate_macd, market_data),
+            loop.run_in_executor(self.indicator_pool, self.calculate_bollinger, market_data)
+        ]
+
+        # Category 2 context in parallel
+        context_tasks = [
+            loop.run_in_executor(self.validation_pool, self.merge_external_context, market_data)
+        ]
+
+        # Wait for all parallel computations
+        results = await asyncio.gather(*indicator_tasks, *context_tasks)
+        return self.combine_results(results)
+```
+
+**Benefits**:
+- 50-100% improvement for indicator calculations
+- Better CPU utilization on multi-core systems
+- Parallel processing of independent calculations
+
+#### **Level 4: Caching & Memoization (2-3x improvement)**
+**Implementation Timeline**: 1-2 weeks
+
+```python
+# Advanced caching strategies
+class SmartCacheManager:
+    def __init__(self):
+        # LRU cache for frequently accessed data
+        self.price_series_cache = cachetools.LRUCache(maxsize=1000)
+        self.indicator_cache = cachetools.TTLCache(maxsize=500, ttl=30)
+        self.context_cache = cachetools.TTLCache(maxsize=100, ttl=300)
+
+    @cachetools.cached(cache=price_series_cache)
+    def get_price_series(self, symbol, period):
+        # Cache price series for indicator calculations
+        return self.fetch_price_series(symbol, period)
+
+    @cachetools.cached(cache=indicator_cache, key=lambda s, p, d: f"{s}_{p}_{hash(d)}")
+    def calculate_cached_indicator(self, symbol, period, data_hash):
+        # Cache indicator results for repeated calculations
+        return self.calculate_indicator(symbol, period)
+```
+
+**Benefits**:
+- 70-80% reduction in repeated calculations
+- 2-3x improvement for frequently requested data
+- Reduced computational overhead
+
+#### **Level 5: Memory-Mapped Files & Shared Memory (1.5x improvement)**
+**Implementation Timeline**: 3-4 weeks
+
+```python
+# Shared memory for inter-process communication
+import mmap
+import multiprocessing as mp
+
+class SharedMemoryProcessor:
+    def __init__(self):
+        # Shared memory for price series
+        self.price_buffer = mp.Array('d', 10000)  # Double precision array
+        self.price_lock = mp.Lock()
+
+        # Memory-mapped file for historical data
+        self.history_file = open('price_history.dat', 'r+b')
+        self.history_mmap = mmap.mmap(self.history_file.fileno(), 0)
+
+    def update_shared_prices(self, new_prices):
+        with self.price_lock:
+            # Direct memory update without copying
+            for i, price in enumerate(new_prices[-1000:]):
+                self.price_buffer[i] = price
+```
+
+**Benefits**:
+- Eliminate data copying between processes
+- 50% reduction in memory usage
+- Faster access to historical data
+
+### **🎯 Combined Performance Benefits**
+
+**Cumulative Improvement**: 8.7-24x theoretical maximum
+- Level 1 (Zero-copy): 3x
+- Level 2 (Connection pooling): 2x
+- Level 3 (Worker threads): 1.5x
+- Level 4 (Caching): 2x
+- Level 5 (Shared memory): 1.5x
+
+**Realistic Achievable**: 5-10x improvement (considering overhead and real-world constraints)
+
+**Performance Monitoring**:
+```python
+# Performance tracking for optimization validation
+class PerformanceTracker:
+    def __init__(self):
+        self.baseline_metrics = {
+            'processing_time_ms': 3.0,
+            'throughput_tps': 50,
+            'memory_usage_mb': 100,
+            'cpu_usage_percent': 25
+        }
+
+        self.target_metrics = {
+            'processing_time_ms': 0.3,  # 10x improvement
+            'throughput_tps': 500,      # 10x improvement
+            'memory_usage_mb': 60,      # 40% reduction
+            'cpu_usage_percent': 20     # 20% reduction
+        }
+
+    async def measure_improvement(self):
+        current = await self.get_current_metrics()
+        improvement_factor = {
+            metric: self.baseline_metrics[metric] / current[metric]
+            for metric in self.baseline_metrics
+        }
+        return improvement_factor
 ```
 
 ---

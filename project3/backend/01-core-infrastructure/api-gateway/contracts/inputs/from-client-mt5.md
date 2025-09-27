@@ -10,8 +10,12 @@ Client-MT5 mengirim trading data, price streams, dan account information ke API 
 
 ## Data Flow
 1. Client-MT5 → Dual WebSocket connection → API Gateway
-2. API Gateway parse Suho Binary Protocol → Convert to Protocol Buffers
-3. Route ke appropriate backend services based on message type
+2. API Gateway receives Suho Binary Protocol (no conversion)
+3. Route raw binary data to Data Bridge for processing
+
+## Current Architecture
+- **Primary Route**: All Client-MT5 data → Data Bridge (binary passthrough)
+- **Future Route**: Flexible routing to multiple backend services when needed
 
 ## WebSocket Channels
 

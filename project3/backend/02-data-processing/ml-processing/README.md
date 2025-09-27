@@ -34,26 +34,88 @@ Feature-Engineering → ML-Processing → Trading-Engine → Risk-Management
 
 ---
 
-## 🚀 Transport Architecture & Contract Integration
+## 🚀 3 Transport Methods for Backend Communication
 
-### **Transport Decision Matrix Applied**:
+### **🚀 Transport Decision Matrix for ML Processing Service**
 
-#### **Kategori A: High Volume + Mission Critical**
-- **Primary Transport**: NATS + Protocol Buffers (<1ms latency)
-- **Backup Transport**: Kafka + Protocol Buffers (guaranteed delivery)
-- **Failover**: Automatic dengan sequence tracking
-- **Services**: Feature Engineering → ML Processing, ML → Trading Engine
-- **Performance**: <15ms AI inference (critical path requirement)
+ML Processing service utilizes all 3 transport methods based on data volume, criticality, and performance requirements:
 
-#### **Kategori B: Medium Volume + Important**
-- **Transport**: gRPC (HTTP/2 + Protocol Buffers)
-- **Connection**: Pooling + circuit breaker
-- **Services**: Model management, performance monitoring
+#### **Method 1: NATS+Kafka Hybrid (High Volume + Mission Critical)**
+**Usage**: AI inference pipeline for feature vectors and ML predictions
+**Services**: Feature Engineering → ML Processing, ML Processing → Trading Engine
+**Architecture**: Simultaneous dual transport (not fallback)
 
-#### **Kategori C: Low Volume + Standard**
-- **Transport**: HTTP REST + JSON via Kong Gateway
-- **Backup**: Redis Queue for reliability
-- **Services**: AI configuration, model deployment
+**NATS Transport**:
+- **Subject**: `ml-processing.feature-vectors`, `ml-processing.predictions-out`
+- **Purpose**: Real-time AI inference (speed priority)
+- **Latency**: <1ms
+- **Protocol**: Protocol Buffers for typed ML data
+
+**Kafka Transport**:
+- **Topic**: `ml-feature-vectors`, `ml-predictions-output`
+- **Purpose**: Durability & model training data (reliability priority)
+- **Latency**: <5ms
+- **Protocol**: Protocol Buffers with ML metadata wrapper
+
+**Performance Benefits**:
+- 500+ predictions/second aggregate throughput
+- NATS: Speed-optimized for immediate inference
+- Kafka: Durability-optimized for model training data collection
+- Hybrid resilience: If one transport fails, the other continues
+
+#### **Method 2: gRPC (Medium Volume + Important)**
+**Usage**: Model management, performance monitoring, and A/B testing
+**Services**: ML Processing ↔ Model Registry, ML Processing ↔ Analytics Service
+
+**gRPC Features**:
+- **Protocol**: HTTP/2 with Protocol Buffers
+- **Communication**: Bi-directional streaming for model updates
+- **Performance**: 200+ requests/second
+- **Latency**: 2-5ms
+- **Benefits**: Type safety, streaming model updates, efficient serialization
+
+**Example Endpoints**:
+```protobuf
+service MLProcessingService {
+  // Model management
+  rpc LoadModel(ModelRequest) returns (ModelResponse);
+  rpc UpdateModel(ModelUpdateRequest) returns (stream UpdateStatus);
+  rpc GetModelPerformance(PerformanceRequest) returns (stream PerformanceMetrics);
+
+  // A/B testing
+  rpc StartABTest(ABTestRequest) returns (ABTestResponse);
+  rpc GetABTestResults(ABTestQuery) returns (stream ABTestResults);
+
+  // Model inference (batch)
+  rpc BatchInference(BatchInferenceRequest) returns (BatchInferenceResponse);
+
+  // Health and metrics
+  rpc HealthCheck(HealthRequest) returns (HealthResponse);
+}
+```
+
+#### **Method 3: HTTP REST (Low Volume + Standard)**
+**Usage**: Model deployment, configuration, and administrative operations
+**Services**: ML Processing → External Model Registry, manual model management
+
+**HTTP Endpoints**:
+- `POST /api/v1/models/deploy` - Deploy new model version
+- `GET /api/v1/health` - Health check endpoint
+- `POST /api/v1/models/config` - Update model configuration
+- `GET /api/v1/inference/metrics` - Inference performance metrics
+- `POST /api/v1/models/retrain` - Trigger model retraining
+
+**Performance**: 50+ requests/second, 5-10ms latency
+
+### **🎯 Transport Method Selection Criteria**
+
+| Data Type | Volume | Criticality | Transport Method | Rationale |
+|-----------|--------|-------------|------------------|-----------|
+| Feature vectors → predictions | Very High | Mission Critical | NATS+Kafka Hybrid | Real-time inference + training data |
+| Model management | Medium | Important | gRPC | Efficient streaming + type safety |
+| Model deployment | Low | Important | HTTP REST | Administrative simplicity |
+| Performance monitoring | Medium | Important | gRPC | Real-time metrics streaming |
+| Configuration changes | Low | Standard | HTTP REST | Admin tool compatibility |
 
 ### **Global Decisions Applied**:
 ✅ **Multi-Transport Architecture**: NATS+Kafka for inference, gRPC for management, HTTP for config
@@ -525,6 +587,311 @@ class TenantModelManager:
         # Companies can have custom models trained on their data
         company_models = await self.database.get_company_models(company_id)
         return [model.model_id for model in company_models if model.status == 'active']
+```
+
+## 🚀 Performance Optimization Roadmap
+
+### **🎯 Current Performance & 5-10x Improvement Potential**
+
+**Current Baseline**: 15ms AI inference, 50+ predictions/second
+**Target Goal**: 1.5-3ms inference, 500+ predictions/second (10x improvement)
+
+#### **Level 1: GPU Memory Optimization (3-5x improvement)**
+**Implementation Timeline**: 2-3 weeks
+
+```python
+# Current: Multiple GPU memory allocations
+def process_inference(feature_vectors):
+    gpu_tensor = torch.tensor(feature_vectors).cuda()  # GPU allocation 1
+    normalized = normalize(gpu_tensor)                  # GPU allocation 2
+    predictions = model(normalized)                     # GPU allocation 3
+    return predictions.cpu().numpy()                    # CPU transfer
+
+# Optimized: Memory pool and in-place operations
+class OptimizedGPUInference:
+    def __init__(self):
+        # Pre-allocated GPU memory pool
+        self.gpu_memory_pool = torch.cuda.memory_pool()
+        self.input_buffer = torch.zeros((1000, 50), device='cuda')  # Pre-allocated
+        self.output_buffer = torch.zeros((1000, 10), device='cuda') # Pre-allocated
+
+    def process_inference_optimized(self, feature_vectors):
+        batch_size = len(feature_vectors)
+
+        # In-place operations on pre-allocated memory
+        input_slice = self.input_buffer[:batch_size]
+        input_slice.copy_(torch.tensor(feature_vectors))
+
+        # In-place normalization
+        torch.nn.functional.normalize(input_slice, inplace=True)
+
+        # Inference with pre-allocated output buffer
+        output_slice = self.output_buffer[:batch_size]
+        with torch.no_grad():
+            self.model(input_slice, out=output_slice)
+
+        return output_slice.cpu().numpy()
+```
+
+**Benefits**:
+- 3-5x faster inference through memory reuse
+- 70% reduction in GPU memory allocations
+- Eliminated GPU memory fragmentation
+
+#### **Level 2: Model Quantization & Optimization (2-3x improvement)**
+**Implementation Timeline**: 3-4 weeks
+
+```python
+# Advanced model optimization techniques
+class OptimizedModelManager:
+    def __init__(self):
+        self.quantized_models = {}
+        self.tensorrt_engines = {}
+        self.onnx_models = {}
+
+    async def load_optimized_models(self):
+        # INT8 quantization for faster inference
+        self.quantized_models['lstm_price'] = torch.quantization.quantize_dynamic(
+            self.original_models['lstm_price'],
+            {torch.nn.Linear, torch.nn.LSTM},
+            dtype=torch.qint8
+        )
+
+        # TensorRT optimization for CNN models
+        if torch.cuda.is_available():
+            import tensorrt as trt
+            self.tensorrt_engines['cnn_patterns'] = self.convert_to_tensorrt(
+                self.original_models['cnn_patterns']
+            )
+
+        # ONNX optimization for cross-platform models
+        self.onnx_models['xgboost_direction'] = self.convert_to_onnx(
+            self.original_models['xgboost_direction']
+        )
+
+    def select_optimal_model(self, model_name, batch_size):
+        # Dynamic model selection based on batch size and hardware
+        if batch_size > 100 and model_name in self.tensorrt_engines:
+            return self.tensorrt_engines[model_name]  # Best for large batches
+        elif batch_size < 10 and model_name in self.quantized_models:
+            return self.quantized_models[model_name]  # Best for small batches
+        else:
+            return self.onnx_models.get(model_name, self.original_models[model_name])
+```
+
+**Benefits**:
+- 2-3x faster inference through model optimization
+- 50% reduction in model memory footprint
+- Dynamic model selection for optimal performance
+
+#### **Level 3: Batch Processing Optimization (2x improvement)**
+**Implementation Timeline**: 2-3 weeks
+
+```python
+# Intelligent batch processing with dynamic sizing
+class SmartBatchProcessor:
+    def __init__(self):
+        self.batch_buffer = {}
+        self.optimal_batch_sizes = {
+            'lstm_price': 64,
+            'cnn_patterns': 32,
+            'xgboost_direction': 128
+        }
+        self.batch_timeout = 10  # milliseconds
+
+    async def process_with_smart_batching(self, model_name, feature_vectors):
+        # Add to batch buffer
+        if model_name not in self.batch_buffer:
+            self.batch_buffer[model_name] = []
+
+        self.batch_buffer[model_name].extend(feature_vectors)
+        optimal_size = self.optimal_batch_sizes[model_name]
+
+        # Process when optimal batch size is reached or timeout occurs
+        if (len(self.batch_buffer[model_name]) >= optimal_size or
+            await self.should_timeout_batch(model_name)):
+
+            batch = self.batch_buffer[model_name][:optimal_size]
+            self.batch_buffer[model_name] = self.batch_buffer[model_name][optimal_size:]
+
+            # Parallel batch processing
+            return await self.process_batch_parallel(model_name, batch)
+
+    async def process_batch_parallel(self, model_name, batch):
+        # Split large batches for parallel processing
+        if len(batch) > 256:
+            sub_batches = self.split_into_sub_batches(batch, 64)
+
+            # Process sub-batches in parallel
+            tasks = []
+            for sub_batch in sub_batches:
+                task = asyncio.create_task(
+                    self.inference_worker(model_name, sub_batch)
+                )
+                tasks.append(task)
+
+            results = await asyncio.gather(*tasks)
+            return self.merge_batch_results(results)
+        else:
+            return await self.inference_worker(model_name, batch)
+```
+
+**Benefits**:
+- 2x improvement through optimal batch sizing
+- Better GPU utilization with parallel processing
+- Reduced inference latency through smart batching
+
+#### **Level 4: Model Caching & Preloading (2x improvement)**
+**Implementation Timeline**: 1-2 weeks
+
+```python
+# Intelligent model caching with predictive loading
+class SmartModelCache:
+    def __init__(self):
+        # Multi-tier model caching
+        self.gpu_cache = {}          # Models on GPU (fastest)
+        self.cpu_cache = {}          # Models on CPU (fast)
+        self.disk_cache = {}         # Models on disk (slower)
+
+        # Usage prediction
+        self.usage_predictor = ModelUsagePredictor()
+        self.preloader = ModelPreloader()
+
+    async def get_model(self, model_id, user_context):
+        # Check GPU cache first (fastest)
+        if model_id in self.gpu_cache:
+            await self.update_model_usage(model_id)
+            return self.gpu_cache[model_id]
+
+        # Check CPU cache
+        if model_id in self.cpu_cache:
+            # Move to GPU if frequently used
+            if await self.should_move_to_gpu(model_id):
+                gpu_model = await self.move_to_gpu(self.cpu_cache[model_id])
+                self.gpu_cache[model_id] = gpu_model
+                return gpu_model
+            return self.cpu_cache[model_id]
+
+        # Load from disk cache
+        if model_id in self.disk_cache:
+            cpu_model = await self.load_to_cpu(model_id)
+            self.cpu_cache[model_id] = cpu_model
+            return cpu_model
+
+        # Load from remote storage
+        model = await self.load_from_remote(model_id)
+        await self.cache_model(model_id, model)
+        return model
+
+    async def predictive_model_preloading(self):
+        # Predict which models will be needed
+        predicted_models = await self.usage_predictor.predict_next_hour()
+
+        # Pre-load predicted models
+        for model_id, probability in predicted_models:
+            if probability > 0.7 and model_id not in self.gpu_cache:
+                await self.preloader.warm_model_cache(model_id)
+```
+
+**Benefits**:
+- 80-90% reduction in model loading time
+- 2x improvement for frequently used models
+- Predictive preloading based on usage patterns
+
+#### **Level 5: Distributed Inference (1.5x improvement)**
+**Implementation Timeline**: 4-5 weeks
+
+```python
+# Distributed inference across multiple GPU nodes
+class DistributedMLInference:
+    def __init__(self):
+        self.gpu_nodes = [
+            GPUInferenceNode(f'gpu-node-{i}', gpu_id=i)
+            for i in range(4)
+        ]
+        self.load_balancer = InferenceLoadBalancer()
+        self.result_aggregator = ResultAggregator()
+
+    async def distributed_inference(self, large_batch):
+        # Intelligent workload distribution
+        node_assignments = await self.load_balancer.distribute_workload(
+            large_batch, self.gpu_nodes
+        )
+
+        # Execute inference on multiple nodes
+        inference_tasks = []
+        for node, sub_batch in node_assignments.items():
+            task = asyncio.create_task(
+                node.process_inference_batch(sub_batch)
+            )
+            inference_tasks.append(task)
+
+        # Collect and aggregate results
+        node_results = await asyncio.gather(*inference_tasks)
+        final_result = await self.result_aggregator.merge_results(
+            node_results, preserve_order=True
+        )
+
+        return final_result
+
+    async def adaptive_model_distribution(self):
+        # Distribute different models across different nodes
+        node_specializations = {
+            'gpu-node-0': ['lstm_price'],      # LSTM specialist
+            'gpu-node-1': ['cnn_patterns'],    # CNN specialist
+            'gpu-node-2': ['xgboost_direction'], # XGBoost specialist
+            'gpu-node-3': ['ensemble_meta']    # Ensemble specialist
+        }
+
+        for node_id, model_list in node_specializations.items():
+            node = self.gpu_nodes[int(node_id.split('-')[-1])]
+            await node.load_specialized_models(model_list)
+```
+
+**Benefits**:
+- 1.5x improvement through parallel GPU utilization
+- Better resource utilization across multiple nodes
+- Specialized model deployment for optimal performance
+
+### **🎯 Combined Performance Benefits**
+
+**Cumulative Improvement**: 7.2-90x theoretical maximum
+- Level 1 (GPU optimization): 4x
+- Level 2 (Model optimization): 2.5x
+- Level 3 (Batch processing): 2x
+- Level 4 (Model caching): 2x
+- Level 5 (Distributed inference): 1.5x
+
+**Realistic Achievable**: 8-15x improvement (considering overhead and real-world constraints)
+
+**Performance Monitoring**:
+```python
+# Performance tracking for optimization validation
+class MLPerformanceTracker:
+    def __init__(self):
+        self.baseline_metrics = {
+            'inference_time_ms': 15.0,
+            'throughput_predictions_sec': 50,
+            'gpu_memory_usage_mb': 2048,
+            'model_loading_time_ms': 1000,
+            'cpu_usage_percent': 30
+        }
+
+        self.target_metrics = {
+            'inference_time_ms': 1.5,     # 10x improvement
+            'throughput_predictions_sec': 500, # 10x improvement
+            'gpu_memory_usage_mb': 1024,  # 50% reduction
+            'model_loading_time_ms': 100, # 10x improvement
+            'cpu_usage_percent': 20       # 33% reduction
+        }
+
+    async def measure_ml_improvement(self):
+        current = await self.get_current_metrics()
+        improvement_factor = {
+            metric: self.baseline_metrics[metric] / current[metric]
+            for metric in self.baseline_metrics
+        }
+        return improvement_factor
 ```
 
 ---

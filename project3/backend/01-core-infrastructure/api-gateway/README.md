@@ -31,7 +31,7 @@ Real-time     Rate Limit     Load Balance
 ### **Output Flow**: Multi-transport routing berdasarkan kategori dan criticality
 **Destinations**: Backend services via appropriate transport methods
 **Routing Strategy**:
-- **High Volume/Critical**: NATS primary → Kafka backup (trading data, signals)
+- **High Volume/Critical**: NATS+Kafka hybrid (trading data, signals)
 - **Medium Volume**: Direct gRPC calls (business logic, analytics)
 - **Low Volume**: HTTP REST via Kong Gateway (config, admin)
 **Multi-User Handling**: User context preservation across all transports
@@ -44,12 +44,13 @@ Real-time     Rate Limit     Load Balance
 ### **Transport Decision Matrix Applied**:
 
 #### **Kategori A: High Volume + Mission Critical**
-- **Input**: Native WebSocket (WSS) + Protocol Buffers from Client-MT5
-- **Output Primary**: NATS + Protocol Buffers (direct publish to NATS broker)
-- **Output Backup**: Kafka + Protocol Buffers (direct publish to Kafka broker)
-- **Failover**: Automatic NATS→Kafka switching (direct connection failover)
+- **Input**: Native WebSocket (WSS) + Suho Binary from Client-MT5
+- **Output HYBRID**: NATS + Kafka simultaneous dual transport
+  - **NATS**: Real-time processing (speed priority, <1ms)
+  - **Kafka**: Durability storage (reliability priority, <5ms)
+- **Architecture**: Both transports run simultaneously (not failover)
 - **Services**: Trading data, market signals, real-time events
-- **Performance**: <1ms direct NATS publish, <5ms total request processing
+- **Performance**: <1ms NATS real-time, <5ms Kafka durability
 
 #### **Kategori B: Medium Volume + Important**
 - **Input**: HTTP REST + JSON from Frontend dashboard
@@ -128,10 +129,15 @@ Data Stream → No Auth Overhead per Message → Maximum Real-time Speed
 
 ### **Suho Binary Protocol Integration (Client-MT5 Compatibility):**
 
-**API Gateway serves as Protocol Translator:**
+**API Gateway serves as Binary Data Router:**
 ```
-Client-MT5 (Suho Binary) → API Gateway [CONVERT] → Protocol Buffers → Backend Services
+Client-MT5 (Suho Binary) → API Gateway [PASSTHROUGH] → Data Bridge [CONVERT] → Backend Services (Protocol Buffers)
 ```
+
+**Current Architecture:**
+- **No Conversion at API Gateway** - Binary data passed through directly
+- **Data Bridge handles conversion** - Suho Binary → Protocol Buffers
+- **Contract-driven routing** - Flexible destination configuration
 
 **Suho Binary Protocol Structure (from Client-MT5):**
 ```cpp
@@ -173,34 +179,30 @@ struct SuhoAccountSnapshot {
 };
 ```
 
-**Binary-to-Protocol Buffers Conversion:**
+**Binary Passthrough Architecture:**
 ```javascript
-// Incoming: Suho Binary → Protocol Buffers
-function convertSuhoToProtobuf(binaryBuffer) {
-    const header = parseSuhoHeader(binaryBuffer);
+// API Gateway: NO CONVERSION - Direct routing to Data Bridge
+function routeBinaryToDataBridge(binaryBuffer, metadata) {
+    // Validate binary header for security
+    if (!validateSuhoHeader(binaryBuffer)) {
+        throw new Error('Invalid Suho Binary header');
+    }
 
+    // Route directly to Data Bridge (no conversion)
     return {
-        message_type: getSuhoMessageType(header.msg_type),
-        user_id: extractUserFromAuth(),
-        company_id: extractCompanyFromAuth(),
-        payload: convertSuhoPayload(binaryBuffer, header),
-        timestamp: header.timestamp,
-        enable_tracing: shouldTrace(header.msg_type)
+        destination: 'to-data-bridge',
+        message: binaryBuffer,  // Raw binary data
+        metadata: {
+            ...metadata,
+            protocol: 'suho-binary',
+            noConversion: true
+        }
     };
 }
 
-// Outgoing: Protocol Buffers → Suho Binary
-function convertProtobufToSuho(protobufMessage) {
-    const header = createSuhoHeader(
-        getSuhoMsgType(protobufMessage.message_type),
-        protobufMessage.timestamp
-    );
-
-    return Buffer.concat([
-        header,
-        convertPayloadToSuho(protobufMessage.payload)
-    ]);
-}
+// Data Bridge handles all conversion (see Data Bridge documentation)
+// convertSuhoToProtobuf() - moved to Data Bridge
+// convertProtobufToSuho() - moved to Data Bridge
 ```
 
 **JWT + Protocol Buffers Authentication:**
@@ -233,19 +235,23 @@ enum SubscriptionTier {
 
 **Performance Benefits:**
 - **92% bandwidth reduction** (Suho Binary: 144 bytes vs JSON: 1,850 bytes)
-- **80% processing speed improvement** (1.2ms vs 6.1ms)
-- **Zero memory fragmentation** - fixed allocation
-- **Built-in validation** - magic numbers, checksums
-- **Protocol translation overhead**: <0.5ms per conversion
+- **Ultra-fast routing** - No conversion overhead at API Gateway
+- **Zero memory fragmentation** - fixed allocation, direct passthrough
+- **Built-in validation** - magic numbers validation only
+- **Routing overhead**: <0.1ms per message (no conversion)
 
-### **Multi-Transport Routing Integration:**
+### **Contract-Driven Routing Architecture:**
 ```
-Client-MT5 → Suho Binary → API Gateway → Protocol Buffers → Backend Services
-    ↓            ↓              ↓               ↓                  ↓
-Price Stream  144 bytes    Binary Parser   Protobuf Convert   Service Calls
-8 symbols     Fixed size   <0.2ms parse    <0.3ms convert     Direct Processing
-50+ ticks/sec Ultra-fast   Magic verify    Category route     Real-time Response
+Client-MT5 → Suho Binary → API Gateway → Data Bridge → Backend Services
+    ↓            ↓              ↓            ↓              ↓
+Price Stream  144 bytes    Binary Router  Binary Convert  Service Calls
+8 symbols     Fixed size   <0.1ms route   <0.3ms convert  Direct Processing
+50+ ticks/sec Ultra-fast   Magic verify   Category route  Real-time Response
 ```
+
+**Current Routing (Contract-Based):**
+- **Primary**: All Client-MT5 → Data Bridge (binary passthrough)
+- **Future**: Configurable multi-destination routing via enabled flags
 
 **Enhanced Schema Structure:**
 ```protobuf
@@ -259,6 +265,79 @@ message MessageEnvelope {
   bool enable_tracing = 7;    // Flag untuk performance tracing
 }
 ```
+
+## 🚀 **3 Transport Methods for Backend Communication**
+
+### **Method 1: NATS+Kafka Hybrid (High Volume + Mission Critical)**
+**Use Cases**: Trading data, market signals, real-time price streams
+**Volume**: 5000+ messages/second
+**Latency**: <1ms NATS (real-time), <5ms Kafka (durability)
+**Architecture**: Simultaneous dual transport (not fallback)
+
+```javascript
+// HYBRID: Both transports run simultaneously
+Promise.allSettled([
+    sendViaNATS('data-bridge.binary-input', message),    // Speed priority
+    sendViaKafka('data-bridge-binary-input', message)    // Durability priority
+]);
+```
+
+**Benefits:**
+- **NATS**: Ultra-fast real-time processing
+- **Kafka**: Reliable storage & replay capability
+- **Resilience**: One can fail, other continues
+
+### **Method 2: gRPC (Medium Volume + Important)**
+**Use Cases**: Business logic, analytics queries, user management, trading signals
+**Volume**: 100-1000 messages/second
+**Latency**: <3ms
+**Protocol**: HTTP/2 + Protocol Buffers
+
+```javascript
+// Trading Engine → API Gateway via gRPC
+const tradingSignal = {
+    user_id: 'user123',
+    signals: [{ symbol: 'EURUSD', action: 'BUY', confidence: 0.85 }]
+};
+await grpcClient.sendTradingSignal(tradingSignal);
+```
+
+**Benefits:**
+- **Structured data**: Protocol Buffers efficiency
+- **Connection pooling**: Reuse connections
+- **Multiplexing**: Multiple requests per connection
+
+### **Method 3: HTTP REST (Low Volume + Standard)**
+**Use Cases**: Configuration management, health checks, admin operations
+**Volume**: 1-100 messages/second
+**Latency**: <5ms
+**Protocol**: HTTP/1.1 + JSON
+
+```javascript
+// Admin operations via HTTP
+await fetch('/api/admin/config', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ setting: 'value' })
+});
+```
+
+**Benefits:**
+- **Simple**: Easy to implement & debug
+- **Universal**: Works everywhere
+- **Lightweight**: No persistent connections
+
+## 📊 **Transport Decision Matrix**
+
+| Message Type | Volume | Criticality | Transport | Latency | Use Case |
+|-------------|--------|-------------|-----------|---------|----------|
+| `price_stream` | High | Critical | **NATS+Kafka** | <1ms/<5ms | Real-time trading data |
+| `trading_command` | High | Critical | **NATS+Kafka** | <1ms/<5ms | Trade execution |
+| `trading_signal` | Medium | Important | **gRPC** | <3ms | AI trading signals |
+| `analytics_query` | Medium | Important | **gRPC** | <3ms | Performance analysis |
+| `user_profile` | Medium | Important | **gRPC** | <3ms | Account management |
+| `system_config` | Low | Standard | **HTTP** | <5ms | Configuration |
+| `health_check` | Low | Standard | **HTTP** | <5ms | Service monitoring |
 
 **Multi-Transport Routing Benefits:**
 - **Intelligent route selection**: Category-based transport decision (<0.1ms)
@@ -416,14 +495,23 @@ Services       Cache & Transform   Trading Decisions  Notifications
 External       Security Check      Real-time Metrics  Multi-channel
 ```
 
-**Complete Flow Example:**
+**Complete Flow Example (Current Implementation):**
 ```
-1. Client-MT5 → tick data → API Gateway → Kafka (tick-data topic)
-2. Data-Bridge → Feature-Engineering → ML-Processing → Trading-Engine
+1. Client-MT5 → tick data (Suho Binary) → API Gateway → Data Bridge (binary passthrough)
+2. Data-Bridge → convert to Protocol Buffers → ML-Processing → Trading-Engine
 3. Trading-Engine → signal → API Gateway → route to:
    ├── Client-MT5 (auto execution)
    ├── Frontend (dashboard update)
    └── Telegram (user notification)
+```
+
+**Future Flow Example (Contract-Enabled):**
+```
+1. Client-MT5 → tick data (Suho Binary) → API Gateway → {
+   Primary: Data Bridge (always)
+   Optional: ML-Processing (if enabled)
+   Optional: Analytics Service (if enabled)
+}
 ```
 
 ### **Payment Gateway Integration (Midtrans):**
@@ -518,9 +606,9 @@ Real-time     <0.01ms overhead       Optional field     End-to-end      On-deman
   - Automatic retry mechanisms dengan exponential backoff
 
 ### **Critical Path Integration**:
-- **Client-MT5 → API Gateway**: WSS dengan Protocol Buffers
+- **Client-MT5 → API Gateway**: WSS dengan Suho Binary Protocol
 - **API Gateway → Backend Services**: Intelligent multi-transport routing
-  - **High Volume**: NATS primary, Kafka backup dengan automatic failover
+  - **High Volume**: NATS+Kafka hybrid simultaneous transport
   - **Medium Volume**: gRPC calls dengan connection pooling
   - **Low Volume**: HTTP REST via Kong Gateway
 - **Real-time Performance**: <1ms routing decision, <5ms total latency
@@ -533,5 +621,38 @@ Real-time     <0.01ms overhead       Optional field     End-to-end      On-deman
 
 ---
 
-**Next Flow**: API Gateway → Data Bridge (WebSocket data) → Feature Engineering → ML Processing
-**Key Innovation**: Native WebSocket dengan multi-transport architecture untuk maximum trading performance dengan enterprise security
+## 📋 **Contract-Driven Architecture**
+
+### **Input Contracts (Transport Methods):**
+- **from-client-mt5.md**: Suho Binary Protocol via dual WebSocket channels → **NATS+Kafka Hybrid**
+- **from-trading-engine.md**: Protocol Buffers trading signals → **gRPC**
+- **from-analytics-service.md**: Performance metrics and analytics → **gRPC**
+- **from-ml-processing.md**: AI predictions and model outputs → **gRPC**
+- **from-notification-hub.md**: System notifications → **HTTP REST**
+
+### **Output Contracts (Transport Methods):**
+- **to-data-bridge.md**: Raw binary passthrough → **NATS+Kafka Hybrid** (PRIMARY - always enabled)
+- **to-client-mt5-execution.md**: Trading commands to Client-MT5 → **WebSocket Binary**
+- **to-frontend-websocket.md**: Real-time dashboard updates → **WebSocket JSON**
+- **to-telegram-webhook.md**: Trading notifications → **HTTP REST**
+- **to-ml-processing-direct.md**: Direct ML routing → **gRPC** (enabled: false)
+- **to-analytics-service-direct.md**: Direct analytics routing → **gRPC** (enabled: false)
+
+### **Configuration-Based Routing:**
+```javascript
+// Easy routing configuration changes:
+ROUTE_CONFIG.outputs['to-ml-processing-direct'].enabled = true;  // Enable direct ML routing
+ROUTE_CONFIG.outputs['to-analytics-service-direct'].enabled = true;  // Enable direct analytics routing
+```
+
+### **Contract Benefits:**
+- ✅ **Predictable behavior** - clearly defined input/output contracts
+- ✅ **Easy testing** - contract-based test suites
+- ✅ **Flexible expansion** - enable/disable routes via configuration
+- ✅ **Documentation** - self-documenting architecture
+- ✅ **Version control** - track contract changes over time
+
+---
+
+**Next Flow**: API Gateway (binary passthrough) → Data Bridge (conversion) → Feature Engineering → ML Processing
+**Key Innovation**: Contract-driven binary passthrough architecture untuk maximum flexibility dan performance dengan clear separation of concerns

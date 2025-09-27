@@ -57,12 +57,11 @@ graph LR
 1. INPUT: Client-MT5 → Price Stream (Suho Binary) → API Gateway
    📥 contracts/inputs/from-client-mt5.md
 
-2. INTERNAL: API Gateway processes & routes
+2. INTERNAL: API Gateway routes (NO CONVERSION)
    🔄 contracts/internal/bidirectional-routing.md
 
-3. OUTPUTS: API Gateway distributes to multiple destinations
-   📤 to-ml-processing (Protocol Buffers)
-   📤 to-analytics-service (Protocol Buffers)
+3. OUTPUT: API Gateway sends binary data directly to Data Bridge
+   📤 to-data-bridge (Suho Binary - no conversion)
 ```
 
 **Code Flow:**
@@ -70,17 +69,19 @@ graph LR
 // 1. INPUT: Client-MT5 WebSocket receives binary data
 mt5Handler.emit('input_message', {
     sourceInput: 'client-mt5',
-    message: parsedBinaryMessage,
-    metadata: { userId, channel: 'price-stream' }
+    message: rawBinaryMessage,  // NO PARSING/CONVERSION
+    metadata: { userId, channel: 'price-stream', protocol: 'suho-binary' }
 });
 
-// 2. INTERNAL: Router determines outputs
+// 2. INTERNAL: Router determines output (binary passthrough)
 const outputs = router.determineOutputDestinations('client-mt5', 'price_stream', metadata);
-// Returns: ['to-ml-processing', 'to-analytics-service']
+// Returns: ['to-data-bridge']
 
-// 3. OUTPUTS: Send to each destination
-router.emit('to-ml-processing', { message, metadata });
-router.emit('to-analytics-service', { message, metadata });
+// 3. OUTPUT: Send raw binary to Data Bridge (no conversion)
+router.emit('to-data-bridge', {
+    message: rawBinaryMessage,  // Binary passthrough
+    metadata: { ...metadata, noConversion: true }
+});
 ```
 
 ### **Example 2: Trading Engine Signal Flow**
@@ -143,20 +144,20 @@ router.emit('to-client-mt5-execution', {
 
 ## 🎯 **Business Logic Routing Rules**
 
-### **Client-MT5 Input → Output Mapping**
+### **Client-MT5 Input → Output Mapping (Current + Future)**
 
 ```javascript
-// Price Stream Input
-'price_stream' → ['to-ml-processing', 'to-analytics-service']
+// CURRENT: Primary routing to Data Bridge (binary passthrough)
+'price_stream' → ['to-data-bridge']
+'trading_command' → ['to-data-bridge']
+'account_profile' → ['to-data-bridge']
+'execution_confirm' → ['to-data-bridge']
+'heartbeat' → ['to-data-bridge']
 
-// Trading Command Input
-'trading_command' → ['to-trading-engine', 'to-analytics-service']
-
-// Account Profile Input
-'account_profile' → ['to-analytics-service']
-
-// Execution Confirm Input
-'execution_confirm' → ['to-trading-engine', 'to-analytics-service', 'to-frontend-websocket']
+// FUTURE: Flexible multi-destination routing (when needed)
+'price_stream' → ['to-data-bridge', 'to-ml-processing', 'to-analytics-service']
+'trading_command' → ['to-data-bridge', 'to-trading-engine', 'to-analytics-service']
+'execution_confirm' → ['to-data-bridge', 'to-frontend-websocket', 'to-analytics-service']
 ```
 
 ### **Backend Services Input → Output Mapping**
@@ -284,4 +285,28 @@ function trackRouting(source, destination, duration, success) {
 
 ---
 
-**🎯 Result**: API Gateway sekarang memiliki struktur yang benar dengan clear separation antara inputs, outputs, dan internal processing, making it easy to trace, maintain, dan scale! 🚀
+**🎯 Result**: API Gateway menggunakan contract-driven architecture dengan flexible routing. Current implementation route ke Data Bridge, dengan support untuk future direct routing berdasarkan contract enabled flags! 🚀
+
+## 📊 **Contract-Driven Data Flow Architecture:**
+
+### **Current Implementation:**
+```
+Client-MT5 (Suho Binary) → API Gateway (passthrough) → Data Bridge (conversion) → Backend Services (Protocol Buffers)
+```
+
+### **Future Flexibility (Contract-Based):**
+```
+Client-MT5 (Suho Binary) → API Gateway → {
+  Primary: Data Bridge (always enabled)
+  Optional: ML Processing (enabled flag: false)
+  Optional: Analytics Service (enabled flag: false)
+  Optional: Trading Engine (enabled flag: false)
+}
+```
+
+**Benefits:**
+- ✅ **Contract Compliance** - follows defined input/output contracts
+- ✅ **Flexible Architecture** - easy to enable additional routing
+- ✅ **Configuration-Driven** - change routing via enabled flags
+- ✅ **Future-Proof** - existing contracts preserved for expansion
+- ✅ **Maintainability** - clear separation between current vs future routes

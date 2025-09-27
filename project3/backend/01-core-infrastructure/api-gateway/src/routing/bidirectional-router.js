@@ -16,11 +16,24 @@ const { EventEmitter } = require('events');
 const { SuhoBinaryProtocol } = require('../protocols/suho-binary-protocol');
 
 /**
- * Route Configuration - Corrected Flow
+ * Route Configuration - Flexible Architecture
  *
  * INPUTS: Data yang MASUK ke API Gateway (dari mana saja)
  * OUTPUTS: Data yang KELUAR dari API Gateway (ke mana saja)
+ * ROUTING: Configurable routing rules for future expansion
  */
+
+// Routing strategy configuration
+const ROUTING_STRATEGY = {
+    // Current: Data Bridge handles all Client-MT5 data
+    CLIENT_MT5_STRATEGY: 'data_bridge_primary',
+
+    // Future options:
+    // 'multi_destination' - Route to multiple services
+    // 'intelligent_routing' - Route based on message content
+    // 'load_balanced' - Route based on service health
+};
+
 const ROUTE_CONFIG = {
     // INPUT ROUTES: Data masuk ke API Gateway
     inputs: {
@@ -30,7 +43,7 @@ const ROUTE_CONFIG = {
             messageTypes: ['price_stream', 'account_profile', 'trading_command', 'execution_confirm', 'heartbeat'],
             protocol: 'suho-binary',
             priority: 'high',
-            transform: 'binary-to-protobuf'
+            transform: 'binary-passthrough'
         },
 
         // Input dari Trading Engine (Protocol Buffers via HTTP POST)
@@ -128,6 +141,35 @@ const ROUTE_CONFIG = {
             protocol: 'protobuf-http',
             priority: 'medium',
             transform: 'protobuf-to-protobuf'
+        },
+
+        // Output ke Data Bridge (Suho Binary - no conversion) - NEW CONTRACT
+        'to-data-bridge': {
+            messageTypes: ['price_stream', 'account_profile', 'trading_command', 'execution_confirm', 'heartbeat'],
+            protocol: 'message-queue',  // NATS+Kafka for high volume
+            priority: 'high',
+            transform: 'binary-passthrough',
+            transport: {
+                high_volume: ['price_stream', 'trading_command'],  // NATS+Kafka
+                low_volume: ['account_profile', 'execution_confirm', 'heartbeat']  // HTTP fallback
+            }
+        },
+
+        // Future outputs (existing contracts) - kept for flexibility
+        'to-ml-processing-direct': {
+            messageTypes: ['price_stream', 'market_data'],
+            protocol: 'protobuf-http',
+            priority: 'high',
+            transform: 'protobuf-to-protobuf',
+            enabled: false  // Disabled for now, can be enabled later
+        },
+
+        'to-analytics-service-direct': {
+            messageTypes: ['account_profile', 'trading_command', 'execution_confirm', 'price_stream'],
+            protocol: 'protobuf-http',
+            priority: 'medium',
+            transform: 'protobuf-to-protobuf',
+            enabled: false  // Disabled for now, can be enabled later
         }
     }
 };
@@ -207,8 +249,10 @@ class BidirectionalRouter extends EventEmitter {
                 return;
             }
 
-            // Transform input message to internal format (usually protobuf)
-            const internalMessage = await this.transformMessage(message, inputRoute.transform, 'to_internal');
+            // For binary-passthrough, keep original message; otherwise transform
+            const internalMessage = inputRoute.transform === 'binary-passthrough'
+                ? message
+                : await this.transformMessage(message, inputRoute.transform, 'to_internal');
 
             // Determine output destinations based on message type and business logic
             const outputDestinations = this.determineOutputDestinations(sourceInput, message.type, metadata);
@@ -244,13 +288,21 @@ class BidirectionalRouter extends EventEmitter {
 
             console.log(`[ROUTER] Routing to output destination: ${outputDest}`);
 
-            // Transform message to output format
-            const outputMessage = await this.transformMessage(internalMessage, outputRoute.transform, 'to_output');
+            // For binary-passthrough, keep original message; otherwise transform
+            const outputMessage = outputRoute.transform === 'binary-passthrough'
+                ? internalMessage
+                : await this.transformMessage(internalMessage, outputRoute.transform, 'to_output');
 
             // Send to appropriate destination based on protocol
             switch (outputRoute.protocol) {
                 case 'suho-binary':
                     await this.sendToClientMT5(outputMessage, outputRoute.channel, metadata);
+                    break;
+
+                case 'message-queue':
+                    if (outputDest === 'to-data-bridge') {
+                        await this.sendToDataBridge(outputMessage, metadata);
+                    }
                     break;
 
                 case 'json-websocket':
@@ -291,15 +343,20 @@ class BidirectionalRouter extends EventEmitter {
         // Business logic for routing based on source and message type
         switch (sourceInput) {
             case 'client-mt5':
-                if (messageType === 'price_stream') {
-                    destinations.push('to-ml-processing', 'to-analytics-service');
-                } else if (messageType === 'trading_command') {
-                    destinations.push('to-trading-engine', 'to-analytics-service');
-                } else if (messageType === 'account_profile') {
-                    destinations.push('to-analytics-service');
-                } else if (messageType === 'execution_confirm') {
-                    destinations.push('to-trading-engine', 'to-analytics-service', 'to-frontend-websocket');
+                // Current: Primary route to Data Bridge (contract: to-data-bridge.md)
+                destinations.push('to-data-bridge');
+
+                // Future: Additional routes based on contract enabled flags
+                if (ROUTE_CONFIG.outputs['to-ml-processing-direct']?.enabled &&
+                    (messageType === 'price_stream' || messageType === 'market_data')) {
+                    destinations.push('to-ml-processing-direct');
                 }
+
+                if (ROUTE_CONFIG.outputs['to-analytics-service-direct']?.enabled &&
+                    ['account_profile', 'trading_command', 'execution_confirm', 'price_stream'].includes(messageType)) {
+                    destinations.push('to-analytics-service-direct');
+                }
+
                 break;
 
             case 'trading-engine':
@@ -596,13 +653,193 @@ class BidirectionalRouter extends EventEmitter {
         // Implementation would use HTTP client (axios, fetch, etc.)
         // For now, emit event for HTTP handler
         this.emit('http_message', {
-            url: instance.url,
+            url: instance.url || instance,
             message,
-            headers: {
+            headers: instance.headers || {
                 'Content-Type': 'application/x-protobuf',
                 'X-Correlation-ID': metadata.correlationId || this.generateCorrelationId()
             }
         });
+    }
+
+    /**
+     * Send message via NATS (primary transport for high volume)
+     * @param {string} subject - NATS subject
+     * @param {Object} payload - Message payload (binary data + metadata)
+     */
+    async sendViaNATS(subject, payload) {
+        try {
+            // Implementation would use NATS client
+            // For now, emit event for NATS handler
+            this.emit('nats_publish', {
+                subject,
+                data: payload,
+                timestamp: Date.now()
+            });
+
+            console.log(`[ROUTER] NATS publish to subject: ${subject}`);
+
+        } catch (error) {
+            console.error('[ROUTER] NATS publish failed:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Send message via Kafka (backup transport for high volume)
+     * @param {string} topic - Kafka topic
+     * @param {Object} payload - Message payload (binary data + metadata)
+     */
+    async sendViaKafka(topic, payload) {
+        try {
+            // Implementation would use Kafka client
+            // For now, emit event for Kafka handler
+            this.emit('kafka_publish', {
+                topic,
+                partition: this.getKafkaPartition(payload.metadata.userId), // Partition by user
+                key: payload.metadata.userId,
+                value: payload,
+                timestamp: Date.now()
+            });
+
+            console.log(`[ROUTER] Kafka publish to topic: ${topic}`);
+
+        } catch (error) {
+            console.error('[ROUTER] Kafka publish failed:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Get Kafka partition for user (consistent partitioning)
+     * @param {string} userId - User identifier
+     * @returns {number} Partition number
+     */
+    getKafkaPartition(userId) {
+        // Simple hash-based partitioning for consistent user routing
+        if (!userId) return 0;
+
+        let hash = 0;
+        for (let i = 0; i < userId.length; i++) {
+            hash = ((hash << 5) - hash + userId.charCodeAt(i)) & 0xffffffff;
+        }
+
+        // Assume 3 partitions for data-bridge topic
+        return Math.abs(hash) % 3;
+    }
+
+    /**
+     * Send Suho Binary data to Data Bridge (no conversion)
+     * High volume: NATS+Kafka, Low volume: HTTP
+     * @param {Object} binaryMessage - Suho Binary message (RAW - no conversion)
+     * @param {Object} metadata - Message metadata
+     */
+    async sendToDataBridge(binaryMessage, metadata) {
+        try {
+            const messageType = binaryMessage.type || metadata.messageType;
+            const outputRoute = ROUTE_CONFIG.outputs['to-data-bridge'];
+
+            console.log(`[ROUTER] Sending binary data to Data Bridge: ${messageType} (no conversion)`);
+
+            // Determine transport method based on message type
+            const isHighVolume = outputRoute.transport.high_volume.includes(messageType);
+
+            if (isHighVolume) {
+                // High volume data → NATS+Kafka
+                await this.sendToDataBridgeMessageQueue(binaryMessage, metadata);
+            } else {
+                // Low volume data → HTTP
+                await this.sendToDataBridgeHTTP(binaryMessage, metadata);
+            }
+
+            // Update metrics
+            this.updateRoutingMetrics('api-gateway', 'data-bridge',
+                isHighVolume ? 'nats-kafka-passthrough' : 'http-passthrough');
+
+        } catch (error) {
+            console.error('[ROUTER] Error sending to Data Bridge:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Send high volume binary data via NATS+Kafka HYBRID
+     * Both transports run simultaneously for different purposes
+     * @param {Object} binaryMessage - Raw Suho Binary message
+     * @param {Object} metadata - Message metadata
+     */
+    async sendToDataBridgeMessageQueue(binaryMessage, metadata) {
+        const correlationId = metadata.correlationId || this.generateCorrelationId();
+        const baseMetadata = {
+            ...metadata,
+            protocol: 'suho-binary',
+            timestamp: Date.now(),
+            correlationId
+        };
+
+        // HYBRID: Send to BOTH NATS and Kafka simultaneously
+        const promises = [];
+
+        // NATS: Real-time processing (speed priority)
+        promises.push(
+            this.sendViaNATS('data-bridge.binary-input', {
+                message: binaryMessage,  // RAW binary data (no conversion)
+                metadata: {
+                    ...baseMetadata,
+                    transport: 'nats',
+                    purpose: 'real-time'
+                }
+            })
+        );
+
+        // Kafka: Durability & replay capability (reliability priority)
+        promises.push(
+            this.sendViaKafka('data-bridge-binary-input', {
+                message: binaryMessage,  // RAW binary data (no conversion)
+                metadata: {
+                    ...baseMetadata,
+                    transport: 'kafka',
+                    purpose: 'durability'
+                }
+            })
+        );
+
+        try {
+            // Execute both transports simultaneously
+            await Promise.allSettled(promises);
+            console.log('[ROUTER] High volume binary data sent via HYBRID (NATS+Kafka) to Data Bridge');
+
+        } catch (error) {
+            console.error('[ROUTER] Hybrid transport error (some may succeed):', error);
+            // Don't throw - allow partial success
+        }
+    }
+
+    /**
+     * Send low volume binary data via HTTP
+     * @param {Object} binaryMessage - Raw Suho Binary message
+     * @param {Object} metadata - Message metadata
+     */
+    async sendToDataBridgeHTTP(binaryMessage, metadata) {
+        try {
+            // HTTP transport for low volume
+            await this.sendViaHTTP(binaryMessage, {
+                url: 'http://data-bridge:8080/api/binary-input',
+                headers: {
+                    'Content-Type': 'application/octet-stream',
+                    'X-Protocol': 'suho-binary',
+                    'X-User-ID': metadata.userId,
+                    'X-Message-Type': binaryMessage.type || metadata.messageType,
+                    'X-Correlation-ID': metadata.correlationId || this.generateCorrelationId()
+                }
+            }, metadata);
+
+            console.log('[ROUTER] Low volume binary data sent via HTTP to Data Bridge');
+
+        } catch (error) {
+            console.error('[ROUTER] HTTP to Data Bridge failed:', error);
+            throw error;
+        }
     }
 
     /**

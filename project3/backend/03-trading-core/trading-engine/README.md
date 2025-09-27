@@ -34,26 +34,83 @@ ML-Processing → Trading-Engine → Risk-Management → API-Gateway → Client-
 
 ---
 
-## 🚀 Transport Architecture & Contract Integration
+## 🚀 3 Transport Methods for Backend Communication
 
-### **Transport Decision Matrix Applied**:
+### **🚀 Transport Decision Matrix for Trading Engine Service**
 
-#### **Kategori A: High Volume + Mission Critical**
-- **Primary Transport**: NATS + Protocol Buffers (<1ms latency)
-- **Backup Transport**: Kafka + Protocol Buffers (guaranteed delivery)
-- **Failover**: Automatic dengan sequence tracking
-- **Services**: ML Predictions → Trading Signals, Signal → Risk Assessment
-- **Performance**: <5ms signal generation (critical path)
+Trading Engine service utilizes all 3 transport methods based on data volume, criticality, and performance requirements:
 
-#### **Kategori B: Medium Volume + Important**
-- **Transport**: gRPC (HTTP/2 + Protocol Buffers)
-- **Connection**: Pooling + circuit breaker
-- **Services**: Strategy management, performance analytics
+#### **Method 1: NATS+Kafka Hybrid (High Volume + Mission Critical)**
+**Usage**: Primary communication for AI predictions and trading signals
+**Services**: ML Processing → Trading Engine, Trading Engine → Risk Management
+**Architecture**: Simultaneous dual transport (not fallback)
 
-#### **Kategori C: Low Volume + Standard**
-- **Transport**: HTTP REST + JSON via Kong Gateway
-- **Backup**: Redis Queue for reliability
-- **Services**: Trading configuration, strategy settings
+**NATS Transport**:
+- **Subject**: `trading-engine.ml-predictions`, `trading-engine.signals-out`
+- **Purpose**: Real-time signal processing (speed priority)
+- **Latency**: <1ms
+- **Protocol**: Protocol Buffers for typed safety
+
+**Kafka Transport**:
+- **Topic**: `trading-ml-predictions`, `trading-signals-output`
+- **Purpose**: Durability & audit trail (reliability priority)
+- **Latency**: <5ms
+- **Protocol**: Protocol Buffers with metadata wrapper
+
+**Performance Benefits**:
+- 1000+ signals/second aggregate throughput
+- NATS: Speed-optimized for immediate trading decisions
+- Kafka: Durability-optimized for audit trail and compliance
+- Hybrid resilience: If one transport fails, the other continues
+
+#### **Method 2: gRPC (Medium Volume + Important)**
+**Usage**: Strategy management and performance analytics
+**Services**: Trading Engine ↔ Analytics Service, Trading Engine ↔ Central Hub
+
+**gRPC Features**:
+- **Protocol**: HTTP/2 with Protocol Buffers
+- **Communication**: Bi-directional streaming
+- **Performance**: 500+ requests/second
+- **Latency**: 2-5ms
+- **Benefits**: Type safety, connection reuse, multiplexing
+
+**Example Endpoints**:
+```protobuf
+service TradingEngineService {
+  // Strategy management
+  rpc UpdateStrategy(StrategyRequest) returns (StrategyResponse);
+  rpc GetStrategyPerformance(PerformanceRequest) returns (stream PerformanceData);
+
+  // Signal analytics
+  rpc GetSignalHistory(SignalRequest) returns (stream SignalData);
+  rpc AnalyzeSignalPerformance(AnalysisRequest) returns (AnalysisResponse);
+
+  // Health and metrics
+  rpc HealthCheck(HealthRequest) returns (HealthResponse);
+}
+```
+
+#### **Method 3: HTTP REST (Low Volume + Standard)**
+**Usage**: Configuration, health checks, and administrative operations
+**Services**: Trading Engine → API Gateway, manual configuration
+
+**HTTP Endpoints**:
+- `POST /api/v1/strategy/update` - Update trading strategy configuration
+- `GET /api/v1/health` - Health check endpoint
+- `POST /api/v1/signals/manual` - Manual signal injection (admin)
+- `GET /api/v1/performance/summary` - Performance summary reports
+
+**Performance**: 100+ requests/second, 5-10ms latency
+
+### **🎯 Transport Method Selection Criteria**
+
+| Data Type | Volume | Criticality | Transport Method | Rationale |
+|-----------|--------|-------------|------------------|-----------||
+| ML predictions → signals | Very High | Mission Critical | NATS+Kafka Hybrid | Real-time processing + audit |
+| Strategy management | Medium | Important | gRPC | Efficient streaming + type safety |
+| Configuration changes | Low | Standard | HTTP REST | Administrative simplicity |
+| Performance analytics | Medium | Important | gRPC | Bi-directional streaming |
+| Health monitoring | Low | Standard | HTTP REST | Monitoring tool compatibility |
 
 ### **Global Decisions Applied**:
 ✅ **Multi-Transport Architecture**: NATS+Kafka for signals, gRPC for management, HTTP for config
@@ -629,6 +686,225 @@ class StrategyPerformanceTracker:
         # Adjust position sizing based on drawdown
         if user_stats.max_drawdown > 0.1:  # 10% drawdown
             await self.reduce_position_sizing(user_id, 0.8)  # 20% reduction
+```
+
+## 🚀 Performance Optimization Roadmap
+
+### **🎯 Current Performance & 5-10x Improvement Potential**
+
+**Current Baseline**: 5ms signal generation, 100+ signals/second
+**Target Goal**: 0.5-1ms signal generation, 1000+ signals/second (10x improvement)
+
+#### **Level 1: Zero-Copy Signal Processing (3-4x improvement)**
+**Implementation Timeline**: 2-3 weeks
+
+```python
+# Current: Multiple data copies for signal processing
+def process_ml_prediction(prediction_data):
+    parsed_prediction = parse_protobuf(prediction_data)  # Copy 1
+    validated_prediction = validate(parsed_prediction)   # Copy 2
+    trading_signal = synthesize(validated_prediction)    # Copy 3
+    return trading_signal
+
+# Optimized: In-place signal synthesis
+def process_ml_prediction_optimized(prediction_data):
+    prediction_view = memoryview(prediction_data)       # Zero-copy view
+    synthesize_signal_in_place(prediction_view)         # Direct manipulation
+    validate_signal_in_place(prediction_view)           # No additional copies
+    return prediction_view
+```
+
+**Benefits**:
+- 70-80% memory allocation reduction
+- 3-4x faster signal processing for high-volume data
+- Reduced garbage collection pressure
+
+#### **Level 2: Advanced Connection Pooling (2x improvement)**
+**Implementation Timeline**: 1-2 weeks
+
+```python
+# Advanced connection management for all transport methods
+class OptimizedTradingConnections:
+    def __init__(self):
+        # NATS connection pool with clustering
+        self.nats_cluster = NATSCluster([
+            'nats://nats-1:4222',
+            'nats://nats-2:4222',
+            'nats://nats-3:4222'
+        ], max_connections=20)
+
+        # gRPC channel pool with intelligent load balancing
+        self.grpc_channels = {
+            'analytics': grpc.aio.insecure_channel(
+                'analytics-service:50051',
+                options=[
+                    ('grpc.keepalive_time_ms', 30000),
+                    ('grpc.keepalive_timeout_ms', 5000),
+                    ('grpc.max_concurrent_streams', 100)
+                ]
+            )
+        }
+
+        # HTTP/2 session with connection reuse
+        self.http_session = aiohttp.ClientSession(
+            connector=aiohttp.TCPConnector(
+                limit=50,
+                ttl_dns_cache=300,
+                enable_cleanup_closed=True
+            )
+        )
+```
+
+**Benefits**:
+- 50% reduction in connection establishment overhead
+- 2x improvement in sustained signal throughput
+- Better resource utilization across all transports
+
+#### **Level 3: Decision Engine Parallelization (2-3x improvement)**
+**Implementation Timeline**: 2-3 weeks
+
+```python
+# Parallel decision synthesis for multiple symbols
+class ParallelDecisionEngine:
+    def __init__(self):
+        self.decision_pool = ThreadPoolExecutor(
+            max_workers=8,
+            thread_name_prefix="trading_decision"
+        )
+        self.validation_pool = ThreadPoolExecutor(
+            max_workers=4,
+            thread_name_prefix="signal_validation"
+        )
+
+    async def process_multiple_predictions(self, prediction_batch):
+        loop = asyncio.get_event_loop()
+
+        # Parallel signal synthesis
+        decision_tasks = []
+        for prediction in prediction_batch.predictions:
+            task = loop.run_in_executor(
+                self.decision_pool,
+                self.synthesize_trading_signal,
+                prediction
+            )
+            decision_tasks.append(task)
+
+        # Parallel validation
+        validation_tasks = []
+        signals = await asyncio.gather(*decision_tasks)
+        for signal in signals:
+            task = loop.run_in_executor(
+                self.validation_pool,
+                self.validate_trading_signal,
+                signal
+            )
+            validation_tasks.append(task)
+
+        return await asyncio.gather(*validation_tasks)
+```
+
+**Benefits**:
+- 2-3x improvement for multi-symbol signal processing
+- Better CPU utilization on multi-core systems
+- Parallel decision synthesis for independent symbols
+
+#### **Level 4: Strategy Cache Optimization (2x improvement)**
+**Implementation Timeline**: 1-2 weeks
+
+```python
+# Intelligent strategy caching with prediction
+class SmartStrategyCache:
+    def __init__(self):
+        # Multi-level cache strategy
+        self.l1_cache = cachetools.LRUCache(maxsize=100)   # Hot strategies
+        self.l2_cache = cachetools.TTLCache(maxsize=500, ttl=300)  # Warm strategies
+        self.strategy_predictor = StrategyUsagePredictor()
+
+    @cachetools.cached(cache=l1_cache)
+    def get_hot_strategy(self, user_id, strategy_id):
+        return self.load_strategy(user_id, strategy_id)
+
+    async def predictive_cache_warming(self):
+        # Predict which strategies will be needed
+        predicted_strategies = await self.strategy_predictor.predict_next_hour()
+
+        # Pre-warm cache for predicted strategies
+        for strategy_id, user_id in predicted_strategies:
+            if not self.is_cached(strategy_id, user_id):
+                await self.warm_strategy_cache(strategy_id, user_id)
+```
+
+**Benefits**:
+- 80-90% reduction in strategy lookup time
+- 2x improvement for strategy-dependent operations
+- Predictive cache warming based on usage patterns
+
+#### **Level 5: Memory-Mapped Signal History (1.5x improvement)**
+**Implementation Timeline**: 3-4 weeks
+
+```python
+# Shared memory for signal history and performance tracking
+class SharedSignalHistory:
+    def __init__(self):
+        # Memory-mapped file for signal history
+        self.signal_history_file = open('signal_history.dat', 'r+b')
+        self.signal_mmap = mmap.mmap(
+            self.signal_history_file.fileno(), 0
+        )
+
+        # Shared memory for performance metrics
+        self.perf_buffer = mp.Array('d', 1000)  # Performance data
+        self.perf_lock = mp.Lock()
+
+    def update_signal_performance(self, signal_id, performance):
+        with self.perf_lock:
+            # Direct memory update without copying
+            index = self.get_signal_index(signal_id)
+            self.perf_buffer[index] = performance
+```
+
+**Benefits**:
+- Eliminate data copying for signal history access
+- 50% reduction in memory usage for historical data
+- Faster access to performance metrics
+
+### **🎯 Combined Performance Benefits**
+
+**Cumulative Improvement**: 7.2-48x theoretical maximum
+- Level 1 (Zero-copy): 4x
+- Level 2 (Connection pooling): 2x
+- Level 3 (Parallelization): 2x
+- Level 4 (Caching): 2x
+- Level 5 (Shared memory): 1.5x
+
+**Realistic Achievable**: 5-10x improvement (considering overhead and real-world constraints)
+
+**Performance Monitoring**:
+```python
+# Performance tracking for optimization validation
+class TradingPerformanceTracker:
+    def __init__(self):
+        self.baseline_metrics = {
+            'signal_generation_ms': 5.0,
+            'throughput_signals_sec': 100,
+            'memory_usage_mb': 150,
+            'cpu_usage_percent': 35
+        }
+
+        self.target_metrics = {
+            'signal_generation_ms': 0.5,   # 10x improvement
+            'throughput_signals_sec': 1000, # 10x improvement
+            'memory_usage_mb': 90,          # 40% reduction
+            'cpu_usage_percent': 25         # 30% reduction
+        }
+
+    async def measure_trading_improvement(self):
+        current = await self.get_current_metrics()
+        improvement_factor = {
+            metric: self.baseline_metrics[metric] / current[metric]
+            for metric in self.baseline_metrics
+        }
+        return improvement_factor
 ```
 
 ---

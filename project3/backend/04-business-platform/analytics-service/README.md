@@ -34,25 +34,88 @@ Trading Results   Pattern Detection   Automated Reports  Performance Optimizatio
 
 ---
 
-## 🚀 Transport Architecture & Contract Integration
+## 🚀 3 Transport Methods for Backend Communication
 
-### **Transport Decision Matrix Applied**:
+### **🚀 Transport Decision Matrix for Analytics Service**
 
-#### **Kategori A: High Volume + Mission Critical**
-- **Primary Transport**: NATS + Protocol Buffers (<1ms latency)
-- **Backup Transport**: Kafka + Protocol Buffers (guaranteed delivery)
-- **Failover**: Automatic dengan sequence tracking
-- **Services**: Real-time analytics streaming, performance metrics
+Analytics Service utilizes all 3 transport methods based on data volume, criticality, and performance requirements:
 
-#### **Kategori B: Medium Volume + Important**
-- **Transport**: gRPC (HTTP/2 + Protocol Buffers)
-- **Connection**: Pooling + circuit breaker
-- **Services**: Business intelligence queries, report generation
+#### **Method 1: NATS+Kafka Hybrid (High Volume + Mission Critical)**
+**Usage**: Real-time analytics data streaming and performance metrics
+**Services**: All Services → Analytics Service (performance data, trading results, user events)
+**Architecture**: Simultaneous dual transport (not fallback)
 
-#### **Kategori C: Low Volume + Standard**
-- **Transport**: HTTP REST + JSON via Kong Gateway
-- **Backup**: Redis Queue for reliability
-- **Services**: Analytics configuration, dashboard management
+**NATS Transport**:
+- **Subject**: `analytics.performance-data`, `analytics.trading-events`, `analytics.user-behavior`
+- **Purpose**: Real-time analytics processing (speed priority)
+- **Latency**: <1ms
+- **Protocol**: Protocol Buffers for typed data streams
+
+**Kafka Transport**:
+- **Topic**: `analytics-performance-data`, `analytics-trading-events`, `analytics-user-behavior`
+- **Purpose**: Durability & historical analysis (reliability priority)
+- **Latency**: <5ms
+- **Protocol**: Protocol Buffers with metadata wrapper
+
+**Performance Benefits**:
+- 10,000+ data points/second aggregate throughput
+- NATS: Speed-optimized for real-time dashboard updates
+- Kafka: Durability-optimized for historical analysis and compliance
+- Hybrid resilience: If one transport fails, the other continues
+
+#### **Method 2: gRPC (Medium Volume + Important)**
+**Usage**: Business intelligence queries and report generation
+**Services**: Analytics Service ↔ Frontend Dashboards, Analytics Service ↔ External BI Tools
+
+**gRPC Features**:
+- **Protocol**: HTTP/2 with Protocol Buffers
+- **Communication**: Bi-directional streaming for real-time dashboards
+- **Performance**: 1000+ queries/second
+- **Latency**: 2-5ms
+- **Benefits**: Type safety, streaming responses, efficient serialization
+
+**Example Endpoints**:
+```protobuf
+service AnalyticsService {
+  // Real-time dashboard data
+  rpc GetDashboardData(DashboardRequest) returns (stream DashboardData);
+  rpc GetRealTimeMetrics(MetricsRequest) returns (stream MetricsData);
+
+  // Business intelligence
+  rpc GenerateReport(ReportRequest) returns (ReportResponse);
+  rpc GetBusinessInsights(InsightRequest) returns (BusinessInsights);
+
+  // Advanced analytics
+  rpc RunAnalyticsQuery(QueryRequest) returns (stream QueryResult);
+  rpc GetPredictiveAnalytics(PredictiveRequest) returns (PredictiveResponse);
+
+  // Health and metrics
+  rpc HealthCheck(HealthRequest) returns (HealthResponse);
+}
+```
+
+#### **Method 3: HTTP REST (Low Volume + Standard)**
+**Usage**: Configuration, dashboard management, and administrative operations
+**Services**: Analytics Service → External APIs, admin configuration
+
+**HTTP Endpoints**:
+- `POST /api/v1/dashboard/config` - Dashboard configuration management
+- `GET /api/v1/health` - Health check endpoint
+- `POST /api/v1/reports/schedule` - Schedule automated reports
+- `GET /api/v1/analytics/export` - Export analytics data
+- `POST /api/v1/alerts/config` - Configure analytics alerts
+
+**Performance**: 200+ requests/second, 5-10ms latency
+
+### **🎯 Transport Method Selection Criteria**
+
+| Data Type | Volume | Criticality | Transport Method | Rationale |
+|-----------|--------|-------------|------------------|-----------|
+| Performance metrics stream | Very High | Mission Critical | NATS+Kafka Hybrid | Real-time dashboards + historical storage |
+| Dashboard queries | High | Important | gRPC | Efficient streaming + type safety |
+| Report generation | Medium | Important | gRPC | Large data transfer efficiency |
+| Configuration changes | Low | Standard | HTTP REST | Administrative simplicity |
+| Data export | Low | Standard | HTTP REST | External tool compatibility |
 
 ### **Global Decisions Applied**:
 ✅ **Multi-Transport Architecture**: NATS+Kafka for streaming, gRPC for queries, HTTP for config
@@ -728,6 +791,297 @@ class RealTimeDashboardEngine:
         except Exception as e:
             await connection.close()
             raise e
+```
+
+## 🚀 Performance Optimization Roadmap
+
+### **🎯 Current Performance & 5-10x Improvement Potential**
+
+**Current Baseline**: 5ms analytics queries, 10,000+ data points/second processing
+**Target Goal**: 0.5-1ms queries, 100,000+ data points/second (10x improvement)
+
+#### **Level 1: Zero-Copy Data Processing (3-4x improvement)**
+**Implementation Timeline**: 2-3 weeks
+
+```python
+# Current: Multiple data copies for analytics processing
+def process_analytics_data(raw_data):
+    parsed_data = parse_protobuf(raw_data)     # Copy 1
+    validated_data = validate(parsed_data)     # Copy 2
+    aggregated_data = aggregate(validated_data) # Copy 3
+    return aggregated_data
+
+# Optimized: In-place analytics processing
+def process_analytics_data_optimized(raw_data):
+    data_view = memoryview(raw_data)           # Zero-copy view
+    parse_in_place(data_view)                  # Direct memory manipulation
+    validate_in_place(data_view)               # No additional copies
+    aggregate_in_place(data_view)              # Memory-efficient processing
+    return data_view
+```
+
+**Benefits**:
+- 70-80% memory allocation reduction
+- 3-4x faster analytics processing for high-volume data
+- Reduced garbage collection pressure
+
+#### **Level 2: Advanced Time-Series Database Optimization (3x improvement)**
+**Implementation Timeline**: 2-3 weeks
+
+```python
+# Optimized time-series database with intelligent partitioning
+class OptimizedTimeSeriesDB:
+    def __init__(self):
+        # Connection pooling with read/write separation
+        self.write_pool = TimeSeriesConnectionPool(
+            'timeseries-write-cluster',
+            max_connections=20,
+            write_optimized=True
+        )
+        self.read_pool = TimeSeriesConnectionPool(
+            'timeseries-read-cluster',
+            max_connections=50,
+            read_optimized=True,
+            connection_cache=True
+        )
+
+        # Intelligent partitioning strategy
+        self.partitioner = SmartPartitioner(
+            strategy='time_symbol_user',
+            partition_size='1h',
+            compression='zstd'
+        )
+
+    async def batch_write_analytics(self, data_points):
+        # Batch writes with compression
+        batches = self.partitioner.create_optimized_batches(data_points)
+
+        # Parallel write operations
+        write_tasks = []
+        for batch in batches:
+            task = self.write_pool.write_batch_compressed(batch)
+            write_tasks.append(task)
+
+        await asyncio.gather(*write_tasks)
+
+    async def optimized_analytics_query(self, query):
+        # Query optimization with caching
+        if query.is_cacheable():
+            cached_result = await self.query_cache.get(query.cache_key)
+            if cached_result:
+                return cached_result
+
+        # Parallel query execution across partitions
+        query_plan = self.partitioner.optimize_query_plan(query)
+        results = await self.read_pool.execute_parallel_query(query_plan)
+
+        # Cache the result
+        await self.query_cache.set(query.cache_key, results, ttl=300)
+        return results
+```
+
+**Benefits**:
+- 3x improvement in analytics query performance
+- 50% reduction in storage overhead
+- Better resource utilization for read/write operations
+
+#### **Level 3: Real-Time Aggregation Engine (2-3x improvement)**
+**Implementation Timeline**: 3-4 weeks
+
+```python
+# Real-time stream aggregation with windowing
+class RealTimeAggregationEngine:
+    def __init__(self):
+        self.window_manager = WindowManager()
+        self.aggregation_pool = ThreadPoolExecutor(
+            max_workers=8,
+            thread_name_prefix="aggregation"
+        )
+
+    async def process_data_stream(self, data_stream):
+        # Windowed aggregation processing
+        windows = {
+            '1m': TumblingWindow(60),      # 1-minute tumbling window
+            '5m': TumblingWindow(300),     # 5-minute tumbling window
+            '1h': TumblingWindow(3600),    # 1-hour tumbling window
+            'sliding': SlidingWindow(300, 60)  # 5-min sliding window, 1-min slide
+        }
+
+        async for data_point in data_stream:
+            # Parallel window processing
+            window_tasks = []
+            for window_name, window in windows.items():
+                task = asyncio.create_task(
+                    self.process_window_aggregation(window, data_point)
+                )
+                window_tasks.append(task)
+
+            # Update all windows in parallel
+            await asyncio.gather(*window_tasks)
+
+            # Emit aggregated results when windows complete
+            for window_name, window in windows.items():
+                if window.is_complete():
+                    aggregated_result = window.get_result()
+                    await self.emit_aggregated_data(window_name, aggregated_result)
+```
+
+**Benefits**:
+- 2-3x improvement in real-time analytics processing
+- Parallel window processing for multiple time frames
+- Reduced latency for dashboard updates
+
+#### **Level 4: Intelligent Caching Strategy (2x improvement)**
+**Implementation Timeline**: 1-2 weeks
+
+```python
+# Multi-tier caching with predictive pre-loading
+class SmartAnalyticsCache:
+    def __init__(self):
+        # L1: Hot data cache (most frequently accessed)
+        self.l1_cache = cachetools.LRUCache(maxsize=1000)
+
+        # L2: Warm data cache (recently accessed)
+        self.l2_cache = cachetools.TTLCache(maxsize=5000, ttl=300)
+
+        # L3: Cold data cache (historical data)
+        self.l3_cache = DiskCache(maxsize_gb=10)
+
+        # Predictive cache warmer
+        self.cache_predictor = CacheUsagePredictor()
+
+    async def get_analytics_data(self, query):
+        # Check cache hierarchy
+        cache_key = self.generate_cache_key(query)
+
+        # L1 cache check (fastest)
+        if cache_key in self.l1_cache:
+            return self.l1_cache[cache_key]
+
+        # L2 cache check
+        l2_result = self.l2_cache.get(cache_key)
+        if l2_result:
+            # Promote to L1
+            self.l1_cache[cache_key] = l2_result
+            return l2_result
+
+        # L3 cache check
+        l3_result = await self.l3_cache.get(cache_key)
+        if l3_result:
+            # Promote to L2
+            self.l2_cache[cache_key] = l3_result
+            return l3_result
+
+        # Cache miss - fetch from database
+        data = await self.fetch_from_database(query)
+
+        # Store in all cache levels
+        await self.store_in_cache_hierarchy(cache_key, data)
+        return data
+
+    async def predictive_cache_warming(self):
+        # Predict which queries will be needed
+        predicted_queries = await self.cache_predictor.predict_next_hour()
+
+        # Pre-warm cache for predicted queries
+        warming_tasks = []
+        for query in predicted_queries:
+            if not self.is_cached(query):
+                task = asyncio.create_task(
+                    self.warm_cache(query)
+                )
+                warming_tasks.append(task)
+
+        await asyncio.gather(*warming_tasks)
+```
+
+**Benefits**:
+- 80-90% reduction in query response time for cached data
+- 2x improvement for frequently accessed analytics
+- Predictive cache warming based on usage patterns
+
+#### **Level 5: Distributed Query Processing (1.5-2x improvement)**
+**Implementation Timeline**: 4-5 weeks
+
+```python
+# Distributed query processing across multiple nodes
+class DistributedQueryProcessor:
+    def __init__(self):
+        self.query_coordinator = QueryCoordinator()
+        self.worker_nodes = [
+            AnalyticsWorkerNode(f'worker-{i}') for i in range(8)
+        ]
+        self.result_merger = ResultMerger()
+
+    async def execute_distributed_query(self, complex_query):
+        # Query planning and optimization
+        query_plan = await self.query_coordinator.optimize_query(complex_query)
+
+        # Distribute sub-queries to worker nodes
+        sub_queries = query_plan.split_into_sub_queries()
+
+        # Execute sub-queries in parallel
+        worker_tasks = []
+        for i, sub_query in enumerate(sub_queries):
+            worker_node = self.worker_nodes[i % len(self.worker_nodes)]
+            task = asyncio.create_task(
+                worker_node.execute_sub_query(sub_query)
+            )
+            worker_tasks.append(task)
+
+        # Collect and merge results
+        sub_results = await asyncio.gather(*worker_tasks)
+        final_result = await self.result_merger.merge_results(
+            sub_results, query_plan.merge_strategy
+        )
+
+        return final_result
+```
+
+**Benefits**:
+- 1.5-2x improvement for complex analytics queries
+- Better resource utilization across multiple nodes
+- Scalable query processing for large datasets
+
+### **🎯 Combined Performance Benefits**
+
+**Cumulative Improvement**: 5.4-144x theoretical maximum
+- Level 1 (Zero-copy): 4x
+- Level 2 (Time-series optimization): 3x
+- Level 3 (Real-time aggregation): 2x
+- Level 4 (Intelligent caching): 2x
+- Level 5 (Distributed processing): 1.5x
+
+**Realistic Achievable**: 8-15x improvement (considering overhead and real-world constraints)
+
+**Performance Monitoring**:
+```python
+# Performance tracking for optimization validation
+class AnalyticsPerformanceTracker:
+    def __init__(self):
+        self.baseline_metrics = {
+            'query_response_ms': 5.0,
+            'throughput_datapoints_sec': 10000,
+            'dashboard_update_ms': 100,
+            'memory_usage_mb': 200,
+            'cpu_usage_percent': 40
+        }
+
+        self.target_metrics = {
+            'query_response_ms': 0.5,      # 10x improvement
+            'throughput_datapoints_sec': 100000, # 10x improvement
+            'dashboard_update_ms': 10,     # 10x improvement
+            'memory_usage_mb': 120,        # 40% reduction
+            'cpu_usage_percent': 30        # 25% reduction
+        }
+
+    async def measure_analytics_improvement(self):
+        current = await self.get_current_metrics()
+        improvement_factor = {
+            metric: self.baseline_metrics[metric] / current[metric]
+            for metric in self.baseline_metrics
+        }
+        return improvement_factor
 ```
 
 ---
