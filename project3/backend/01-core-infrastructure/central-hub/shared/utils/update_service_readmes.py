@@ -129,7 +129,7 @@ class {service_name.replace('-', '').title()}Service(BaseService):
         self.error_analyzer = ErrorDNA("{service_name}")
 
     async def custom_health_checks(self):
-        """{service_name.title().replace('-', ' ')}-specific health checks"""
+        """Service-specific health checks"""
         return {{
             {health_checks}
         }}

@@ -23,8 +23,7 @@ const { SuhoBinaryProtocol } = require('./protocols/suho-binary-protocol');
 const AuthMiddleware = require('./middleware/auth');
 const logger = require('./utils/logger');
 
-// Import shared components from Central Hub
-const shared = require('../../../01-core-infrastructure/central-hub/shared');
+// Import Central Hub client instead of shared components
 const { APIGatewayService } = require('./core/APIGatewayService');
 
 // Import modular handlers organized by transfer method (corrected structure)

@@ -8,7 +8,8 @@
  * - Service coordination dan monitoring
  */
 
-const shared = require('../../../../01-core-infrastructure/central-hub/shared');
+const { createCentralHubClient } = require('./CentralHubClient');
+const logger = require('../utils/logger');
 
 /**
  * ServiceTemplate implementation (from SERVICE_ARCHITECTURE.md)
@@ -18,15 +19,15 @@ class ServiceTemplate {
         this.serviceName = serviceName;
         this.config = serviceConfig;
 
-        // ✅ MANDATORY SHARED COMPONENTS
-        this.logger = shared.createServiceLogger(serviceName);
-        this.transfer = new shared.TransferManager({
-            service_name: serviceName,
-            ...serviceConfig.transfer
+        // ✅ CENTRAL HUB CLIENT (replaces shared components)
+        this.centralHub = createCentralHubClient({
+            serviceName: serviceName,
+            centralHubURL: serviceConfig.centralHubURL || process.env.CENTRAL_HUB_URL,
+            timeout: serviceConfig.timeout || 5000
         });
 
-        // ✅ OPTIONAL SHARED COMPONENTS (jika diperlukan)
-        this.errorDNA = null; // TODO: Implement JS wrapper untuk Python ErrorDNA
+        // ✅ SERVICE LOGGER (local implementation)
+        this.logger = logger;
 
         // ✅ SERVICE-SPECIFIC CORE
         this.core = null; // Initialize di child class
@@ -45,8 +46,11 @@ class ServiceTemplate {
         this.logger.info(`Initializing ${this.serviceName}`);
 
         try {
-            // 1. Initialize shared components
-            await this.transfer.initialize();
+            // 1. Test Central Hub connection
+            const isConnected = await this.centralHub.ping();
+            if (!isConnected) {
+                throw new Error('Cannot connect to Central Hub');
+            }
 
             // 2. Load service-specific config
             await this.loadConfig();
@@ -190,10 +194,8 @@ class ServiceTemplate {
         };
 
         try {
-            // Check shared components
-            if (this.transfer) {
-                health.shared_components.transfer = await this.transfer.healthCheck();
-            }
+            // Check Central Hub connection
+            health.central_hub = await this.centralHub.getHealth();
 
             // Check core business logic
             if (this.core && typeof this.core.healthCheck === 'function') {
@@ -446,12 +448,12 @@ class APIGatewayService extends ServiceTemplate {
         // Send outputs based on routing targets
         for (const target of processedData.routing_targets) {
             try {
-                await this.transfer.send(
-                    processedData.data,
+                await this.centralHub.sendMessage(
                     target,
-                    'auto', // Auto-select transport method
+                    processedData.data,
                     {
                         correlationId,
+                        transportMethod: 'auto',
                         metadata: {
                             source_service: this.serviceName,
                             target_service: target,
@@ -499,10 +501,8 @@ class APIGatewayService extends ServiceTemplate {
                 await this.core.shutdown();
             }
 
-            // 4. Shutdown shared components
-            if (this.transfer) {
-                await this.transfer.shutdown();
-            }
+            // 4. Central Hub cleanup (no explicit shutdown needed for HTTP client)
+            this.logger.info('Central Hub client will be cleaned up automatically');
 
             this.logger.info(`${this.serviceName} shutdown complete`);
 

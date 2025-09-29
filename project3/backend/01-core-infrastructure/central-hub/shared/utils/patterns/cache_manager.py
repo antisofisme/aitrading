@@ -11,7 +11,11 @@ from typing import Any, Dict, Optional, Union, List
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from abc import ABC, abstractmethod
-import aioredis
+try:
+    import redis.asyncio as aioredis
+    AIOREDIS_AVAILABLE = True
+except ImportError:
+    AIOREDIS_AVAILABLE = False
 from cachetools import TTLCache
 import pickle
 
@@ -74,24 +78,32 @@ class RedisBackend(CacheBackend):
         self.logger = python_logging.getLogger(f"{service_name}.cache.redis")
 
     async def connect(self):
-        """Connect to Redis"""
+        """Connect to Redis with fallback"""
+        if not AIOREDIS_AVAILABLE:
+            self.logger.warning("aioredis not available, Redis cache disabled")
+            return
+
         try:
-            self.redis = await aioredis.create_redis_pool(
-                f"redis://{self.config.host}:{self.config.port}",
-                password=self.config.password,
+            # Connect to DragonflyDB (Redis-compatible)
+            dragonfly_url = f"redis://{self.config.host}:{self.config.port}"
+            if self.config.password:
+                dragonfly_url = f"redis://:{self.config.password}@{self.config.host}:{self.config.port}"
+
+            self.redis = aioredis.from_url(
+                dragonfly_url,
                 db=self.config.db,
-                encoding='utf-8'
+                decode_responses=True
             )
-            self.logger.info("Redis cache connected")
+            await self.redis.ping()
+            self.logger.info("DragonflyDB cache connected")
         except Exception as e:
-            self.logger.error(f"Failed to connect to Redis: {str(e)}")
-            raise
+            self.logger.warning(f"DragonflyDB connection failed, cache disabled: {str(e)}")
+            self.redis = None
 
     async def disconnect(self):
         """Disconnect from Redis"""
-        if self.redis:
-            self.redis.close()
-            await self.redis.wait_closed()
+        if self.redis and AIOREDIS_AVAILABLE:
+            await self.redis.close()
             self.logger.info("Redis cache disconnected")
 
     def _serialize(self, value: Any) -> str:

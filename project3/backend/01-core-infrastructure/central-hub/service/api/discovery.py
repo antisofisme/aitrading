@@ -1,13 +1,24 @@
 """
 Central Hub Service Discovery API
+Enhanced with contract validation and transport routing
 """
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request
 from pydantic import BaseModel
 from typing import Dict, Any, List, Optional
 import time
 
+import sys
+from pathlib import Path
+
+# Add shared directory to Python path
+shared_dir = Path(__file__).parent.parent.parent / "shared"
+sys.path.insert(0, str(shared_dir))
+
+from utils.contract_bridge import ContractProcessorIntegration
+
 discovery_router = APIRouter()
+contract_processor = ContractProcessorIntegration()
 
 
 class ServiceRegistration(BaseModel):
@@ -30,12 +41,16 @@ class ServiceUpdate(BaseModel):
 
 
 @discovery_router.post("/register")
-async def register_service(registration: ServiceRegistration) -> Dict[str, Any]:
-    """Register a service dengan Central Hub"""
+async def register_service(registration: ServiceRegistration, request: Request) -> Dict[str, Any]:
+    """Register a service dengan Central Hub - Enhanced with contract validation"""
     # Import service instance
-    from ..app import central_hub_service
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).parent.parent))
+    from app import central_hub_service
 
-    service_info = {
+    # Convert Pydantic model to dict for contract processing
+    registration_data = {
         "name": registration.name,
         "host": registration.host,
         "port": registration.port,
@@ -43,28 +58,62 @@ async def register_service(registration: ServiceRegistration) -> Dict[str, Any]:
         "health_endpoint": registration.health_endpoint,
         "version": registration.version,
         "metadata": registration.metadata or {},
+        "timestamp": int(time.time() * 1000)
+    }
+
+    # Process through contract validation if available
+    try:
+        # Check if contract validation was already done by middleware
+        if hasattr(request.state, 'contract_validation'):
+            # Use pre-validated data from middleware
+            validated_data = request.state.contract_validation.get('validated_data', registration_data)
+            transport_info = request.state.contract_validation.get('transport_info', {})
+            central_hub_service.logger.info(f"Using contract-validated data with transport: {transport_info.get('primary', 'http')}")
+        else:
+            # Manual contract processing if middleware not available
+            contract_result = await contract_processor.process_inbound_message('service_registration', registration_data)
+            validated_data = contract_result.get('validated_data', registration_data)
+            transport_info = contract_result.get('transport_info', {})
+    except Exception as e:
+        central_hub_service.logger.warning(f"Contract validation failed, using direct data: {str(e)}")
+        validated_data = registration_data
+        transport_info = {}
+
+    # Use validated data for service info
+    service_info = {
+        "name": validated_data.get("name", registration.name),
+        "host": validated_data.get("host", registration.host),
+        "port": validated_data.get("port", registration.port),
+        "protocol": validated_data.get("protocol", registration.protocol),
+        "health_endpoint": validated_data.get("health_endpoint", registration.health_endpoint),
+        "version": validated_data.get("version", registration.version),
+        "metadata": validated_data.get("metadata", registration.metadata or {}),
         "registered_at": int(time.time() * 1000),
         "last_seen": int(time.time() * 1000),
-        "status": "active"
+        "status": "active",
+        "transport_preferences": transport_info
     }
 
     # Store in service registry
     central_hub_service.service_registry[registration.name] = service_info
 
     central_hub_service.logger.info(
-        f"Service registered: {registration.name} at {registration.host}:{registration.port}"
+        f"✅ Service registered: {registration.name} at {registration.host}:{registration.port} "
+        f"(transport: {transport_info.get('primary', 'http')})"
     )
 
     return {
         "status": "registered",
         "service": registration.name,
-        "registered_at": service_info["registered_at"]
+        "registered_at": service_info["registered_at"],
+        "transport_method": transport_info.get('primary', 'http'),
+        "contract_validated": hasattr(request.state, 'contract_validation') or 'validated_data' in locals()
     }
 
 
 @discovery_router.get("/{service_name}")
-async def get_service(service_name: str) -> Dict[str, Any]:
-    """Get service information by name"""
+async def get_service(service_name: str, request: Request) -> Dict[str, Any]:
+    """Get service information by name - Enhanced with contract-based response formatting"""
     from ..app import central_hub_service
 
     if service_name not in central_hub_service.service_registry:
@@ -72,11 +121,32 @@ async def get_service(service_name: str) -> Dict[str, Any]:
 
     service_info = central_hub_service.service_registry[service_name]
 
-    return {
+    # Prepare response data for contract formatting
+    response_data = {
         "service": service_name,
         "info": service_info,
-        "url": f"{service_info['protocol']}://{service_info['host']}:{service_info['port']}"
+        "url": f"{service_info['protocol']}://{service_info['host']}:{service_info['port']}",
+        "transport_preferences": service_info.get("transport_preferences", {}),
+        "retrieved_at": int(time.time() * 1000)
     }
+
+    # Apply contract-based response formatting if available
+    try:
+        format_result = await contract_processor.process_outbound_message('service_discovery_response', response_data)
+        formatted_data = format_result.get('formatted_data', response_data)
+        transport_info = format_result.get('transport_info', {})
+
+        # Add contract metadata
+        formatted_data['_transport_method'] = transport_info.get('primary', 'http')
+        formatted_data['_contract_formatted'] = True
+
+        return formatted_data
+
+    except Exception as e:
+        central_hub_service.logger.warning(f"Contract formatting failed for service discovery: {str(e)}")
+        # Return original response if contract formatting fails
+        response_data['_contract_formatted'] = False
+        return response_data
 
 
 @discovery_router.get("/")
