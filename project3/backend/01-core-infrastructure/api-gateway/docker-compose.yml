@@ -5,7 +5,8 @@ services:
   api-gateway:
     build:
       context: .
-      dockerfile: Dockerfile.simple
+      dockerfile: Dockerfile
+      target: production
     container_name: suho-api-gateway
     restart: unless-stopped
     ports:

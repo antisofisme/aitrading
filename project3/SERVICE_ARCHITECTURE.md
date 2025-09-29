@@ -1,6 +1,89 @@
-# Suho AI Trading - General Service Architecture
+# Suho AI Trading - Service Architecture
 
-## 🎯 KONSEP UMUM SERVICE (KECUALI CENTRAL-HUB)
+## 🏗️ CENTRAL-HUB: SPECIAL META-SERVICE ARCHITECTURE
+
+### **CENTRAL-HUB: HYBRID APPROACH (Meta-Service Pattern)**
+
+Central Hub adalah **special meta-service** yang menggunakan **hybrid approach** - implements standard patterns untuk consistency, tapi **self-contained** untuk shared component provision:
+
+```
+central-hub/
+├── service/                     # ✅ STANDARD service structure (modified)
+│   ├── core/                   # Central Hub specific coordination logic
+│   │   ├── service-registry.js    # Service discovery & registration
+│   │   ├── config-manager.js      # Configuration management
+│   │   ├── health-monitor.js      # Health monitoring coordination
+│   │   ├── workflow-engine.js     # Workflow coordination
+│   │   └── coordination-router.js # Message routing logic
+│   ├── impl/                   # ✅ SELF-CONTAINED implementations (provides shared)
+│   │   ├── transfer-manager-impl.js  # PROVIDES TransferManager
+│   │   ├── logger-impl.js            # PROVIDES Logger
+│   │   ├── error-dna-impl.js         # PROVIDES ErrorDNA
+│   │   └── circuit-breaker-impl.js   # PROVIDES CircuitBreaker
+│   ├── contracts/              # ✅ CENTRAL-HUB specific contracts (modified pattern)
+│   │   ├── http-rest/         # Configuration & service discovery
+│   │   │   ├── service-registration-to-central-hub.js    # Inbound: Service registrations
+│   │   │   ├── service-discovery-to-central-hub.js       # Inbound: Discovery requests
+│   │   │   ├── configuration-request-to-central-hub.js   # Inbound: Config requests
+│   │   │   ├── service-discovery-response-from-central-hub.js  # Outbound: Discovery responses
+│   │   │   └── configuration-response-from-central-hub.js      # Outbound: Config responses
+│   │   ├── grpc/              # Real-time coordination & streaming
+│   │   │   ├── health-report-to-central-hub.js          # Inbound: Health reports
+│   │   │   ├── metrics-report-to-central-hub.js         # Inbound: Metrics
+│   │   │   ├── configuration-update-from-central-hub.js # Outbound: Config broadcasts
+│   │   │   └── workflow-coordination-from-central-hub.js # Outbound: Workflow commands
+│   │   ├── nats-kafka/        # High-volume monitoring & commands
+│   │   │   ├── health-stream-to-central-hub.js          # Inbound: Continuous health
+│   │   │   ├── metrics-stream-to-central-hub.js         # Inbound: Continuous metrics
+│   │   │   ├── circuit-breaker-status-to-central-hub.js # Inbound: Circuit breaker reports
+│   │   │   ├── scaling-command-from-central-hub.js      # Outbound: Scaling decisions
+│   │   │   └── workflow-execution-from-central-hub.js   # Outbound: Workflow execution
+│   │   └── internal/          # Internal coordination modules
+│   │       ├── registry-to-discovery.md
+│   │       ├── config-to-coordinator.md
+│   │       └── health-to-metrics.md
+│   └── app.js                  # ✅ MODIFIED ServiceTemplate (bootstrap-aware)
+├── shared/                     # ✅ EXPORTS untuk services lain
+│   ├── index.js               # Export implementations dari impl/
+│   ├── transfer/              # TransferManager exports
+│   ├── utils/                 # Utilities exports
+│   ├── logging/               # Logger exports
+│   └── proto/                 # Protocol schemas
+└── config/
+    ├── central-hub-config.json    # Central Hub specific config
+    ├── shared-components-config.json # Config untuk shared components
+    └── transport-routing-config.json # Transport method routing rules
+```
+
+### **CENTRAL-HUB TRANSPORT METHOD SELECTION:**
+
+Central Hub menggunakan **intelligent transport routing** berdasarkan communication type:
+
+| Communication Type | Volume | Criticality | Transport Method | Reasoning |
+|-------------------|--------|-------------|------------------|-----------|
+| **Service Registration** | Medium | High | **gRPC** | Strong typing, streaming, load balancing |
+| **Service Discovery** | Medium | High | **gRPC** | Protocol Buffers efficiency, streaming |
+| **Configuration Pull** | Low | High | **HTTP REST** | Simple, reliable, fallback-friendly |
+| **Configuration Push** | Low | High | **gRPC** | Real-time broadcasts, streaming |
+| **Health Monitoring** | High | Medium | **NATS+Kafka** | High throughput, durability |
+| **Metrics Collection** | High | Medium | **NATS+Kafka** | Continuous streaming, persistence |
+| **Workflow Planning** | Medium | High | **gRPC** | Strong typing, request-response |
+| **Workflow Execution** | High | High | **NATS+Kafka** | High-speed commands, audit trail |
+| **Circuit Breaker** | High | High | **NATS+Kafka** | Real-time decisions, reliability |
+| **Scaling Decisions** | Medium | High | **NATS+Kafka** | Command distribution, persistence |
+
+### **KEY DIFFERENCES dari Standard Services:**
+
+1. **SELF-CONTAINED**: Central Hub implements shared components internally, tidak import dari shared/
+2. **BOOTSTRAP-AWARE**: Modified lifecycle yang aware bahwa dia start pertama
+3. **PROVIDER PATTERN**: Exports components untuk services lain via shared/ directory
+4. **INVERTED CONTRACTS**: `*-to-central-hub.js` (many-to-one) dan `*-from-central-hub.js` (one-to-many)
+5. **COORDINATION ROUTING**: Route berdasarkan coordination responsibility, bukan business logic
+6. **MULTI-TRANSPORT**: Intelligent routing menggunakan semua 3 transport methods
+
+---
+
+## 🎯 KONSEP UMUM SERVICE (STANDARD SERVICES)
 
 ### **ARSITEKTUR DASAR SETIAP SERVICE:**
 
@@ -1609,7 +1692,315 @@ class SuhoBinaryOptimizer {
 
 ---
 
-## 🎯 INTEGRATION WITH CENTRAL-HUB
+## 🏗️ CENTRAL-HUB IMPLEMENTATION DETAILS
+
+### **Central Hub Meta-Service Template:**
+
+```javascript
+/**
+ * Central Hub Meta-Service Implementation
+ * - Self-contained shared components
+ * - Bootstrap-aware lifecycle
+ * - Intelligent transport routing
+ * - Provider patterns instead of consumer
+ */
+class CentralHubMetaService {
+    constructor(config) {
+        // ✅ Standard service patterns (modified)
+        this.serviceName = 'central-hub';
+        this.config = config;
+        this.isHealthy = true;
+        this.startTime = Date.now();
+        this.activeConnections = 0;
+
+        // ✅ SELF-CONTAINED: Create implementations yang akan jadi "shared"
+        this.initializeSelfContainedComponents();
+
+        // ✅ Central Hub specific coordinators
+        this.coordinators = {
+            serviceRegistry: new ServiceRegistryCoordinator(),
+            configManager: new ConfigurationCoordinator(),
+            healthMonitor: new HealthMonitoringCoordinator(),
+            workflowEngine: new WorkflowCoordinator(),
+            transportRouter: new TransportRoutingCoordinator()
+        };
+
+        // ✅ Standard metrics tracking
+        this.initializeMetrics();
+    }
+
+    // ✅ BOOTSTRAP-AWARE initialization
+    async initialize() {
+        this.logger.info('Phase 1: Self-contained component initialization');
+        await this.initializeSelfContainedComponents();
+
+        this.logger.info('Phase 2: Export shared components');
+        await this.exportAsSharedComponents();
+
+        this.logger.info('Phase 3: Initialize coordination engines');
+        await this.initializeCoordinators();
+
+        this.logger.info('Phase 4: Ready for service registrations');
+        this.isBootstrapComplete = true;
+    }
+
+    // ✅ TRANSPORT ROUTING (intelligent selection)
+    async processInput(inputData, sourceService, inputType) {
+        const correlationId = this.generateCorrelationId();
+
+        try {
+            this.activeConnections++;
+            this.requestCount++;
+
+            // ✅ Route to appropriate coordinator
+            const result = await this.routeToCoordinator(inputData, sourceService, inputType);
+
+            // ✅ Send coordination outputs (responses + broadcasts)
+            await this.sendCoordinationOutputs(result, sourceService, correlationId);
+
+            return result;
+
+        } catch (error) {
+            await this.handleError(error, correlationId);
+            throw error;
+        } finally {
+            this.activeConnections--;
+        }
+    }
+
+    // ✅ COORDINATION ROUTING (Central Hub specific)
+    async routeToCoordinator(inputData, sourceService, inputType) {
+        switch (inputType) {
+            case 'service_registration':
+                return await this.coordinators.serviceRegistry.register(inputData);
+            case 'service_discovery':
+                return await this.coordinators.serviceRegistry.discover(inputData);
+            case 'configuration_request':
+                return await this.coordinators.configManager.getConfig(inputData);
+            case 'health_report':
+                return await this.coordinators.healthMonitor.updateHealth(inputData);
+            case 'workflow_coordination':
+                return await this.coordinators.workflowEngine.coordinate(inputData);
+            default:
+                throw new Error(`Unknown coordination request: ${inputType}`);
+        }
+    }
+
+    // ✅ TRANSPORT METHOD SELECTION
+    async sendCoordinationOutputs(result, requestingService, correlationId) {
+        // 1. Direct response ke requesting service
+        if (result.direct_response) {
+            const transportMethod = this.selectTransportMethod(result.direct_response.type);
+            await this.sendViaTransport(result.direct_response, requestingService, transportMethod, correlationId);
+        }
+
+        // 2. Broadcast updates ke all relevant services
+        if (result.broadcast_updates) {
+            await this.broadcastToServices(result.broadcast_updates, correlationId);
+        }
+
+        // 3. Coordination messages ke specific services
+        if (result.coordination_messages) {
+            await this.sendCoordinationMessages(result.coordination_messages, correlationId);
+        }
+    }
+
+    // ✅ INTELLIGENT TRANSPORT SELECTION
+    selectTransportMethod(messageType) {
+        const transportConfigs = {
+            // Service Discovery & Registration
+            'service_registration': 'grpc',
+            'service_discovery_response': 'grpc',
+
+            // Configuration Management
+            'configuration_response': 'http',
+            'configuration_update': 'grpc',
+
+            // Monitoring & Metrics
+            'health_status_broadcast': 'nats-kafka',
+            'metrics_aggregation': 'nats-kafka',
+
+            // Workflow Coordination
+            'workflow_coordination_response': 'grpc',
+            'workflow_execution_command': 'nats-kafka',
+
+            // System Operations
+            'circuit_breaker_command': 'nats-kafka',
+            'scaling_command': 'nats-kafka'
+        };
+
+        return transportConfigs[messageType] || 'auto';
+    }
+
+    // ✅ STANDARD health check (Central Hub specific metrics)
+    async healthCheck() {
+        return {
+            service: 'central-hub',
+            status: this.isHealthy ? 'healthy' : 'unhealthy',
+            uptime: Date.now() - this.startTime,
+
+            // ✅ Central Hub specific metrics
+            services_registered: Object.keys(this.coordinators.serviceRegistry.services).length,
+            bootstrap_complete: this.isBootstrapComplete,
+            shared_components_active: this.getSharedComponentsHealth(),
+            coordination_engines_status: this.getCoordinationEnginesStatus(),
+
+            // ✅ Standard service metrics
+            active_connections: this.activeConnections,
+            total_requests: this.requestCount,
+            transport_methods_health: this.getTransportMethodsHealth()
+        };
+    }
+}
+```
+
+### **Central Hub Transport Router:**
+
+```javascript
+class CentralHubTransportRouter {
+
+    // ✅ AUTOMATIC transport selection berdasarkan message characteristics
+    async routeMessage(messageType, data, targetService, options = {}) {
+        const config = this.getTransportConfig(messageType);
+        const selectedMethod = config.primary_method;
+
+        try {
+            switch (selectedMethod) {
+                case 'grpc':
+                    return await this.sendViaGRPC(data, targetService, config);
+                case 'nats-kafka':
+                    return await this.sendViaNATSKafka(data, targetService, config);
+                case 'http':
+                    return await this.sendViaHTTP(data, targetService, config);
+                default:
+                    return await this.autoSelectTransport(data, targetService);
+            }
+        } catch (error) {
+            // ✅ Fallback ke backup transport method
+            if (config.fallback_method && config.fallback_method !== selectedMethod) {
+                this.logger.warn(`Primary transport failed, trying fallback`, {
+                    primary: selectedMethod,
+                    fallback: config.fallback_method,
+                    error: error.message
+                });
+                return await this.routeMessage(messageType, data, targetService, {
+                    ...options,
+                    force_method: config.fallback_method
+                });
+            }
+            throw error;
+        }
+    }
+
+    // ✅ TRANSPORT CONFIGURATION untuk Central Hub communications
+    getTransportConfig(messageType) {
+        return {
+            // Service Discovery & Registration (gRPC - Strong typing, streaming)
+            'service_registration': {
+                primary_method: 'grpc',
+                fallback_method: 'http',
+                volume: 'medium',
+                critical_path: true,
+                timeout_ms: 5000
+            },
+            'service_discovery': {
+                primary_method: 'grpc',
+                fallback_method: 'http',
+                volume: 'medium',
+                critical_path: true,
+                timeout_ms: 3000
+            },
+
+            // Configuration Management (HTTP for pulls, gRPC for pushes)
+            'configuration_request': {
+                primary_method: 'http',
+                fallback_method: 'grpc',
+                volume: 'low',
+                critical_path: true,
+                timeout_ms: 10000
+            },
+            'configuration_update': {
+                primary_method: 'grpc',
+                fallback_method: 'http',
+                volume: 'low',
+                critical_path: true,
+                timeout_ms: 5000
+            },
+
+            // Monitoring & Metrics (NATS+Kafka - High throughput)
+            'health_report': {
+                primary_method: 'nats-kafka',
+                fallback_method: 'http',
+                volume: 'high',
+                critical_path: false,
+                timeout_ms: 2000
+            },
+            'metrics_stream': {
+                primary_method: 'nats-kafka',
+                fallback_method: 'grpc',
+                volume: 'high',
+                critical_path: false,
+                timeout_ms: 1000
+            },
+
+            // Workflow Coordination (gRPC for planning, NATS+Kafka for execution)
+            'workflow_coordination_request': {
+                primary_method: 'grpc',
+                fallback_method: 'http',
+                volume: 'medium',
+                critical_path: true,
+                timeout_ms: 15000
+            },
+            'workflow_execution_command': {
+                primary_method: 'nats-kafka',
+                fallback_method: 'grpc',
+                volume: 'high',
+                critical_path: true,
+                timeout_ms: 3000
+            },
+
+            // System Operations (NATS+Kafka - Real-time decisions)
+            'circuit_breaker_status': {
+                primary_method: 'nats-kafka',
+                fallback_method: 'grpc',
+                volume: 'high',
+                critical_path: true,
+                timeout_ms: 1000
+            },
+            'scaling_command': {
+                primary_method: 'nats-kafka',
+                fallback_method: 'grpc',
+                volume: 'medium',
+                critical_path: true,
+                timeout_ms: 5000
+            }
+        }[messageType] || {
+            primary_method: 'auto',
+            fallback_method: 'http',
+            volume: 'medium',
+            critical_path: false,
+            timeout_ms: 10000
+        };
+    }
+}
+```
+
+### **Central Hub vs Standard Service Contract Patterns:**
+
+```javascript
+// ✅ STANDARD SERVICE contracts (business-focused)
+// contracts/nats-kafka/from-client-mt5.js → trading-engine processes → to-data-bridge.js
+
+// ✅ CENTRAL HUB contracts (coordination-focused)
+// contracts/grpc/service-registration-to-central-hub.js (many-to-one)
+// contracts/grpc/service-discovery-response-from-central-hub.js (one-to-many)
+// contracts/nats-kafka/health-stream-to-central-hub.js (continuous inbound)
+// contracts/nats-kafka/scaling-command-from-central-hub.js (broadcast outbound)
+```
+
+---
+
+## 🎯 INTEGRATION WITH CENTRAL-HUB (Standard Services)
 
 ### **Service Discovery:**
 - Services auto-register ke Central Hub pada startup
@@ -1680,6 +2071,18 @@ Create issue di project repository dengan label `architecture` untuk questions t
 ---
 
 ## 📋 CHANGELOG
+
+### Version 2.2.0 (2024-09-28)
+- ✅ **ADDED**: Central Hub Meta-Service Architecture section dengan hybrid approach
+- ✅ **ADDED**: Central Hub transport method selection matrix (gRPC, NATS+Kafka, HTTP REST)
+- ✅ **ADDED**: Central Hub implementation details dengan self-contained shared components
+- ✅ **ADDED**: Modified contract patterns untuk Central Hub (to-central-hub, from-central-hub)
+- ✅ **ADDED**: Transport routing configuration dengan intelligent method selection
+- ✅ **ADDED**: Bootstrap-aware lifecycle management untuk Central Hub
+- ✅ **ADDED**: Coordination routing patterns (service registry, config manager, health monitor)
+- ✅ **ENHANCED**: Service architecture documentation dengan Central Hub sebagai special meta-service
+- ✅ **CLARIFIED**: Central Hub vs Standard Service fundamental differences
+- ✅ **DOCUMENTED**: Provider patterns instead of consumer patterns untuk Central Hub
 
 ### Version 2.1.0 (2024-09-27)
 - ✅ **FIXED**: Contract template consistency (`user_id` → `tenant_id`)
