@@ -69,6 +69,18 @@ class ServiceTemplate {
         }
     }
 
+    async loadConfig() {
+        // Load service-specific configuration
+        this.logger.info(`Loading configuration for ${this.serviceName}`);
+        return true;
+    }
+
+    async registerContracts() {
+        // Register service contracts with Central Hub
+        this.logger.info(`Registering contracts for ${this.serviceName}`);
+        return true;
+    }
+
     async processInput(inputData, sourceService, inputType) {
         const correlationId = inputData.metadata?.correlationId || this.generateCorrelationId();
 

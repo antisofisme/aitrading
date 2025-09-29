@@ -20,7 +20,7 @@ class NATSKafkaClient extends EventEmitter {
 
         this.config = {
             nats: {
-                servers: config.nats?.servers || ['nats://localhost:4222'],
+                servers: config.nats?.servers || (process.env.NATS_URL ? [process.env.NATS_URL] : ['nats://localhost:4222']),
                 reconnectTimeWait: 250,
                 maxReconnectAttempts: -1,
                 pingInterval: 30000,
@@ -28,7 +28,7 @@ class NATSKafkaClient extends EventEmitter {
             },
             kafka: {
                 clientId: 'api-gateway',
-                brokers: config.kafka?.brokers || ['localhost:9092'],
+                brokers: config.kafka?.brokers || (process.env.KAFKA_BROKERS ? [process.env.KAFKA_BROKERS] : ['localhost:9092']),
                 retry: {
                     initialRetryTime: 100,
                     retries: 8

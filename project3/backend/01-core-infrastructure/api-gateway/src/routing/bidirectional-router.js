@@ -201,14 +201,14 @@ class BidirectionalRouter extends EventEmitter {
         // Initialize NATS+Kafka transport
         this.natsKafkaClient = new NATSKafkaClient({
             nats: {
-                servers: process.env.NATS_SERVERS?.split(',') || ['nats://localhost:4222'],
+                servers: (process.env.NATS_SERVERS?.split(',')) || (process.env.NATS_URL ? [process.env.NATS_URL] : ['nats://localhost:4222']),
                 reconnectTimeWait: parseInt(process.env.NATS_RECONNECT_TIME_WAIT) || 250,
                 maxReconnectAttempts: parseInt(process.env.NATS_MAX_RECONNECT_ATTEMPTS) || -1,
                 pingInterval: parseInt(process.env.NATS_PING_INTERVAL) || 30000
             },
             kafka: {
                 clientId: process.env.KAFKA_CLIENT_ID || 'api-gateway',
-                brokers: process.env.KAFKA_BROKERS?.split(',') || ['localhost:9092'],
+                brokers: (process.env.KAFKA_BROKERS?.includes(',') ? process.env.KAFKA_BROKERS.split(',') : [process.env.KAFKA_BROKERS]) || ['localhost:9092'],
                 retry: {
                     initialRetryTime: parseInt(process.env.KAFKA_RETRY_INITIAL_TIME) || 100,
                     retries: parseInt(process.env.KAFKA_RETRY_ATTEMPTS) || 8

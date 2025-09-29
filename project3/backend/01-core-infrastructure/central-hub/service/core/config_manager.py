@@ -20,17 +20,17 @@ class ConfigManager:
         """Load default system configurations"""
         return {
             "database": {
-                "postgresql": "postgresql://suho_admin:suho_secure_password_2024@postgresql:5432/suho_trading",
-                "clickhouse": "http://clickhouse:8123",
-                "dragonflydb": "redis://:dragonfly_secure_2024@dragonflydb:6379",
-                "arangodb": "http://root:arango_secure_password_2024@arangodb:8529"
+                "postgresql": "postgresql://suho_admin:suho_secure_password_2024@suho-postgresql:5432/suho_trading",
+                "clickhouse": "http://suho-clickhouse:8123",
+                "dragonflydb": "redis://:dragonfly_secure_2024@suho-dragonflydb:6379",
+                "arangodb": "http://root:arango_secure_password_2024@suho-arangodb:8529"
             },
             "messaging": {
-                "nats": "nats://nats-server:4222",
-                "kafka": "kafka:9092"
+                "nats": "nats://suho-nats-server:4222",
+                "kafka": "suho-kafka:9092"
             },
             "ai": {
-                "weaviate": "http://weaviate:8080"
+                "weaviate": "http://suho-weaviate:8080"
             },
             "shared_components": {
                 "error_dna": {

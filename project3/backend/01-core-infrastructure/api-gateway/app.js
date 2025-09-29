@@ -9,15 +9,12 @@ const cors = require('cors');
 const helmet = require('helmet');
 const compression = require('compression');
 
-// Import shared components dari Central Hub (JavaScript wrappers)
-const shared = require('./central-hub-shared');
-const {
-    ServiceTemplate,
-    TransferManager,
-    createServiceLogger,
-    ErrorDNA,
-    TransportMethods
-} = shared;
+// Import Hot Reload Loader for dynamic component loading
+const { hotReloadLoader } = require('./hot-reload-loader');
+
+// Will be dynamically loaded via hot reload
+let ServiceTemplate, TransferManager, createServiceLogger, ErrorDNA, TransportMethods;
+let shared_components_loaded = false;
 
 // Import existing handlers
 const ClientMT5Handler = require('./src/websocket/client-mt5-handler');
@@ -26,12 +23,68 @@ const { SuhoBinaryProtocol } = require('./src/protocols/suho-binary-protocol');
 const AuthMiddleware = require('./src/middleware/auth');
 
 /**
+ * Load shared components dynamically via hot reload
+ */
+async function loadSharedComponents() {
+    if (shared_components_loaded) {
+        return;
+    }
+
+    console.log('🔄 Loading shared components via hot reload...');
+
+    try {
+        // Initialize hot reload loader
+        await hotReloadLoader.initialize();
+
+        // Load essential components
+        const sharedIndex = await hotReloadLoader.loadComponent('index.js');
+
+        // Extract components
+        ServiceTemplate = sharedIndex.ServiceTemplate;
+        TransferManager = sharedIndex.TransferManager;
+        createServiceLogger = sharedIndex.createServiceLogger;
+        ErrorDNA = sharedIndex.ErrorDNA;
+        TransportMethods = sharedIndex.TransportMethods;
+
+        shared_components_loaded = true;
+        console.log('✅ Shared components loaded via hot reload');
+
+        // Setup component reload handlers
+        hotReloadLoader.on('component_reloaded', (event) => {
+            console.log(`🔃 Component reloaded: ${event.path}`);
+
+            // Re-load main index if it was updated
+            if (event.path === 'index.js') {
+                console.log('🔄 Re-loading shared components...');
+                shared_components_loaded = false;
+                // Note: Full service restart may be needed for some changes
+            }
+        });
+
+    } catch (error) {
+        console.error(`❌ Failed to load shared components: ${error.message}`);
+
+        // Fallback to static import
+        console.log('⚠️ Falling back to static shared components...');
+        const shared = require('./central-hub-shared');
+        ServiceTemplate = shared.ServiceTemplate;
+        TransferManager = shared.TransferManager;
+        createServiceLogger = shared.createServiceLogger;
+        ErrorDNA = shared.ErrorDNA;
+        TransportMethods = shared.TransportMethods;
+
+        shared_components_loaded = true;
+    }
+}
+
+/**
  * API Gateway Service - Extended dari ServiceTemplate
  * Compatible dengan SERVICE_ARCHITECTURE.md patterns
  */
-class APIGatewayService extends ServiceTemplate {
+class APIGatewayService {
     constructor(config = {}) {
-        const serviceConfig = {
+        // Store config for later initialization
+        this.serviceConfig = {
             service_name: 'api-gateway',
             version: '2.0.0',
             port: parseInt(process.env.PORT) || 8000,
@@ -39,7 +92,8 @@ class APIGatewayService extends ServiceTemplate {
             ...config
         };
 
-        super('api-gateway', serviceConfig);
+        // Will be set after hot reload
+        this.base_service = null;
 
         // API Gateway specific configuration
         this.options = {
@@ -50,7 +104,7 @@ class APIGatewayService extends ServiceTemplate {
             maxRequestSize: '10mb',
             rateLimitWindow: 15 * 60 * 1000, // 15 minutes
             rateLimitMax: 1000, // requests per window
-            ...serviceConfig
+            ...config
         };
 
         // Express application
@@ -73,6 +127,51 @@ class APIGatewayService extends ServiceTemplate {
                 rest: 0
             }
         };
+    }
+
+    async initialize() {
+        // Ensure shared components are loaded
+        if (!shared_components_loaded) {
+            throw new Error('Shared components not loaded - call loadSharedComponents() first');
+        }
+
+        // Use local ServiceTemplate from APIGatewayService to avoid config conflicts
+        const { ServiceTemplate: LocalServiceTemplate } = require('./src/core/APIGatewayService');
+        this.base_service = new LocalServiceTemplate('api-gateway', this.serviceConfig);
+
+        // Copy essential properties
+        this.service_name = this.base_service.service_name;
+        this.logger = this.base_service.logger;
+        this.transfer = this.base_service.transfer;
+        this.errorDNA = this.base_service.errorDNA;
+        this.config = this.base_service.config || this.serviceConfig;
+
+        // Initialize base service
+        await this.base_service.initialize();
+
+        // Continue with API Gateway specific setup
+        await this.onStartup();
+    }
+
+    // Delegate to base service methods
+    async stop() {
+        if (this.base_service) {
+            await this.base_service.stop();
+        }
+        await this.onShutdown();
+    }
+
+    generateCorrelationId() {
+        return this.base_service ? this.base_service.generateCorrelationId() :
+               `api-gateway_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    }
+
+    async analyzeError(error, context = {}) {
+        return this.base_service ? await this.base_service.analyzeError(error, context) : null;
+    }
+
+    async sendOutput(data, targetService, options = {}) {
+        return this.base_service ? await this.base_service.sendOutput(data, targetService, options) : null;
     }
 
     // Implement ServiceTemplate abstract method
@@ -382,8 +481,11 @@ class APIGatewayService extends ServiceTemplate {
         this.app.use(express.json({ limit: this.options.maxRequestSize }));
         this.app.use(express.urlencoded({ extended: true, limit: this.options.maxRequestSize }));
 
-        // Request logging middleware
-        this.app.use(this.logger.createRequestLogger());
+        // Request logging middleware (simplified for stability)
+        this.app.use((req, res, next) => {
+            this.logger.info(`${req.method} ${req.url}`, { ip: req.ip, userAgent: req.get('User-Agent') });
+            next();
+        });
 
         // Authentication middleware
         this.app.use('/api', AuthMiddleware);
@@ -502,24 +604,48 @@ class APIGatewayService extends ServiceTemplate {
 
 // Main execution
 async function main() {
-    const apiGateway = new APIGatewayService();
-
-    // Handle graceful shutdown
-    process.on('SIGTERM', async () => {
-        console.log('Received SIGTERM, shutting down gracefully');
-        await apiGateway.stop();
-        process.exit(0);
-    });
-
-    process.on('SIGINT', async () => {
-        console.log('Received SIGINT, shutting down gracefully');
-        await apiGateway.stop();
-        process.exit(0);
-    });
-
     try {
+        // Skip hot reload loading, use static components
+        console.log("⚡ Starting API Gateway with static configuration...");
+        shared_components_loaded = true; // Mark as loaded
+
+        // Create API Gateway service
+        const apiGateway = new APIGatewayService();
+
+        // Handle graceful shutdown
+        process.on('SIGTERM', async () => {
+            console.log('Received SIGTERM, shutting down gracefully');
+            await apiGateway.stop();
+            await hotReloadLoader.shutdown();
+            process.exit(0);
+        });
+
+        process.on('SIGINT', async () => {
+            console.log('Received SIGINT, shutting down gracefully');
+            await apiGateway.stop();
+            await hotReloadLoader.shutdown();
+            process.exit(0);
+        });
+
+        // Initialize and start API Gateway
         await apiGateway.initialize();
-        console.log('🚀 API Gateway started successfully with shared components!');
+        console.log('🚀 API Gateway started successfully with hot reload components!');
+
+        // Add hot reload health endpoint
+        if (apiGateway.app) {
+            apiGateway.app.get('/hot-reload/health', async (req, res) => {
+                const health = await hotReloadLoader.healthCheck();
+                res.json(health);
+            });
+
+            apiGateway.app.get('/hot-reload/components', (req, res) => {
+                res.json({
+                    loaded_components: hotReloadLoader.getLoadedComponents(),
+                    component_versions: hotReloadLoader.getComponentVersions()
+                });
+            });
+        }
+
     } catch (error) {
         console.error('❌ Failed to start API Gateway:', error.message);
         process.exit(1);

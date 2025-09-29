@@ -128,8 +128,8 @@ class CentralHubService(BaseService):
             # 5. Initialize implementation modules
             await self._initialize_impl_modules()
 
-            # 6. Initialize contract integration
-            await self._initialize_contracts()
+            # 6. Initialize contract integration (DISABLED FOR TESTING)
+            # await self._initialize_contracts()
 
             # 7. Start background services
             await self._start_background_services()
@@ -229,7 +229,7 @@ class CentralHubService(BaseService):
                 backend="redis",
                 host=os.getenv("DRAGONFLY_HOST", "localhost"),
                 port=int(os.getenv("DRAGONFLY_PORT", 6379)),
-                password=os.getenv("DRAGONFLY_PASSWORD"),
+                password=os.getenv("DRAGONFLY_PASSWORD", "dragonfly_secure_2024"),
                 db=0,
                 default_ttl=300
             )
@@ -278,7 +278,10 @@ class CentralHubService(BaseService):
 
         # Try DragonflyDB client
         try:
-            dragonfly_url = f"redis://{os.getenv('DRAGONFLY_HOST', 'dragonflydb')}:{os.getenv('DRAGONFLY_PORT', 6379)}"
+            dragonfly_password = os.getenv('DRAGONFLY_PASSWORD', 'dragonfly_secure_2024')
+            dragonfly_host = os.getenv('DRAGONFLY_HOST', 'dragonflydb')
+            dragonfly_port = os.getenv('DRAGONFLY_PORT', 6379)
+            dragonfly_url = f"redis://:{dragonfly_password}@{dragonfly_host}:{dragonfly_port}"
             self.redis_client = redis.from_url(dragonfly_url)
             await asyncio.wait_for(self.redis_client.ping(), timeout=5.0)
             self.logger.info("✅ DragonflyDB pub/sub client connected")
@@ -474,6 +477,9 @@ app.include_router(discovery_router, prefix="/services", tags=["Service Discover
 app.include_router(health_router, prefix="/health", tags=["Health Monitoring"])
 app.include_router(config_router, prefix="/config", tags=["Configuration"])
 app.include_router(metrics_router, prefix="/metrics", tags=["Metrics"])
+
+# Component sync endpoints - MOVED to component-manager-service
+# These endpoints are now handled by the standalone Component Manager Service
 
 # Startup and shutdown events
 @app.on_event("startup")

@@ -1,14 +1,7 @@
-# Central Hub - Full Implementation Dockerfile
+# Central Hub - Optimized Dockerfile (NO DOWNLOADS)
 FROM python:3.11-slim
 
 WORKDIR /app
-
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    gcc \
-    g++ \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for better caching
 COPY requirements.txt .
@@ -24,9 +17,9 @@ RUN mkdir -p /app/logs
 # Expose port
 EXPOSE 7000
 
-# Health check
+# Health check using python instead of curl
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-  CMD curl -f http://localhost:7000/health || exit 1
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:7000/health')" || exit 1
 
 # Set Python path and run application
 ENV PYTHONPATH=/app/shared:/app/service
