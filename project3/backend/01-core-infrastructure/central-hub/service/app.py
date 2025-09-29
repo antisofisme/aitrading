@@ -163,8 +163,9 @@ class CentralHubService(BaseService):
             self.logger.info("✅ Real PostgreSQL database connected")
 
         except Exception as e:
-            self.logger.warning(f"⚠️ Database unavailable: {str(e)} - continuing without database")
-            self.db_manager = None
+            self.logger.error(f"❌ Database connection FAILED: {str(e)}")
+            self.logger.error("❌ Central Hub cannot start without database - shutting down")
+            raise RuntimeError(f"Database connection required but failed: {str(e)}")
 
     async def _create_database_schema(self):
         """Create real database schema for Central Hub"""
@@ -246,8 +247,9 @@ class CentralHubService(BaseService):
                 raise Exception("DragonflyDB connection test failed")
 
         except Exception as e:
-            self.logger.warning(f"⚠️ Cache unavailable: {str(e)} - continuing without cache")
-            self.cache_manager = None
+            self.logger.error(f"❌ Cache connection FAILED: {str(e)}")
+            self.logger.error("❌ Central Hub cannot start without cache - shutting down")
+            raise RuntimeError(f"Cache connection required but failed: {str(e)}")
 
     async def _initialize_transports(self):
         """Initialize real transport method connections"""
@@ -257,8 +259,9 @@ class CentralHubService(BaseService):
             self.nats_client = await asyncio.wait_for(nats.connect(nats_url), timeout=5.0)
             self.logger.info(f"✅ Real NATS connected to {nats_url}")
         except Exception as e:
-            self.logger.warning(f"⚠️ NATS unavailable: {str(e)}")
-            self.nats_client = None
+            self.logger.error(f"❌ NATS connection FAILED: {str(e)}")
+            self.logger.error("❌ Central Hub cannot start without NATS - shutting down")
+            raise RuntimeError(f"NATS connection required but failed: {str(e)}")
 
         # Try Kafka producer
         try:
@@ -269,8 +272,9 @@ class CentralHubService(BaseService):
             self.kafka_producer = Producer(kafka_config)
             self.logger.info("✅ Real Kafka producer initialized")
         except Exception as e:
-            self.logger.warning(f"⚠️ Kafka unavailable: {str(e)}")
-            self.kafka_producer = None
+            self.logger.error(f"❌ Kafka connection FAILED: {str(e)}")
+            self.logger.error("❌ Central Hub cannot start without Kafka - shutting down")
+            raise RuntimeError(f"Kafka connection required but failed: {str(e)}")
 
         # Try DragonflyDB client
         try:
@@ -279,8 +283,9 @@ class CentralHubService(BaseService):
             await asyncio.wait_for(self.redis_client.ping(), timeout=5.0)
             self.logger.info("✅ DragonflyDB pub/sub client connected")
         except Exception as e:
-            self.logger.warning(f"⚠️ Redis/DragonflyDB unavailable: {str(e)}")
-            self.redis_client = None
+            self.logger.error(f"❌ Redis/DragonflyDB connection FAILED: {str(e)}")
+            self.logger.error("❌ Central Hub cannot start without Redis/DragonflyDB - shutting down")
+            raise RuntimeError(f"Redis/DragonflyDB connection required but failed: {str(e)}")
 
     async def _initialize_core_modules(self):
         """Initialize core Central Hub modules with real implementations"""
@@ -329,8 +334,9 @@ class CentralHubService(BaseService):
             await self.contract_processor.initialize()
             self.logger.info("✅ Real contract validation activated")
         except Exception as e:
-            self.logger.warning(f"⚠️ Contract validation unavailable: {str(e)} - continuing without validation")
-            self.contract_processor = None
+            self.logger.error(f"❌ Contract validation FAILED: {str(e)}")
+            self.logger.error("❌ Central Hub cannot start without contract validation - shutting down")
+            raise RuntimeError(f"Contract validation required but failed: {str(e)}")
 
     async def _start_background_services(self):
         """Start real background services"""

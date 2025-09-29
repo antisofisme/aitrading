@@ -1,0 +1,219 @@
+syntax = "proto3";
+
+package suho.trading.v1;
+
+import "common/base.proto";
+
+option go_package = "github.com/suho/trading/proto/trading/v1";
+option java_package = "com.suho.trading.v1";
+option java_outer_classname = "ClientMT5Proto";
+
+// Symbol enumeration (aligned with Client-MT5 BinaryProtocol.mqh)
+enum SymbolID {
+  SYMBOL_UNSPECIFIED = 0;
+  SYMBOL_EURUSD = 1;
+  SYMBOL_GBPUSD = 2;
+  SYMBOL_USDJPY = 3;
+  SYMBOL_USDCHF = 4;
+  SYMBOL_AUDUSD = 5;
+  SYMBOL_USDCAD = 6;
+  SYMBOL_NZDUSD = 7;
+  SYMBOL_XAUUSD = 8;      // Gold
+  SYMBOL_XAGUSD = 9;      // Silver
+  SYMBOL_UNKNOWN = 255;
+}
+
+// Message types (aligned with Client-MT5 ENUM_MESSAGE_TYPE)
+enum MessageType {
+  MESSAGE_TYPE_UNSPECIFIED = 0;
+  MSG_PRICE_STREAM = 1;
+  MSG_ACCOUNT_PROFILE = 2;
+  MSG_TRADE_COMMAND = 3;
+  MSG_TRADE_CONFIRMATION = 4;
+  MSG_HEARTBEAT = 5;
+}
+
+// Trading actions
+enum TradingAction {
+  TRADING_ACTION_UNSPECIFIED = 0;
+  BUY = 1;
+  SELL = 2;
+  CLOSE = 3;
+  MODIFY = 4;
+}
+
+// Order types
+enum OrderType {
+  ORDER_TYPE_UNSPECIFIED = 0;
+  MARKET = 1;
+  LIMIT = 2;
+  STOP = 3;
+  STOP_LIMIT = 4;
+}
+
+// Order status
+enum OrderStatus {
+  ORDER_STATUS_UNSPECIFIED = 0;
+  PENDING = 1;
+  FILLED = 2;
+  PARTIALLY_FILLED = 3;
+  CANCELLED = 4;
+  REJECTED = 5;
+}
+
+// Price data (aligned with Client-MT5 PRICE_DATA_SIZE = 16 bytes)
+message PriceData {
+  SymbolID symbol_id = 1;       // 4 bytes - Symbol identifier
+  uint32 bid_fixed = 2;         // 4 bytes - Bid price * 100000 (fixed point)
+  uint32 ask_fixed = 3;         // 4 bytes - Ask price * 100000 (fixed point)
+  uint32 flags = 4;             // 4 bytes - Spread (16 bits) + Server ID (16 bits)
+
+  // Computed fields (not in binary protocol)
+  double bid = 5;               // Calculated from bid_fixed
+  double ask = 6;               // Calculated from ask_fixed
+  double spread = 7;            // Calculated spread
+  uint32 server_id = 8;         // Extracted from flags
+}
+
+// Price stream message (aligned with Client-MT5 CreatePriceStreamPacket)
+message PriceStream {
+  string user_id = 1;                    // User identifier
+  repeated PriceData prices = 2;         // Array of price data
+  suho.common.v1.Timestamp timestamp = 3; // Message timestamp
+  string source = 4;                     // "client-mt5"
+
+  // Binary protocol metadata
+  uint32 binary_magic = 5;              // 0x53554854 ("SUHO")
+  uint32 binary_version = 6;            // 0x0001
+  uint32 pair_count = 7;                // Number of symbol pairs
+}
+
+// Account profile (aligned with Client-MT5 ACCOUNT_DATA_SIZE = 64 bytes)
+message AccountProfile {
+  string user_id = 1;                    // User identifier (16 bytes in binary)
+  string broker_name = 2;                // Broker company (16 bytes in binary)
+
+  // Account data (32 bytes in binary)
+  uint32 account_login = 3;              // 4 bytes - Account number
+  uint32 balance_cents = 4;              // 4 bytes - Balance * 100
+  uint32 equity_cents = 5;               // 4 bytes - Equity * 100
+  uint32 margin_cents = 6;               // 4 bytes - Margin * 100
+  uint32 free_margin_cents = 7;          // 4 bytes - Free margin * 100
+  uint32 leverage = 8;                   // 2 bytes - Account leverage
+  string currency = 9;                   // 3 bytes + 1 padding - Account currency
+
+  // Computed fields (not in binary protocol)
+  double balance = 10;                   // Calculated from balance_cents
+  double equity = 11;                    // Calculated from equity_cents
+  double margin = 12;                    // Calculated from margin_cents
+  double free_margin = 13;               // Calculated from free_margin_cents
+  double margin_level = 14;              // Calculated margin level percentage
+
+  suho.common.v1.Timestamp timestamp = 15; // Last update time
+  suho.common.v1.Timestamp binary_timestamp = 16; // From binary packet
+}
+
+// Trading command
+message TradingCommand {
+  string command_id = 1;
+  string user_id = 2;
+  SymbolID symbol_id = 3;
+  TradingAction action = 4;
+  OrderType order_type = 5;
+  double volume = 6;
+  double price = 7;
+  double stop_loss = 8;
+  double take_profit = 9;
+  string comment = 10;
+  suho.common.v1.Timestamp timestamp = 11;
+}
+
+// Trading confirmation/response
+message TradingConfirmation {
+  string command_id = 1;
+  string user_id = 2;
+  bool success = 3;
+  string message = 4;
+  string order_id = 5;
+  OrderStatus status = 6;
+  double executed_price = 7;
+  double executed_volume = 8;
+  suho.common.v1.Timestamp execution_time = 9;
+}
+
+// Heartbeat message
+message Heartbeat {
+  string user_id = 1;
+  suho.common.v1.Timestamp timestamp = 2;
+  string source = 3;
+  bool is_alive = 4;
+}
+
+// Trading signal (for AI/ML predictions)
+message TradingSignal {
+  string signal_id = 1;
+  SymbolID symbol_id = 2;
+  TradingAction action = 3;
+  double confidence = 4;          // 0.0 to 1.0
+  double entry_price = 5;
+  double stop_loss = 6;
+  double take_profit = 7;
+  string strategy = 8;
+  string reason = 9;
+  suho.common.v1.Timestamp generated_at = 10;
+  suho.common.v1.Timestamp valid_until = 11;
+}
+
+// Unified input message from Client-MT5
+message ClientMT5Input {
+  MessageType message_type = 1;
+  string user_id = 2;
+  suho.common.v1.Timestamp timestamp = 3;
+
+  // One of the following based on message_type
+  oneof payload {
+    PriceStream price_stream = 4;
+    AccountProfile account_profile = 5;
+    TradingCommand trading_command = 6;
+    TradingConfirmation trading_confirmation = 7;
+    Heartbeat heartbeat = 8;
+  }
+
+  // Binary protocol metadata
+  bool is_binary_protocol = 9;           // True if from binary protocol
+  bytes raw_binary_data = 10;           // Original binary packet if available
+}
+
+// Service output messages
+message TradingEngineOutput {
+  string user_id = 1;
+  repeated TradingSignal signals = 2;
+  repeated TradingConfirmation confirmations = 3;
+  suho.common.v1.Timestamp timestamp = 4;
+}
+
+message AnalyticsOutput {
+  string user_id = 1;
+  map<string, double> performance_metrics = 2;
+  repeated string alerts = 3;
+  string alert_level = 4;               // "info", "warning", "error"
+  suho.common.v1.Timestamp timestamp = 5;
+}
+
+message MLOutput {
+  string user_id = 1;
+  repeated TradingSignal predictions = 2;
+  double model_confidence = 3;
+  string model_version = 4;
+  suho.common.v1.Timestamp timestamp = 5;
+}
+
+message NotificationOutput {
+  string user_id = 1;
+  repeated string channels = 2;         // "telegram", "email", "sms", "dashboard"
+  string title = 3;
+  string message = 4;
+  string priority = 5;                  // "low", "medium", "high", "urgent"
+  map<string, string> metadata = 6;
+  suho.common.v1.Timestamp timestamp = 7;
+}

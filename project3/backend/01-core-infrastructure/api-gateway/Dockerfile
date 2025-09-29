@@ -32,6 +32,8 @@ COPY --from=builder --chown=apigateway:nodejs /app/node_modules ./node_modules
 # Copy application source code
 COPY --chown=apigateway:nodejs . .
 
+# Shared components already copied to build context
+
 # Create logs directory
 RUN mkdir -p logs && chown apigateway:nodejs logs
 
@@ -55,4 +57,4 @@ USER apigateway
 
 # Start API Gateway with dumb-init for proper signal handling
 ENTRYPOINT ["dumb-init", "--"]
-CMD ["node", "src/index.js"]
+CMD ["node", "app.js"]

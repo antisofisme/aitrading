@@ -2,10 +2,10 @@
   "name": "suho-ai-trading-api-gateway",
   "version": "2.0.0",
   "description": "High-performance API Gateway with Suho Binary Protocol support for Client-MT5 integration",
-  "main": "src/index.js",
+  "main": "app.js",
   "scripts": {
-    "start": "node src/index.js",
-    "dev": "nodemon src/index.js",
+    "start": "node app.js",
+    "dev": "nodemon app.js",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
