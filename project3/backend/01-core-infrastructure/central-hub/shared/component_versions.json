@@ -1,0 +1,14 @@
+{
+  "last_updated": "2025-09-29T09:33:33.870Z",
+  "component_count": 8,
+  "versions": {
+    "index.js": "1759137648.05d3cc35",
+    "js/adapters/NATSKafkaAdapter.js": "1759137648.2973a796",
+    "js/logging/Logger.js": "1759137648.4d12bfec",
+    "js/transport/TransferManager.js": "1759137648.daa020f9",
+    "js/utils/BaseService.js": "1759137648.76aaecbc",
+    "js/utils/ComponentManager.js": "1759137648.5aa17ff0",
+    "js/utils/ComponentSubscriber.js": "1759137648.ba448797",
+    "js/utils/ErrorDNA.js": "1759137648.9543605e"
+  }
+}
