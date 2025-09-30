@@ -238,7 +238,7 @@ services:
   central-hub:
     build:
       context: ./01-core-infrastructure/central-hub
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.wheelhouse
     container_name: suho-central-hub
     restart: unless-stopped
     ports:

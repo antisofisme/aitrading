@@ -17,7 +17,14 @@ const WebSocket = require('ws');
 const { SuhoBinaryProtocol } = require('../protocols/suho-binary-protocol');
 const { EventEmitter } = require('events');
 const AuthMiddleware = require('../middleware/auth');
-const logger = require('../utils/logger');
+
+// Simple console logger to avoid ES Module issues
+const logger = {
+    warn: (msg, data) => console.warn(`[MT5-WARN] ${msg}`, data || ''),
+    debug: (msg, data) => console.log(`[MT5-DEBUG] ${msg}`, data || ''),
+    info: (msg, data) => console.log(`[MT5-INFO] ${msg}`, data || ''),
+    error: (msg, data) => console.error(`[MT5-ERROR] ${msg}`, data || '')
+};
 
 // ✅ NEW: Import Client-MT5 handler from webhook transfer method (corrected structure)
 const { ClientMT5NatsKafkaHandler } = require('../../contracts/webhook/from-client-mt5');
@@ -34,8 +41,14 @@ class ClientMT5Handler extends EventEmitter {
             connectionTimeout: 10000,
             maxReconnectAttempts: 5,
             binaryProtocolEnabled: true,
+            port: options.port || 8001,
+            type: options.type || 'trading',
             ...options
         };
+
+        // Central Hub integration
+        this.centralHub = options.centralHub;
+        this.config = options.protocolConfig;
 
         this.binaryProtocol = new SuhoBinaryProtocol();
         this.connections = new Map(); // userId -> connection data
@@ -63,18 +76,34 @@ class ClientMT5Handler extends EventEmitter {
     }
 
     /**
+     * Initialize the MT5 handler (called by main app)
+     */
+    async initialize() {
+        console.log('[MT5-HANDLER] Initializing Client-MT5 handler...');
+
+        // Start heartbeat monitoring
+        this.startHeartbeatMonitoring();
+
+        console.log('[MT5-HANDLER] Client-MT5 handler initialized successfully');
+    }
+
+    /**
      * Initialize WebSocket servers for dual channels
      */
     initializeServers() {
-        // Trading Commands Channel - Port 8001
+        // Get port configuration from Central Hub config or fallback
+        const tradingPort = this.config?.websocket?.trading_port || 8001;
+        const priceStreamPort = this.config?.websocket?.price_stream_port || 8002;
+
+        // Trading Commands Channel
         this.servers.trading = new WebSocket.Server({
-            port: 8001,
+            port: this.options.type === 'trading' ? this.options.port : tradingPort,
             path: '/ws/trading'
         });
 
-        // Price Streaming Channel - Port 8002
+        // Price Streaming Channel
         this.servers.priceStream = new WebSocket.Server({
-            port: 8002,
+            port: this.options.type === 'price_stream' ? this.options.port : priceStreamPort,
             path: '/ws/price-stream'
         });
 

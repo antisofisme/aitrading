@@ -15,6 +15,7 @@
 const { EventEmitter } = require('events');
 const { SuhoBinaryProtocol } = require('../protocols/suho-binary-protocol');
 const NATSKafkaClient = require('../transport/nats-kafka-client');
+const axios = require('axios');
 
 /**
  * Route Configuration - Flexible Architecture
@@ -183,13 +184,17 @@ class BidirectionalRouter extends EventEmitter {
         super();
 
         this.options = {
-            centralHubUrl: 'http://localhost:3000',
+            centralHubUrl: options.centralHub?.baseURL || 'http://suho-central-hub:7000',
             maxRetries: 3,
             retryDelay: 1000,
             healthCheckInterval: 30000,
             loadBalancingStrategy: 'round_robin',
             ...options
         };
+
+        // Central Hub client integration
+        this.centralHub = options.centralHub;
+        this.config = options.config;
 
         this.binaryProtocol = new SuhoBinaryProtocol();
         this.serviceRegistry = new Map();
@@ -1026,6 +1031,66 @@ class BidirectionalRouter extends EventEmitter {
         } catch (error) {
             console.error('[ROUTER] Error during shutdown:', error);
         }
+    }
+
+    /**
+     * Get Express router with HTTP routes
+     * @returns {express.Router} Express router
+     */
+    getExpressRouter() {
+        const express = require('express');
+        const router = express.Router();
+
+        // Route for backend services to send data to API Gateway
+        router.post('/input/:serviceName', async (req, res) => {
+            try {
+                const serviceName = req.params.serviceName;
+                const message = req.body;
+                const metadata = {
+                    correlationId: req.headers['x-correlation-id'] || this.generateCorrelationId(),
+                    userId: req.headers['x-user-id'],
+                    source: serviceName,
+                    timestamp: Date.now()
+                };
+
+                await this.routeInput(serviceName, message, metadata);
+
+                res.json({
+                    success: true,
+                    correlationId: metadata.correlationId,
+                    timestamp: metadata.timestamp
+                });
+
+            } catch (error) {
+                console.error('[ROUTER] Error handling HTTP input:', error);
+                res.status(500).json({
+                    success: false,
+                    error: error.message
+                });
+            }
+        });
+
+        // Health check for router
+        router.get('/health', (req, res) => {
+            const stats = this.getRoutingStats();
+            res.json({
+                status: 'healthy',
+                central_hub_connected: this.centralHub?.isHealthy() || false,
+                routing_stats: stats,
+                timestamp: Date.now()
+            });
+        });
+
+        // Get routing configuration
+        router.get('/config', (req, res) => {
+            res.json({
+                routing_strategy: ROUTING_STRATEGY,
+                route_config: ROUTE_CONFIG,
+                options: this.options
+            });
+        });
+
+        return router;
     }
 }
 

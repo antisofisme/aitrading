@@ -4,7 +4,14 @@
  */
 
 const jwt = require('jsonwebtoken');
-const logger = require('../utils/logger');
+
+// Simple console logger to avoid ES Module issues
+const logger = {
+    warn: (msg, data) => console.warn(`[AUTH-WARN] ${msg}`, data || ''),
+    debug: (msg, data) => console.log(`[AUTH-DEBUG] ${msg}`, data || ''),
+    info: (msg, data) => console.log(`[AUTH-INFO] ${msg}`, data || ''),
+    error: (msg, data) => console.error(`[AUTH-ERROR] ${msg}`, data || '')
+};
 
 class AuthMiddleware {
     constructor(config) {

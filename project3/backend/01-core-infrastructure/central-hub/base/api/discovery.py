@@ -94,8 +94,8 @@ async def register_service(registration: ServiceRegistration, request: Request) 
         "transport_preferences": transport_info
     }
 
-    # Store in service registry
-    central_hub_service.service_registry[registration.name] = service_info
+    # Store in service registry using proper method
+    registration_result = await central_hub_service.service_registry.register(validated_data)
 
     central_hub_service.logger.info(
         f"✅ Service registered: {registration.name} at {registration.host}:{registration.port} "

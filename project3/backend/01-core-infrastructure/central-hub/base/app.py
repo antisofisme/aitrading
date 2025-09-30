@@ -473,7 +473,7 @@ app.add_middleware(
 app.add_middleware(ContractValidationMiddleware, enable_validation=True)
 
 # Add routers
-app.include_router(discovery_router, prefix="/services", tags=["Service Discovery"])
+app.include_router(discovery_router, prefix="/discovery", tags=["Service Discovery"])
 app.include_router(health_router, prefix="/health", tags=["Health Monitoring"])
 app.include_router(config_router, prefix="/config", tags=["Configuration"])
 app.include_router(metrics_router, prefix="/metrics", tags=["Metrics"])

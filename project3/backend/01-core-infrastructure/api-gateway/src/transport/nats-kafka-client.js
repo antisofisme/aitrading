@@ -12,7 +12,14 @@
 const { connect } = require('nats');
 const { Kafka } = require('kafkajs');
 const EventEmitter = require('events');
-const logger = require('../utils/logger');
+
+// Simple console logger to avoid ES Module issues
+const logger = {
+    warn: (msg, data) => console.warn(`[TRANSPORT-WARN] ${msg}`, data || ''),
+    debug: (msg, data) => console.log(`[TRANSPORT-DEBUG] ${msg}`, data || ''),
+    info: (msg, data) => console.log(`[TRANSPORT-INFO] ${msg}`, data || ''),
+    error: (msg, data) => console.error(`[TRANSPORT-ERROR] ${msg}`, data || '')
+};
 
 class NATSKafkaClient extends EventEmitter {
     constructor(config) {

@@ -1,9 +1,15 @@
-# Central Hub - Optimized Dockerfile (NO DOWNLOADS)
+# Central Hub - Optimized Dockerfile with Layer Caching
 FROM python:3.11-slim
 
 WORKDIR /app
 
-# Copy requirements first for better caching
+# Install system dependencies (cached layer)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    python3-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements first for better caching (this layer only rebuilds if requirements.txt changes)
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
