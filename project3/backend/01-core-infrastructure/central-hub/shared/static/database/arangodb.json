@@ -1,15 +1,15 @@
 {
   "connection": {
-    "host": "suho-arangodb",
-    "port": 8529,
+    "host": "ENV:ARANGO_HOST",
+    "port": "ENV:ARANGO_PORT",
     "protocol": "http",
     "username": "root",
-    "password": "${ARANGO_ROOT_PASSWORD}",
+    "password": "ENV:ARANGO_ROOT_PASSWORD",
     "database": "_system"
   },
   "authentication": {
     "enabled": true,
-    "jwt_secret": "${ARANGO_JWT_SECRET}",
+    "jwt_secret": "ENV:ARANGO_JWT_SECRET",
     "timeout": 3600
   },
   "databases": {

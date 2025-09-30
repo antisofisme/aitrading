@@ -203,17 +203,22 @@ class BidirectionalRouter extends EventEmitter {
         this.messageQueue = [];
         this.isProcessing = false;
 
+        // Fix Kafka brokers configuration - ensure proper fallback
+        const kafkaBrokers = process.env.KAFKA_BROKERS ?
+            (process.env.KAFKA_BROKERS.includes(',') ? process.env.KAFKA_BROKERS.split(',') : [process.env.KAFKA_BROKERS]) :
+            ['suho-kafka:9092'];
+
         // Initialize NATS+Kafka transport
         this.natsKafkaClient = new NATSKafkaClient({
             nats: {
-                servers: (process.env.NATS_SERVERS?.split(',')) || (process.env.NATS_URL ? [process.env.NATS_URL] : ['nats://localhost:4222']),
+                servers: (process.env.NATS_SERVERS?.split(',')) || (process.env.NATS_URL ? [process.env.NATS_URL] : ['nats://suho-nats-server:4222']),
                 reconnectTimeWait: parseInt(process.env.NATS_RECONNECT_TIME_WAIT) || 250,
                 maxReconnectAttempts: parseInt(process.env.NATS_MAX_RECONNECT_ATTEMPTS) || -1,
                 pingInterval: parseInt(process.env.NATS_PING_INTERVAL) || 30000
             },
             kafka: {
                 clientId: process.env.KAFKA_CLIENT_ID || 'api-gateway',
-                brokers: (process.env.KAFKA_BROKERS?.includes(',') ? process.env.KAFKA_BROKERS.split(',') : [process.env.KAFKA_BROKERS]) || ['localhost:9092'],
+                brokers: kafkaBrokers,
                 retry: {
                     initialRetryTime: parseInt(process.env.KAFKA_RETRY_INITIAL_TIME) || 100,
                     retries: parseInt(process.env.KAFKA_RETRY_ATTEMPTS) || 8
@@ -902,7 +907,7 @@ class BidirectionalRouter extends EventEmitter {
         return [
             {
                 id: `${serviceName}-1`,
-                url: `http://localhost:3001/${serviceName}`,
+                url: `http://suho-central-hub:7000/${serviceName}`,
                 transport: 'http',
                 health: 'healthy',
                 load: 0.3

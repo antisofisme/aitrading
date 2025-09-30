@@ -432,8 +432,8 @@ class APIGatewayService extends ServiceTemplate {
     constructor(options = {}) {
         super('api-gateway', {
             transfer: {
-                nats_url: process.env.NATS_URL || 'nats://localhost:4222',
-                kafka_brokers: process.env.KAFKA_BROKERS || 'localhost:9092',
+                nats_url: process.env.NATS_URL || 'nats://suho-nats-server:4222',
+                kafka_brokers: process.env.KAFKA_BROKERS || 'suho-kafka:9092',
                 grpc_port: process.env.GRPC_PORT || 50051
             },
             ...options

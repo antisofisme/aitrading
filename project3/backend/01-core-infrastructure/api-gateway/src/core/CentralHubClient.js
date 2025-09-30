@@ -10,7 +10,7 @@ const logger = require('../utils/logger');
 
 class CentralHubClient {
     constructor(config = {}) {
-        this.baseURL = config.centralHubURL || process.env.CENTRAL_HUB_URL || 'http://localhost:3001';
+        this.baseURL = config.centralHubURL || process.env.CENTRAL_HUB_URL || 'http://suho-central-hub:7000';
         this.serviceName = config.serviceName || 'api-gateway';
         this.timeout = config.timeout || 5000;
 

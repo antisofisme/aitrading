@@ -209,8 +209,10 @@ services:
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: suho-zookeeper:2181
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://suho-kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://suho-kafka:9092
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
       KAFKA_NUM_PARTITIONS: 6
@@ -222,7 +224,7 @@ services:
     networks:
       - suho-trading-network
     healthcheck:
-      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "suho-kafka:9092"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -310,27 +312,28 @@ services:
       - "8001:8001"   # Trading WebSocket channel
       - "8002:8002"   # Price Stream WebSocket channel
     environment:
-      - NODE_ENV=development
-      - PORT=8000
-      - DATABASE_URL=postgresql://suho_admin:suho_secure_password_2024@suho-postgresql:5432/suho_trading
-      - POSTGRES_HOST=suho-postgresql
-      - POSTGRES_PORT=5432
-      - POSTGRES_DB=suho_trading
-      - POSTGRES_USER=suho_admin
-      - POSTGRES_PASSWORD=suho_secure_password_2024
-      - CACHE_URL=redis://:dragonfly_secure_2024@suho-dragonflydb:6379
-      - NATS_URL=nats://suho-nats-server:4222
-      - KAFKA_BROKERS=suho-kafka:9092
-      - CENTRAL_HUB_URL=http://suho-central-hub:7000
-      - JWT_SECRET=your-super-secret-jwt-key-change-in-production
-      - JWT_EXPIRES_IN=24h
-      - JWT_ISSUER=suho-api-gateway
-      - JWT_AUDIENCE=suho-trading
-      - LOG_LEVEL=info
-      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
-      - HOT_RELOAD_ENABLED=false
-      - CORS_ENABLED=true
-      - WEBSOCKET_ENABLED=true
+      - NODE_ENV=${NODE_ENV}
+      - PORT=${API_GATEWAY_PORT}
+      - DATABASE_URL=${DATABASE_URL}
+      - POSTGRES_HOST=${POSTGRES_HOST}
+      - POSTGRES_PORT=${POSTGRES_PORT}
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - CACHE_URL=${CACHE_URL}
+      - NATS_URL=${NATS_URL}
+      - KAFKA_BROKERS=${KAFKA_BROKERS}
+      - CENTRAL_HUB_URL=${CENTRAL_HUB_URL}
+      - JWT_SECRET=${JWT_SECRET}
+      - JWT_EXPIRES_IN=${JWT_EXPIRES_IN}
+      - JWT_ISSUER=${JWT_ISSUER}
+      - JWT_AUDIENCE=${JWT_AUDIENCE}
+      - LOG_LEVEL=${LOG_LEVEL}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - HOT_RELOAD_ENABLED=${HOT_RELOAD_ENABLED}
+      - CORS_ENABLED=${CORS_ENABLED}
+      - WEBSOCKET_ENABLED=${WEBSOCKET_ENABLED}
+      - KAFKAJS_NO_PARTITIONER_WARNING=${KAFKAJS_NO_PARTITIONER_WARNING}
     volumes:
       # API Gateway source code
       - ./01-core-infrastructure/api-gateway/src:/app/src:rw

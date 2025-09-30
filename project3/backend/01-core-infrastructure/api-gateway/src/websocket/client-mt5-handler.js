@@ -88,31 +88,31 @@ class ClientMT5Handler extends EventEmitter {
     }
 
     /**
-     * Initialize WebSocket servers for dual channels
+     * Initialize WebSocket server based on type (single server per instance)
      */
     initializeServers() {
-        // Get port configuration from Central Hub config or fallback
-        const tradingPort = this.config?.websocket?.trading_port || 8001;
-        const priceStreamPort = this.config?.websocket?.price_stream_port || 8002;
+        const serverType = this.options.type || 'trading';
+        const port = this.options.port || (serverType === 'price_stream' ? 8002 : 8001);
+        const path = serverType === 'price_stream' ? '/ws/price-stream' : '/ws/trading';
 
-        // Trading Commands Channel
-        this.servers.trading = new WebSocket.Server({
-            port: this.options.type === 'trading' ? this.options.port : tradingPort,
-            path: '/ws/trading'
-        });
+        console.log(`[MT5-HANDLER] Initializing ${serverType} server on port ${port}`);
 
-        // Price Streaming Channel
-        this.servers.priceStream = new WebSocket.Server({
-            port: this.options.type === 'price_stream' ? this.options.port : priceStreamPort,
-            path: '/ws/price-stream'
-        });
-
-        this.setupTradingServer();
-        this.setupPriceStreamServer();
-
-        console.log('[MT5-HANDLER] Dual WebSocket servers initialized');
-        console.log('[MT5-HANDLER] Trading channel: ws://localhost:8001/ws/trading');
-        console.log('[MT5-HANDLER] Price stream channel: ws://localhost:8002/ws/price-stream');
+        // Create single server based on type
+        if (serverType === 'price_stream') {
+            this.servers.priceStream = new WebSocket.Server({
+                port: port,
+                path: path
+            });
+            this.setupPriceStreamServer();
+            console.log(`[MT5-HANDLER] Price stream WebSocket server: ws://localhost:${port}${path}`);
+        } else {
+            this.servers.trading = new WebSocket.Server({
+                port: port,
+                path: path
+            });
+            this.setupTradingServer();
+            console.log(`[MT5-HANDLER] Trading WebSocket server: ws://localhost:${port}${path}`);
+        }
     }
 
     /**

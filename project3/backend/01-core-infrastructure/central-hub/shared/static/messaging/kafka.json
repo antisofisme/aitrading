@@ -1,7 +1,7 @@
 {
   "connection": {
-    "bootstrap_servers": ["suho-kafka:29092"],
-    "external_bootstrap_servers": ["localhost:9092"],
+    "bootstrap_servers": ["suho-kafka:9092"],
+    "external_bootstrap_servers": ["suho-kafka:9092"],
     "client_id": "suho-trading-client",
     "security_protocol": "PLAINTEXT"
   },

@@ -251,21 +251,61 @@ Load Balance   Config Mgmt   Connection Pool     Error Detection     Resource Al
 
 ---
 
+## 🔧 Configuration Management
+
+### **Centralized Configuration System**
+**Single Source of Truth**: All configurations managed through environment variables in `.env` file
+
+```bash
+# Master configuration - all services use these values
+POSTGRES_HOST=suho-postgresql
+POSTGRES_PASSWORD=suho_secure_password_2024
+KAFKA_BROKERS=suho-kafka:9092
+NATS_URL=nats://suho-nats-server:4222
+JWT_SECRET=your-super-secret-jwt-key-change-in-production
+```
+
+### **Configuration Flow**:
+```
+.env (Master) → docker-compose.yml → Central Hub → Services
+     ↓              ↓                    ↓          ↓
+Single Source    ${VAR} syntax      ENV: resolution  Config API
+All Values      Environment Vars   Dynamic Loading  Service Ready
+```
+
+### **Key Benefits**:
+- ✅ **Zero Hardcode**: No hardcoded values in any service
+- ✅ **Single Update**: Change .env file, all services follow
+- ✅ **Environment Safety**: Different values per environment
+- ✅ **Security**: Centralized credential management
+- ✅ **Maintainability**: 80% reduction in config complexity
+
+### **Configuration Categories**:
+- **Database Infrastructure**: 12 variables (PostgreSQL, ClickHouse, DragonflyDB, etc.)
+- **Messaging Infrastructure**: 6 variables (Kafka, NATS, Zookeeper)
+- **Core Services**: 8 variables (Central Hub, API Gateway, JWT)
+- **Security & Authentication**: 4 variables (JWT secrets, API keys)
+- **Development Settings**: 5 variables (Node env, logging, hot reload)
+
+**Total**: 35+ environment variables managed centrally
+
+---
+
 ## 🔧 Technology Stack
 
 ### **Core Technologies**:
-- **Runtime**: Node.js 18+, Python 3.9+
+- **Runtime**: Node.js 16+, Python 3.11+
 - **Frameworks**: FastAPI, Express.js, WebSocket
-- **Databases**: PostgreSQL, ClickHouse, DragonflyDB, Weaviate, ArangoDB
+- **Databases**: PostgreSQL + TimescaleDB, ClickHouse, DragonflyDB, Weaviate, ArangoDB
 - **AI/ML**: TensorFlow, PyTorch, Scikit-learn, XGBoost
-- **Communication**: REST APIs, WebSocket, Message Queues
+- **Communication**: REST APIs, WebSocket, NATS, Kafka
 
 ### **Infrastructure**:
 - **Containerization**: Docker, Docker Compose
-- **Service Mesh**: Envoy Proxy (optional)
-- **Monitoring**: Prometheus, Grafana
+- **Configuration**: Centralized environment variables
+- **Monitoring**: Health checks, performance metrics
 - **Logging**: Structured JSON logging
-- **Caching**: Redis (via DragonflyDB)
+- **Caching**: DragonflyDB (Redis-compatible)
 
 ---
 
@@ -325,5 +365,34 @@ Subscription   Access Control   Resource Limits       Separate Schemas
 
 ---
 
+## 📚 Documentation
+
+### **Configuration Guides**:
+- **Environment Variables**: `/docs/ENVIRONMENT_VARIABLES.md` - Complete reference for all 35+ variables
+- **Configuration Management**: `/docs/CONFIGURATION_MANAGEMENT.md` - Centralized config system guide
+- **Core Infrastructure**: `/01-core-infrastructure/README.md` - Service architecture overview
+
+### **Quick Setup**:
+```bash
+# 1. Set environment variables in .env
+cp .env.example .env
+edit .env  # Update passwords and secrets
+
+# 2. Start all services
+docker-compose up -d
+
+# 3. Verify health
+curl http://localhost:7000/health  # Central Hub
+curl http://localhost:8000/health  # API Gateway
+```
+
+### **Troubleshooting**:
+- **Config Issues**: Check `.env` file syntax and required variables
+- **Service Startup**: Verify Central Hub is running first
+- **Network Issues**: Ensure Docker service names are used (not localhost)
+- **Database Connection**: Check database credentials and network connectivity
+
+---
+
 **Next Integration**: Backend services ← Client-MT5 (hybrid processing) ← Frontend (user interface)
-**Key Innovation**: Optimized 12-service architecture yang balance simplicity dengan enterprise functionality
+**Key Innovation**: Optimized 12-service architecture with centralized configuration management

@@ -1,7 +1,7 @@
 {
   "connection": {
-    "host": "suho-nats-server",
-    "port": 4222,
+    "host": "ENV:NATS_HOST",
+    "port": "ENV:NATS_PORT",
     "monitoring_port": 8222,
     "protocol": "nats",
     "timeout": 10000

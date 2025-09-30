@@ -1,8 +1,8 @@
 {
   "connection": {
-    "host": "suho-dragonflydb",
-    "port": 6379,
-    "password": "${DRAGONFLY_PASSWORD}",
+    "host": "ENV:DRAGONFLY_HOST",
+    "port": "ENV:DRAGONFLY_PORT",
+    "password": "ENV:DRAGONFLY_PASSWORD",
     "database": 0,
     "ssl": false
   },

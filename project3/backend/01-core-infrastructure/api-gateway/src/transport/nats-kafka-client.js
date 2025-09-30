@@ -27,7 +27,7 @@ class NATSKafkaClient extends EventEmitter {
 
         this.config = {
             nats: {
-                servers: config.nats?.servers || (process.env.NATS_URL ? [process.env.NATS_URL] : ['nats://localhost:4222']),
+                servers: config.nats?.servers || (process.env.NATS_URL ? [process.env.NATS_URL] : ['nats://suho-nats-server:4222']),
                 reconnectTimeWait: 250,
                 maxReconnectAttempts: -1,
                 pingInterval: 30000,
@@ -35,7 +35,7 @@ class NATSKafkaClient extends EventEmitter {
             },
             kafka: {
                 clientId: 'api-gateway',
-                brokers: config.kafka?.brokers || (process.env.KAFKA_BROKERS ? [process.env.KAFKA_BROKERS] : ['localhost:9092']),
+                brokers: config.kafka?.brokers || (process.env.KAFKA_BROKERS ? [process.env.KAFKA_BROKERS] : ['suho-kafka:9092']),
                 retry: {
                     initialRetryTime: 100,
                     retries: 8
@@ -43,6 +43,7 @@ class NATSKafkaClient extends EventEmitter {
                 ...config.kafka
             }
         };
+
 
         // Clients
         this.natsClient = null;
@@ -126,12 +127,44 @@ class NATSKafkaClient extends EventEmitter {
      */
     async initializeKafka() {
         try {
-            this.kafkaClient = new Kafka(this.config.kafka);
+            // DEBUG: Log exact Kafka config being used
+            logger.info('Initializing Kafka with config:', {
+                clientId: this.config.kafka.clientId,
+                brokers: this.config.kafka.brokers,
+                retry: this.config.kafka.retry
+            });
+
+            // Enhanced Kafka configuration to prevent localhost discovery
+            const kafkaConfig = {
+                ...this.config.kafka,
+                // Disable metadata refresh to prevent broker discovery
+                metadataMaxAge: 30000, // 30 seconds
+                // Force connection only to specified brokers
+                connectionTimeout: 3000,
+                requestTimeout: 30000,
+                // Disable retries to localhost
+                retry: {
+                    ...this.config.kafka.retry,
+                    retries: 3,
+                    factor: 0.2,
+                    multiplier: 2,
+                    maxRetryTime: 10000
+                }
+            };
+
+            this.kafkaClient = new Kafka(kafkaConfig);
             this.kafkaProducer = this.kafkaClient.producer({
                 maxInFlightRequests: 1,
                 idempotent: true,
                 transactionTimeout: 30000,
-                allowAutoTopicCreation: true
+                allowAutoTopicCreation: true,
+                // Force using only configured brokers
+                retry: {
+                    retries: 3,
+                    factor: 0.2,
+                    multiplier: 2,
+                    maxRetryTime: 5000
+                }
             });
 
             await this.kafkaProducer.connect();

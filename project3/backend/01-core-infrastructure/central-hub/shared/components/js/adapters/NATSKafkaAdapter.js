@@ -18,7 +18,7 @@ class NATSKafkaAdapter extends EventEmitter {
             nats_options: config.nats_options || {},
 
             // Kafka configuration
-            kafka_brokers: config.kafka_brokers || process.env.KAFKA_BROKERS?.split(',') || ['localhost:9092'],
+            kafka_brokers: config.kafka_brokers || process.env.KAFKA_BROKERS?.split(',') || ['suho-kafka:9092'],
             kafka_client_id: config.kafka_client_id || 'suho-trading-client',
             kafka_options: config.kafka_options || {},
 

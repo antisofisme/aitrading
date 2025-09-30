@@ -39,7 +39,7 @@ class APIGateway {
         this.options = {
             port: process.env.PORT || 8000,
             env: process.env.NODE_ENV || 'development',
-            centralHubUrl: process.env.CENTRAL_HUB_URL || 'http://localhost:3001',
+            centralHubUrl: process.env.CENTRAL_HUB_URL || 'http://suho-central-hub:7000',
             enableCors: true,
             enableCompression: true,
             enableHelmet: true,
