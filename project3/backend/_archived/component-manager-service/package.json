@@ -1,0 +1,37 @@
+{
+  "name": "suho-component-manager-service",
+  "version": "1.0.0",
+  "description": "Hot Reload Component Manager Service - Watches Central Hub shared components and distributes updates via NATS",
+  "main": "app.js",
+  "scripts": {
+    "start": "node app.js",
+    "dev": "nodemon app.js",
+    "test": "jest",
+    "docker:build": "docker build -t suho-component-manager .",
+    "docker:run": "docker run -p 7001:7001 suho-component-manager"
+  },
+  "keywords": [
+    "hot-reload",
+    "component-manager",
+    "file-watcher",
+    "nats",
+    "shared-components",
+    "suho"
+  ],
+  "author": "Suho AI Trading Team",
+  "license": "MIT",
+  "dependencies": {
+    "chokidar": "^3.6.0",
+    "nats": "^2.16.0",
+    "uuid": "^10.0.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1",
+    "jest": "^29.7.0"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=8.0.0"
+  }
+}

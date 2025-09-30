@@ -1,0 +1,53 @@
+{
+  "connection": {
+    "bootstrap_servers": ["suho-kafka:29092"],
+    "external_bootstrap_servers": ["localhost:9092"],
+    "client_id": "suho-trading-client",
+    "security_protocol": "PLAINTEXT"
+  },
+  "producer": {
+    "acks": "1",
+    "retries": 3,
+    "batch_size": 16384,
+    "linger_ms": 10,
+    "buffer_memory": 33554432,
+    "compression_type": "snappy",
+    "max_request_size": 1048576
+  },
+  "consumer": {
+    "group_id": "suho-trading-group",
+    "auto_offset_reset": "latest",
+    "enable_auto_commit": false,
+    "auto_commit_interval_ms": 1000,
+    "session_timeout_ms": 30000,
+    "heartbeat_interval_ms": 10000,
+    "max_poll_records": 500,
+    "fetch_min_bytes": 1,
+    "fetch_max_wait_ms": 500
+  },
+  "topics": {
+    "trading": {
+      "orders": "trading-orders",
+      "executions": "trading-executions",
+      "positions": "trading-positions",
+      "market_data": "market-data"
+    },
+    "system": {
+      "events": "system-events",
+      "metrics": "system-metrics",
+      "alerts": "system-alerts"
+    }
+  },
+  "topic_config": {
+    "partitions": 6,
+    "replication_factor": 1,
+    "retention_ms": 259200000,
+    "segment_bytes": 104857600,
+    "cleanup_policy": "delete",
+    "compression_type": "producer"
+  },
+  "admin": {
+    "request_timeout_ms": 30000,
+    "connections_max_idle_ms": 540000
+  }
+}

@@ -6,7 +6,11 @@
 
 ## 🎯 **OVERVIEW: UNIFIED SHARED RESOURCES**
 
-Central Hub manages **all shared resources** for the Suho Trading System through a **unified `shared/` directory** with clear categorization by **distribution type** rather than **content type**.
+Central Hub manages **all shared resources** for the Suho Trading System with clear separation:
+- **`base/`** - Central Hub's own service code (FastAPI application)
+- **`shared/`** - Resources distributed to other services (components, configs)
+
+**Component Manager functionality is now handled directly by Central Hub itself** - no separate service needed.
 
 ## 📁 **SHARED DIRECTORY STRUCTURE**
 

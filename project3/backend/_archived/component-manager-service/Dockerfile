@@ -1,4 +1,4 @@
-# Component Manager - Standalone Node.js service for hot reload
+# Component Manager Service - Standalone Hot Reload Service
 FROM node:18-alpine
 
 # Install security updates
@@ -17,11 +17,14 @@ COPY package*.json ./
 # Install dependencies
 RUN npm install --omit=dev && npm cache clean --force
 
-# Copy shared components
+# Copy application source
 COPY . .
 
 # Create data directory for component versions
 RUN mkdir -p /app/data && chown componentmgr:nodejs /app/data
+
+# Expose port for health checks
+EXPOSE 7001
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
@@ -30,6 +33,6 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
 # Switch to non-root user
 USER componentmgr
 
-# Start Component Manager Bridge
+# Start Component Manager Service
 ENTRYPOINT ["dumb-init", "--"]
-CMD ["node", "component-manager-bridge.js"]
+CMD ["node", "app.js"]

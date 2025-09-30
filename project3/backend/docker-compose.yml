@@ -19,24 +19,17 @@ services:
       - TS_TUNE_NUM_CPUS=4
     volumes:
       - postgresql_data:/home/postgres/pgdata/data
-      - ./01-core-infrastructure/central-hub/config/database/init-scripts:/docker-entrypoint-initdb.d
-      - ./01-core-infrastructure/central-hub/config/database/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+      - ./01-core-infrastructure/central-hub/base/config/database/init-scripts:/docker-entrypoint-initdb.d
     command:
       - postgres
-      - -c
-      - config_file=/etc/postgresql/postgresql.conf
       - -c
       - shared_preload_libraries=timescaledb
       - -c
       - max_connections=200
       - -c
-      - shared_buffers=1GB
+      - shared_buffers=512MB
       - -c
-      - effective_cache_size=3GB
-      - -c
-      - work_mem=32MB
-      - -c
-      - maintenance_work_mem=256MB
+      - effective_cache_size=1GB
     networks:
       - suho-trading-network
     healthcheck:
@@ -251,27 +244,39 @@ services:
     ports:
       - "7000:7000"
     environment:
-      - NODE_ENV=development
-      - PYTHONPATH=/app
-      - DATABASE_URL=postgresql://suho_admin:suho_secure_password_2024@suho-postgresql:5432/suho_trading
-      - POSTGRES_HOST=suho-postgresql
-      - POSTGRES_PORT=5432
-      - POSTGRES_DB=suho_trading
-      - POSTGRES_USER=suho_admin
-      - POSTGRES_PASSWORD=suho_secure_password_2024
-      - CACHE_URL=redis://:dragonfly_secure_2024@suho-dragonflydb:6379
-      - NATS_URL=nats://suho-nats-server:4222
-      - KAFKA_BROKERS=suho-kafka:9092
-      - DRAGONFLY_HOST=suho-dragonflydb
-      - DRAGONFLY_PORT=6379
-      - DRAGONFLY_PASSWORD=dragonfly_secure_2024
-      - HOT_RELOAD_ENABLED=false
-      - COMPONENT_WATCH_ENABLED=false
+      # === AUTO-SYNC WITH shared/static/ configs ===
+      # Database passwords (synced from shared/static/database/*.json)
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD}
+      - DRAGONFLY_PASSWORD=${DRAGONFLY_PASSWORD}
+      - ARANGO_ROOT_PASSWORD=${ARANGO_ROOT_PASSWORD}
+      - ARANGO_JWT_SECRET=${ARANGO_JWT_SECRET}
+
+      # === LEGACY SUPPORT (backward compatibility) ===
+      - NODE_ENV=${NODE_ENV:-development}
+      - PYTHONPATH=${PYTHONPATH:-/app}
+      - DATABASE_URL=${DATABASE_URL}
+      - CACHE_URL=${CACHE_URL}
+      - NATS_URL=${NATS_URL}
+      - KAFKA_BROKERS=${KAFKA_BROKERS}
+
+      # === POSTGRES CONNECTION DETAILS ===
+      - POSTGRES_HOST=${POSTGRES_HOST}
+      - POSTGRES_PORT=${POSTGRES_PORT}
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+
+      # === DRAGONFLY CONNECTION DETAILS ===
+      - DRAGONFLY_HOST=${DRAGONFLY_HOST}
+      - DRAGONFLY_PORT=${DRAGONFLY_PORT}
+
+      # === SERVICE SETTINGS ===
+      - HOT_RELOAD_ENABLED=${HOT_RELOAD_ENABLED:-false}
+      - COMPONENT_WATCH_ENABLED=${COMPONENT_WATCH_ENABLED:-false}
     volumes:
       # Mount shared components for hot reload
       - ./01-core-infrastructure/central-hub/shared:/app/shared:rw
-      - ./01-core-infrastructure/central-hub/service:/app/service:rw
-      - ./01-core-infrastructure/central-hub/config:/app/config:rw
+      - ./01-core-infrastructure/central-hub/base:/app/base:rw
       - ./01-core-infrastructure/central-hub/contracts:/app/contracts:rw
       # Volume for component cache
       - central-hub-components:/app/shared/.component_cache
@@ -292,46 +297,6 @@ services:
       - "com.suho.service=central-hub"
       - "com.suho.type=core-service"
 
-  # Component Manager - Hot Reload System
-  component-manager:
-    build:
-      context: ./01-core-infrastructure/component-manager-service
-      dockerfile: Dockerfile
-    container_name: suho-component-manager
-    restart: unless-stopped
-    ports:
-      - "6000:6000"
-    environment:
-      - NODE_ENV=development
-      - NATS_URL=nats://suho-nats-server:4222
-      - CENTRAL_HUB_URL=http://suho-central-hub:7000
-      - WATCH_PATTERNS=shared/**/*.js,shared/**/*.json
-      - HOT_RELOAD_ENABLED=false
-      - FILE_WATCH_POLLING=false
-      - COMPONENT_CACHE_ENABLED=true
-    volumes:
-      # Watch central-hub shared components
-      - ./01-core-infrastructure/central-hub/shared:/app/watch/central-hub-shared:ro
-      # Watch api-gateway shared components
-      - ./01-core-infrastructure/api-gateway/central-hub-shared:/app/watch/api-gateway-shared:rw
-      # Component Manager own files
-      - ./01-core-infrastructure/component-manager-service:/app/src:rw
-      # Component Manager shared directory
-      - ./01-core-infrastructure/component-manager-service/shared:/app/shared:rw
-    networks:
-      - suho-trading-network
-    depends_on:
-      - nats
-      - central-hub
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:6000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 30s
-    labels:
-      - "com.suho.service=component-manager"
-      - "com.suho.type=core-service"
 
   # API Gateway - Main Entry Point
   api-gateway:
@@ -357,7 +322,6 @@ services:
       - NATS_URL=nats://suho-nats-server:4222
       - KAFKA_BROKERS=suho-kafka:9092
       - CENTRAL_HUB_URL=http://suho-central-hub:7000
-      - COMPONENT_MANAGER_URL=http://suho-component-manager:6000
       - JWT_SECRET=your-super-secret-jwt-key-change-in-production
       - JWT_EXPIRES_IN=24h
       - JWT_ISSUER=suho-api-gateway
@@ -370,9 +334,7 @@ services:
     volumes:
       # API Gateway source code
       - ./01-core-infrastructure/api-gateway/src:/app/src:rw
-      # Shared components (hot reload)
-      - ./01-core-infrastructure/api-gateway/central-hub-shared:/app/central-hub-shared:rw
-      # Central hub shared components for path resolution
+      # Central hub shared components for direct access
       - ./01-core-infrastructure/central-hub/shared:/app/shared/central-hub:ro
       # Logs and contracts from individual compose
       - ./01-core-infrastructure/api-gateway/logs:/app/logs
@@ -387,7 +349,6 @@ services:
       - nats
       - kafka
       - central-hub
-      - component-manager
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s

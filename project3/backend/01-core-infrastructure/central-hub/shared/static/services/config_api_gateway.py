@@ -268,7 +268,7 @@ CONFIG_API_GATEWAY = {
         "updated_by": "platform-team",
         "hot_reload_enabled": True,
         "validation_schema": "api_gateway_config_v2",
-        "dependencies": ["central-hub", "component-manager", "nats", "kafka"]
+        "dependencies": ["central-hub", "nats", "kafka"]
     }
 }
 

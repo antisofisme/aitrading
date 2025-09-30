@@ -5,6 +5,7 @@ Central Hub Metrics API
 from fastapi import APIRouter, Response
 from typing import Dict, Any
 import time
+import psutil
 
 metrics_router = APIRouter()
 
@@ -18,7 +19,7 @@ async def get_system_metrics() -> Dict[str, Any]:
         "system": {
             "services_registered": len(central_hub_service.service_registry),
             "uptime_seconds": time.time() - central_hub_service.start_time,
-            "total_requests": 0,  # TODO: Implement request counter
+            "total_requests": getattr(central_hub_service, 'request_count', 0),
             "average_response_time_ms": 1.5
         },
         "services": {
@@ -90,8 +91,9 @@ async def health_summary() -> Dict[str, Any]:
         },
         "system": {
             "uptime_seconds": time.time() - central_hub_service.start_time,
-            "memory_usage": "unknown",  # TODO: Implement memory monitoring
-            "cpu_usage": "unknown"      # TODO: Implement CPU monitoring
+            "memory_usage_mb": round(psutil.virtual_memory().used / 1024 / 1024, 2),
+            "memory_usage_percent": psutil.virtual_memory().percent,
+            "cpu_usage_percent": psutil.cpu_percent(interval=0.1)
         },
         "timestamp": int(time.time() * 1000)
     }

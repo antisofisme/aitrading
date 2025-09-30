@@ -1,0 +1,28 @@
+{
+  "connection": {
+    "host": "suho-clickhouse",
+    "http_port": 8123,
+    "native_port": 9000,
+    "database": "suho_analytics",
+    "user": "suho_analytics",
+    "password": "${CLICKHOUSE_PASSWORD}",
+    "secure": false
+  },
+  "settings": {
+    "max_query_size": 262144000,
+    "max_ast_elements": 200000,
+    "max_expanded_ast_elements": 500000,
+    "readonly": 0,
+    "allow_ddl": 1
+  },
+  "pool": {
+    "max_connections": 10,
+    "connection_timeout": 10000,
+    "receive_timeout": 300000,
+    "send_timeout": 300000
+  },
+  "tables": {
+    "analytics": ["trading_metrics", "market_analysis", "performance_data"],
+    "logs": ["error_logs", "audit_logs", "system_logs"]
+  }
+}

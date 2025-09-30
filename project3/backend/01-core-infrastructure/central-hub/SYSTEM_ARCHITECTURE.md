@@ -3,19 +3,24 @@
 ## Core Infrastructure Overview
 
 ```
-┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
-│   Central Hub   │◄──►│ Component Manager│◄──►│  API Gateway    │
-│   (Config +     │    │   (Hot Reload)   │    │  (Main Entry)   │
-│   Components)   │    └──────────────────┘    └─────────────────┘
-└─────────────────┘              │                       │
-        │                        ▼                       ▼
-        ▼                  ┌──────────┐            ┌──────────┐
-┌─────────────────┐        │   NATS   │            │   HTTP   │
-│   PostgreSQL    │        │ Message  │            │ Clients  │
-│   DragonflyDB   │        │  Queue   │            │   MT5    │
-│   ClickHouse    │        └──────────┘            │ WebSocket│
-└─────────────────┘                                └──────────┘
+┌─────────────────┐                            ┌─────────────────┐
+│   Central Hub   │◄──────────────────────────►│  API Gateway    │
+│   (base/ +      │    Config & Components     │  (Main Entry)   │
+│   shared/)      │    Distribution            │                 │
+└─────────────────┘                            └─────────────────┘
+        │                                               │
+        ▼                                               ▼
+┌─────────────────┐        ┌──────────┐        ┌──────────┐
+│   Database      │        │   NATS   │        │   HTTP   │
+│   PostgreSQL    │        │   Kafka  │        │ Clients  │
+│   DragonflyDB   │        │ Zookeeper│        │   MT5    │
+│   ClickHouse    │        │ Messages │        │ WebSocket│
+│   Weaviate      │        └──────────┘        └──────────┘
+│   ArangoDB      │
+└─────────────────┘
 ```
+
+**Note**: Component Manager is now integrated directly into Central Hub - no separate service needed.
 
 ## Centralized Configuration System
 

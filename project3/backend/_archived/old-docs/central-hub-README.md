@@ -99,10 +99,10 @@ docker run -d \
   -e POSTGRES_PORT=5432 \
   -e POSTGRES_DB=suho_trading \
   -e POSTGRES_USER=suho_admin \
-  -e POSTGRES_PASSWORD=your_secure_postgres_password \
+  -e POSTGRES_PASSWORD=suho_secure_password_2024 \
   -e DRAGONFLY_HOST=suho-dragonflydb \
   -e DRAGONFLY_PORT=6379 \
-  -e DRAGONFLY_PASSWORD=your_secure_dragonfly_password \
+  -e DRAGONFLY_PASSWORD=dragonfly_secure_2024 \
   -e KAFKA_BROKERS=suho-kafka:9092 \
   -e NATS_URL=nats://suho-nats-server:4222 \
   central-hub:latest
@@ -263,12 +263,12 @@ POSTGRES_HOST=suho-postgresql
 POSTGRES_PORT=5432
 POSTGRES_DB=suho_trading
 POSTGRES_USER=suho_admin
-POSTGRES_PASSWORD=your_secure_postgres_password
+POSTGRES_PASSWORD=suho_secure_password_2024
 
 # Cache Configuration
 DRAGONFLY_HOST=suho-dragonflydb
 DRAGONFLY_PORT=6379
-DRAGONFLY_PASSWORD=your_secure_dragonfly_password
+DRAGONFLY_PASSWORD=dragonfly_secure_2024
 
 # Message Broker Configuration
 KAFKA_BROKERS=suho-kafka:9092
@@ -282,94 +282,3 @@ WEAVIATE_PORT=8080
 ```
 
 This configuration allows Central Hub to act as the central coordination point for all database and service interactions in the trading system.
-
----
-
-## 🏗️ Architecture Implementation
-
-### **Current Directory Structure**
-```
-central-hub/
-├── base/                     # ✅ CENTRAL HUB SERVICE CODE
-│   ├── api/                 # REST API endpoints (discovery, health, metrics)
-│   ├── core/                # Core service functionality (config manager)
-│   ├── config/              # Service-specific configuration files
-│   ├── impl/                # Business logic implementations
-│   ├── middleware/          # FastAPI middleware components
-│   └── app.py               # Main FastAPI application entry point
-│
-├── shared/                   # ✅ SHARED RESOURCES FOR OTHER SERVICES
-│   ├── components/          # 🔧 Code components (distributed to services)
-│   │   └── js/             # JavaScript utilities, adapters, logging
-│   ├── static/             # ⚙️ Static configuration (startup distributed)
-│   │   ├── database/       # Database connection configurations
-│   │   ├── messaging/      # NATS, Kafka, Zookeeper configurations
-│   │   └── services/       # Service-specific configuration templates
-│   ├── component_versions.json # Component versioning for hot reload
-│   └── package.json        # NPM configuration for shared components
-│
-├── contracts/               # API contracts and protocol definitions
-├── Dockerfile              # Container build configuration
-├── requirements.txt         # Python dependencies
-└── README.md               # This documentation
-```
-
-### **Configuration Management**
-
-**Centralized Database Configuration:**
-- All database connections managed through `shared/static/database/`
-- Environment variable substitution: `${ENV_VAR}` pattern
-- Fail-fast error handling with no fallbacks
-- Support for PostgreSQL, ClickHouse, DragonflyDB, Weaviate, ArangoDB
-
-**Messaging Configuration:**
-- Centralized message broker configs in `shared/static/messaging/`
-- NATS, Kafka, and Zookeeper configurations
-- Connection pooling and retry logic
-
-**Service Import Pattern:**
-Other services access shared resources via:
-```python
-# Import from shared directory
-sys.path.append('../../../01-core-infrastructure/central-hub/shared')
-from components.js.utils.base_service import BaseService
-```
-
----
-
-## 🔧 Development & Troubleshooting
-
-### **Common Issues & Solutions**
-
-**1. Import Errors:**
-- Ensure `shared/` directory is accessible from other services
-- Check Python path configuration in service imports
-
-**2. Configuration Errors:**
-- Verify all environment variables are set
-- Check `shared/static/database/` and `shared/static/messaging/` configs
-- No fallback configurations - errors will show missing env vars
-
-**3. Docker Build Issues:**
-- Clean build: `docker-compose build --no-cache central-hub`
-- Check syntax errors in Python files (especially missing commas)
-- Verify requirements.txt dependencies
-
-**4. Service Discovery:**
-- Central Hub must be running before other services
-- Check health endpoint: `curl http://localhost:7000/health`
-- Verify database connections are established
-
-### **Monitoring & Metrics**
-
-**Health Endpoints:**
-- `GET /health` - Basic health check
-- `GET /health/detailed` - Detailed system health
-- `GET /metrics` - Prometheus-compatible metrics
-- `GET /metrics/health-summary` - System health summary
-
-**Real-time Metrics:**
-- Service registration count
-- Database connection status
-- Memory and CPU usage (via psutil)
-- Response time monitoring

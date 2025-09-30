@@ -1,0 +1,51 @@
+{
+  "connection": {
+    "host": "suho-nats-server",
+    "port": 4222,
+    "monitoring_port": 8222,
+    "protocol": "nats",
+    "timeout": 10000
+  },
+  "jetstream": {
+    "enabled": true,
+    "store_dir": "/data",
+    "max_memory": "1GB",
+    "max_storage": "10GB"
+  },
+  "subjects": {
+    "trading": {
+      "orders": "trading.orders.*",
+      "positions": "trading.positions.*",
+      "market_data": "trading.market.*"
+    },
+    "system": {
+      "health": "system.health.*",
+      "config": "system.config.*",
+      "logs": "system.logs.*"
+    }
+  },
+  "streams": {
+    "trading_stream": {
+      "subjects": ["trading.>"],
+      "retention": "limits",
+      "max_age": 86400000,
+      "max_msgs": 1000000,
+      "storage": "file"
+    },
+    "system_stream": {
+      "subjects": ["system.>"],
+      "retention": "limits",
+      "max_age": 3600000,
+      "max_msgs": 100000,
+      "storage": "memory"
+    }
+  },
+  "consumers": {
+    "trading_processor": {
+      "stream": "trading_stream",
+      "durable": true,
+      "deliver_policy": "all",
+      "ack_policy": "explicit"
+    }
+  }
+}

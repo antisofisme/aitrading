@@ -5,6 +5,8 @@ Handles configuration distribution and management
 
 import time
 import os
+import json
+from pathlib import Path
 from typing import Dict, List, Optional, Any
 import logging
 
@@ -18,21 +20,102 @@ class ConfigManager:
         self.service_configs: Dict[str, Dict[str, Any]] = {}
 
     def _load_default_configurations(self) -> Dict[str, Any]:
-        """Load default system configurations"""
+        """Load configurations from shared/static directory"""
+        config = {}
+
+        # Load database configurations
+        config["database"] = self._load_database_configs()
+
+        # Load messaging configurations
+        config["messaging"] = self._load_messaging_configs()
+
+        # Legacy configurations that aren't moved to shared/static yet
+        config.update(self._load_legacy_configurations())
+
+        return config
+
+    def _load_database_configs(self) -> Dict[str, Any]:
+        """Load database configurations from shared/static/database/"""
+        db_configs = {}
+        shared_path = Path(__file__).parent.parent.parent / "shared" / "static" / "database"
+
+        try:
+            for config_file in shared_path.glob("*.json"):
+                db_name = config_file.stem  # filename without .json
+                with open(config_file, 'r') as f:
+                    db_config = json.load(f)
+                    # Replace environment variables in config
+                    db_config = self._substitute_env_vars(db_config)
+                    db_configs[db_name] = db_config
+
+            self.logger.info(f"Loaded {len(db_configs)} database configurations")
+            return db_configs
+
+        except Exception as e:
+            self.logger.error(f"CRITICAL: Failed to load database configs from shared/static/database/: {e}")
+            raise RuntimeError(f"Database configuration loading failed: {e}. Check shared/static/database/ directory and file permissions.")
+
+    def _load_messaging_configs(self) -> Dict[str, Any]:
+        """Load messaging configurations from shared/static/messaging/"""
+        msg_configs = {}
+        shared_path = Path(__file__).parent.parent.parent / "shared" / "static" / "messaging"
+
+        try:
+            for config_file in shared_path.glob("*.json"):
+                msg_name = config_file.stem  # filename without .json
+                with open(config_file, 'r') as f:
+                    msg_config = json.load(f)
+                    # Replace environment variables in config
+                    msg_config = self._substitute_env_vars(msg_config)
+                    msg_configs[msg_name] = msg_config
+
+            self.logger.info(f"Loaded {len(msg_configs)} messaging configurations")
+            return msg_configs
+
+        except Exception as e:
+            self.logger.error(f"CRITICAL: Failed to load messaging configs from shared/static/messaging/: {e}")
+            raise RuntimeError(f"Messaging configuration loading failed: {e}. Check shared/static/messaging/ directory and file permissions.")
+
+    def _substitute_env_vars(self, config: Any) -> Any:
+        """Recursively substitute environment variables in config"""
+        if isinstance(config, dict):
+            return {key: self._substitute_env_vars(value) for key, value in config.items()}
+        elif isinstance(config, list):
+            return [self._substitute_env_vars(item) for item in config]
+        elif isinstance(config, str) and config.startswith("${") and config.endswith("}"):
+            env_var = config[2:-1]  # Remove ${ and }
+            env_value = os.getenv(env_var)
+            if env_value is None:
+                raise RuntimeError(f"Required environment variable '{env_var}' is not set. Please configure all required environment variables.")
+            return env_value
+        else:
+            return config
+
+    def get_database_config(self, db_name: str) -> Dict[str, Any]:
+        """Get specific database configuration"""
+        config = self.configurations.get("database", {}).get(db_name)
+        if config is None:
+            raise RuntimeError(f"Database configuration for '{db_name}' not found. Available databases: {list(self.configurations.get('database', {}).keys())}")
+        return config
+
+    def get_messaging_config(self, msg_name: str) -> Dict[str, Any]:
+        """Get specific messaging configuration"""
+        config = self.configurations.get("messaging", {}).get(msg_name)
+        if config is None:
+            raise RuntimeError(f"Messaging configuration for '{msg_name}' not found. Available messaging systems: {list(self.configurations.get('messaging', {}).keys())}")
+        return config
+
+    def get_all_database_configs(self) -> Dict[str, Any]:
+        """Get all database configurations"""
+        return self.configurations.get("database", {})
+
+    def get_all_messaging_configs(self) -> Dict[str, Any]:
+        """Get all messaging configurations"""
+        return self.configurations.get("messaging", {})
+
+    def _load_legacy_configurations(self) -> Dict[str, Any]:
+        """Load legacy configurations that aren't in shared/static yet"""
         return {
-            "database": {
-                "postgresql": f"postgresql://{os.getenv('POSTGRES_USER')}:{os.getenv('POSTGRES_PASSWORD')}@{os.getenv('POSTGRES_HOST')}:{os.getenv('POSTGRES_PORT')}/{os.getenv('POSTGRES_DB')}",
-                "clickhouse": "http://suho-clickhouse:8123",
-                "dragonflydb": f"redis://:{os.getenv('DRAGONFLY_PASSWORD')}@{os.getenv('DRAGONFLY_HOST')}:{os.getenv('DRAGONFLY_PORT')}",
-                "arangodb": f"http://root:{os.getenv('ARANGO_ROOT_PASSWORD')}@{os.getenv('ARANGODB_HOST', 'suho-arangodb')}:8529"
-            },
-            "messaging": {
-                "nats": "nats://suho-nats-server:4222",
-                "kafka": "suho-kafka:9092"
-            },
-            "ai": {
-                "weaviate": "http://suho-weaviate:8080"
-            },
             "shared_components": {
                 "error_dna": {
                     "enabled": True,

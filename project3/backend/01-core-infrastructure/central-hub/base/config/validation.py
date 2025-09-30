@@ -34,7 +34,7 @@ class ConfigValidator:
 
         Args:
             config: Configuration dictionary to validate
-            service_name: Name of the service (api-gateway, component-manager, etc.)
+            service_name: Name of the service (api-gateway, etc.)
 
         Returns:
             List of validation results
@@ -48,8 +48,6 @@ class ConfigValidator:
         # Service-specific validation
         if service_name == 'api-gateway':
             self._validate_api_gateway_specific(config)
-        elif service_name == 'component-manager':
-            self._validate_component_manager_specific(config)
         elif service_name == 'trading-engine':
             self._validate_trading_engine_specific(config)
         elif service_name == 'market-analyzer':
@@ -150,35 +148,6 @@ class ConfigValidator:
                         )
                     )
 
-    def _validate_component_manager_specific(self, config: Dict[str, Any]):
-        """Validate Component Manager specific configuration"""
-        if 'business_rules' in config and 'file_watching' in config['business_rules']:
-            file_watching = config['business_rules']['file_watching']
-
-            # Validate watch patterns
-            if 'patterns' in file_watching:
-                patterns = file_watching['patterns']
-                if not isinstance(patterns, list) or not patterns:
-                    self.validation_results.append(
-                        ValidationResult(
-                            ValidationLevel.ERROR,
-                            "business_rules.file_watching.patterns",
-                            "Watch patterns must be a non-empty list",
-                            patterns,
-                            "list[str]"
-                        )
-                    )
-
-            # Validate polling settings
-            if 'use_polling' in file_watching and file_watching['use_polling']:
-                if 'polling_interval' not in file_watching:
-                    self.validation_results.append(
-                        ValidationResult(
-                            ValidationLevel.WARNING,
-                            "business_rules.file_watching.polling_interval",
-                            "Polling enabled but polling_interval not specified, using default"
-                        )
-                    )
 
     def _validate_trading_engine_specific(self, config: Dict[str, Any]):
         """Validate Trading Engine specific configuration (placeholder)"""
