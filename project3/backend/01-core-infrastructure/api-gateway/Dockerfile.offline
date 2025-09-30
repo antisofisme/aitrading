@@ -1,7 +1,7 @@
 # API Gateway - Offline Node.js Build
 # This creates offline node_modules during build and keeps them for future builds
 
-FROM node:18-alpine
+FROM node:16-alpine
 
 # Add dumb-init for proper signal handling
 RUN apk update && apk upgrade && apk add --no-cache dumb-init
@@ -15,8 +15,9 @@ WORKDIR /app
 # Copy package files first
 COPY --chown=apigateway:nodejs package*.json ./
 
-# Install dependencies directly in production stage (simpler approach)
-RUN npm install --omit=dev --no-optional --no-audit --no-fund && \
+# Install dependencies with Node 16 compatible approach
+RUN npm install --omit=dev --no-optional --no-audit --no-fund --force && \
+    npm rebuild && \
     npm cache clean --force
 
 # Copy application source code
