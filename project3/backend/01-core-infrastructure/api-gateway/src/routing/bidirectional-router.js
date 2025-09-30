@@ -1002,6 +1002,43 @@ class BidirectionalRouter extends EventEmitter {
     }
 
     /**
+     * Update routing metrics
+     * @param {string} source - Source service name
+     * @param {string} target - Target service name
+     * @param {string} transport - Transport method used
+     */
+    updateRoutingMetrics(source, target, transport) {
+        // Initialize metrics if not exists
+        if (!this.routingMetrics) {
+            this.routingMetrics = new Map();
+        }
+
+        const key = `${source}->${target}`;
+
+        if (!this.routingMetrics.has(key)) {
+            this.routingMetrics.set(key, {
+                source,
+                target,
+                transport,
+                count: 0,
+                lastRouted: null,
+                errors: 0
+            });
+        }
+
+        const metrics = this.routingMetrics.get(key);
+        metrics.count++;
+        metrics.lastRouted = Date.now();
+        metrics.transport = transport; // Update transport method
+
+        // Emit metrics event for monitoring
+        this.emit('routing_metrics_updated', {
+            key,
+            metrics: { ...metrics }
+        });
+    }
+
+    /**
      * Get routing statistics
      * @returns {Object} Routing statistics
      */
@@ -1010,7 +1047,8 @@ class BidirectionalRouter extends EventEmitter {
             active_routes: this.routingTable.size,
             cached_services: this.serviceRegistry.size,
             load_balancers: this.loadBalancers.size,
-            message_queue_size: this.messageQueue.length
+            message_queue_size: this.messageQueue.length,
+            routing_metrics: this.routingMetrics ? Object.fromEntries(this.routingMetrics) : {}
         };
     }
 

@@ -207,7 +207,7 @@ class NATSKafkaClient extends EventEmitter {
             // NATS publish (real-time)
             if (this.status.nats.connected) {
                 promises.push(
-                    this.publishViaNCertain(subject, messageEnvelope, 'nats')
+                    this.publishViaNATS(subject, messageEnvelope)
                         .then(result => { results.nats = result; })
                         .catch(error => { results.nats = { error }; })
                 );

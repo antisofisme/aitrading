@@ -94,7 +94,7 @@ class PostgreSQLConnection(DatabaseConnection):
             await self.pool.close()
             self.logger.info("PostgreSQL connection pool closed")
 
-    async def execute(self, query: str, params: Optional[Dict] = None) -> Any:
+    async def execute(self, query: str, params: Optional[Union[Dict, List]] = None) -> Any:
         """Execute PostgreSQL query"""
         if not self.pool:
             raise RuntimeError("Database not connected")
@@ -103,7 +103,12 @@ class PostgreSQLConnection(DatabaseConnection):
             try:
                 async with self.pool.acquire() as conn:
                     if params:
-                        result = await conn.execute(query, *params.values())
+                        if isinstance(params, dict):
+                            result = await conn.execute(query, *params.values())
+                        elif isinstance(params, list):
+                            result = await conn.execute(query, *params)
+                        else:
+                            result = await conn.execute(query, params)
                     else:
                         result = await conn.execute(query)
                     return result
@@ -113,7 +118,7 @@ class PostgreSQLConnection(DatabaseConnection):
                     raise
                 await asyncio.sleep(0.1 * (attempt + 1))
 
-    async def fetch_one(self, query: str, params: Optional[Dict] = None) -> Optional[Dict]:
+    async def fetch_one(self, query: str, params: Optional[Union[Dict, List]] = None) -> Optional[Dict]:
         """Fetch single row from PostgreSQL"""
         if not self.pool:
             raise RuntimeError("Database not connected")
@@ -122,7 +127,12 @@ class PostgreSQLConnection(DatabaseConnection):
             try:
                 async with self.pool.acquire() as conn:
                     if params:
-                        row = await conn.fetchrow(query, *params.values())
+                        if isinstance(params, dict):
+                            row = await conn.fetchrow(query, *params.values())
+                        elif isinstance(params, list):
+                            row = await conn.fetchrow(query, *params)
+                        else:
+                            row = await conn.fetchrow(query, params)
                     else:
                         row = await conn.fetchrow(query)
                     return dict(row) if row else None
@@ -132,7 +142,7 @@ class PostgreSQLConnection(DatabaseConnection):
                     raise
                 await asyncio.sleep(0.1 * (attempt + 1))
 
-    async def fetch_many(self, query: str, params: Optional[Dict] = None) -> List[Dict]:
+    async def fetch_many(self, query: str, params: Optional[Union[Dict, List]] = None) -> List[Dict]:
         """Fetch multiple rows from PostgreSQL"""
         if not self.pool:
             raise RuntimeError("Database not connected")
@@ -141,7 +151,12 @@ class PostgreSQLConnection(DatabaseConnection):
             try:
                 async with self.pool.acquire() as conn:
                     if params:
-                        rows = await conn.fetch(query, *params.values())
+                        if isinstance(params, dict):
+                            rows = await conn.fetch(query, *params.values())
+                        elif isinstance(params, list):
+                            rows = await conn.fetch(query, *params)
+                        else:
+                            rows = await conn.fetch(query, params)
                     else:
                         rows = await conn.fetch(query)
                     return [dict(row) for row in rows]
@@ -220,17 +235,17 @@ class StandardDatabaseManager:
             except Exception as e:
                 self.logger.error(f"Error disconnecting from {name}: {str(e)}")
 
-    async def execute(self, query: str, params: Optional[Dict] = None, connection_name: str = "default") -> Any:
+    async def execute(self, query: str, params: Optional[Union[Dict, List]] = None, connection_name: str = "default") -> Any:
         """Execute query on specified connection"""
         connection = self.get_connection(connection_name)
         return await connection.execute(query, params)
 
-    async def fetch_one(self, query: str, params: Optional[Dict] = None, connection_name: str = "default") -> Optional[Dict]:
+    async def fetch_one(self, query: str, params: Optional[Union[Dict, List]] = None, connection_name: str = "default") -> Optional[Dict]:
         """Fetch single row from specified connection"""
         connection = self.get_connection(connection_name)
         return await connection.fetch_one(query, params)
 
-    async def fetch_many(self, query: str, params: Optional[Dict] = None, connection_name: str = "default") -> List[Dict]:
+    async def fetch_many(self, query: str, params: Optional[Union[Dict, List]] = None, connection_name: str = "default") -> List[Dict]:
         """Fetch multiple rows from specified connection"""
         connection = self.get_connection(connection_name)
         return await connection.fetch_many(query, params)

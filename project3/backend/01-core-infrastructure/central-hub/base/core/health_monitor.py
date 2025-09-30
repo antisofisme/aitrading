@@ -82,17 +82,13 @@ class HealthMonitor:
 
         # Store in database
         if self.db_manager:
+            import json
             await self.db_manager.execute(
                 """
                 INSERT INTO health_metrics (service_name, status, response_time_ms, metadata)
                 VALUES ($1, $2, $3, $4)
                 """,
-                {
-                    "service_name": service_name,
-                    "status": "healthy",
-                    "response_time_ms": response_time,
-                    "metadata": health_data
-                }
+                [service_name, "healthy", response_time, json.dumps(health_data)]
             )
 
             # Update service registry table
@@ -102,7 +98,7 @@ class HealthMonitor:
                 SET last_seen = CURRENT_TIMESTAMP, status = 'active'
                 WHERE service_name = $1
                 """,
-                {"service_name": service_name}
+                [service_name]
             )
 
         # Cache health status
@@ -129,16 +125,13 @@ class HealthMonitor:
 
         # Store in database
         if self.db_manager:
+            import json
             await self.db_manager.execute(
                 """
                 INSERT INTO health_metrics (service_name, status, metadata)
                 VALUES ($1, $2, $3)
                 """,
-                {
-                    "service_name": service_name,
-                    "status": "unhealthy",
-                    "metadata": {"error": error_message}
-                }
+                [service_name, "unhealthy", json.dumps({"error": error_message})]
             )
 
             # Update service registry table
@@ -148,7 +141,7 @@ class HealthMonitor:
                 SET status = 'unhealthy'
                 WHERE service_name = $1
                 """,
-                {"service_name": service_name}
+                [service_name]
             )
 
         # Cache unhealthy status
