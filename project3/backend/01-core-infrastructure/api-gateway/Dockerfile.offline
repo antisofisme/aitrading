@@ -15,9 +15,11 @@ WORKDIR /app
 # Copy package files first
 COPY --chown=apigateway:nodejs package*.json ./
 
-# Install dependencies with Node 16 compatible approach
-RUN npm install --omit=dev --no-optional --no-audit --no-fund --force && \
-    npm rebuild && \
+# Install dependencies fresh - remove any existing problematic files
+RUN rm -rf node_modules package-lock.json && \
+    npm cache clean --force && \
+    npm install --omit=dev --no-optional --no-audit --no-fund --force && \
+    npm ls || true && \
     npm cache clean --force
 
 # Copy application source code
