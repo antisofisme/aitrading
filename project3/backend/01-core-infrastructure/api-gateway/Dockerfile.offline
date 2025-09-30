@@ -1,0 +1,40 @@
+# API Gateway - Offline Node.js Build
+# This creates offline node_modules during build and keeps them for future builds
+
+FROM node:18-alpine
+
+# Add dumb-init for proper signal handling
+RUN apk update && apk upgrade && apk add --no-cache dumb-init
+
+# Create app user for security
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S apigateway -u 1001
+
+WORKDIR /app
+
+# Copy package files first
+COPY --chown=apigateway:nodejs package*.json ./
+
+# Install dependencies directly in production stage (simpler approach)
+RUN npm install --omit=dev --no-optional --no-audit --no-fund && \
+    npm cache clean --force
+
+# Copy application source code
+COPY --chown=apigateway:nodejs . .
+
+# Create logs directory
+RUN mkdir -p logs && chown apigateway:nodejs logs
+
+# Security: Switch to non-root user
+USER apigateway
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+  CMD node -e "const http = require('http'); http.get('http://localhost:8000/health', (res) => process.exit(res.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"
+
+# Expose ports
+EXPOSE 8000 8001 8002
+
+# Start with dumb-init for proper signal handling
+ENTRYPOINT ["dumb-init", "--"]
+CMD ["node", "app.js"]

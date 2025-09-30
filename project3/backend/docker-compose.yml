@@ -298,11 +298,11 @@ services:
       - "com.suho.type=core-service"
 
 
-  # API Gateway - Main Entry Point
+  # API Gateway - Main Entry Point (OFFLINE NODE_MODULES)
   api-gateway:
     build:
       context: ./01-core-infrastructure/api-gateway
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.offline
     container_name: suho-api-gateway
     restart: unless-stopped
     ports:

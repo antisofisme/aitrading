@@ -1,4 +1,4 @@
-node_modules
+# node_modules  # Commented out for offline builds - we need node_modules for Dockerfile.offline
 npm-debug.log
 .git
 .gitignore
