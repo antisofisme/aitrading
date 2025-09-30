@@ -1,0 +1,26 @@
+{
+  "api_gateway": {
+    "global": {
+      "window_ms": 900000,
+      "max_requests": 100
+    },
+    "authenticated": {
+      "window_ms": 900000,
+      "max_requests": 1000
+    },
+    "trading": {
+      "window_ms": 60000,
+      "max_requests": 10
+    }
+  },
+  "trading_engine": {
+    "order_placement": {
+      "window_ms": 1000,
+      "max_orders": 5
+    },
+    "position_changes": {
+      "window_ms": 5000,
+      "max_changes": 20
+    }
+  }
+}

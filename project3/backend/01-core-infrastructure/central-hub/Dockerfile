@@ -8,7 +8,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
-COPY service/ ./service/
+COPY base/ ./base/
 COPY shared/ ./shared/
 
 # Create logs directory
@@ -22,6 +22,6 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
   CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:7000/health')" || exit 1
 
 # Set Python path and run application
-ENV PYTHONPATH=/app/shared:/app/service
-WORKDIR /app/service
+ENV PYTHONPATH=/app/shared:/app/base
+WORKDIR /app/base
 CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "7000"]

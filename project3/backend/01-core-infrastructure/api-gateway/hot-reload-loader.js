@@ -15,7 +15,7 @@ class HotReloadLoader {
             central_hub_url: options.central_hub_url || 'http://suho-central-hub:7000',
             nats_url: options.nats_url || process.env.NATS_URL || 'nats://suho-nats-server:4222',
             cache_dir: options.cache_dir || path.join(__dirname, '.hot_cache'),
-            fallback_dir: options.fallback_dir || path.join(__dirname, 'central-hub-shared'),
+            fallback_dir: options.fallback_dir || path.join(__dirname, '../central-hub/shared/components'),
             enable_fallback: options.enable_fallback !== false, // Default true for safety
             ...options
         };
@@ -44,7 +44,7 @@ class HotReloadLoader {
 
             // Load ComponentSubscriber dynamically
             if (!ComponentSubscriber) {
-                ComponentSubscriber = require('./central-hub-shared/js/utils/ComponentSubscriber').ComponentSubscriber;
+                ComponentSubscriber = require('../central-hub/shared/components/js/utils/ComponentSubscriber').ComponentSubscriber;
             }
 
             // Initialize ComponentSubscriber

@@ -1,0 +1,20 @@
+{
+  "connection": {
+    "host": "suho-postgresql",
+    "port": 5432,
+    "database": "suho_trading",
+    "user": "suho_admin",
+    "password": "${POSTGRES_PASSWORD}",
+    "ssl": false
+  },
+  "pool": {
+    "min": 2,
+    "max": 10,
+    "acquire_timeout": 30000,
+    "idle_timeout": 10000
+  },
+  "timescaledb": {
+    "enabled": true,
+    "hypertables": ["trades", "market_data", "performance_metrics"]
+  }
+}

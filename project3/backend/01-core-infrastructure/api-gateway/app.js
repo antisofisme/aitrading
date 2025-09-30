@@ -11,6 +11,7 @@ const compression = require('compression');
 
 // Import Hot Reload Loader for dynamic component loading
 const { hotReloadLoader } = require('./hot-reload-loader');
+const { configService } = require('./src/config/ConfigService');
 
 // Will be dynamically loaded via hot reload
 let ServiceTemplate, TransferManager, createServiceLogger, ErrorDNA, TransportMethods;
@@ -66,7 +67,7 @@ async function loadSharedComponents() {
 
         // Fallback to static import
         console.log('⚠️ Falling back to static shared components...');
-        const shared = require('./central-hub-shared');
+        const shared = require('../central-hub/shared');
         ServiceTemplate = shared.ServiceTemplate;
         TransferManager = shared.TransferManager;
         createServiceLogger = shared.createServiceLogger;
@@ -87,25 +88,13 @@ class APIGatewayService {
         this.serviceConfig = {
             service_name: 'api-gateway',
             version: '2.0.0',
-            port: parseInt(process.env.PORT) || 8000,
-            environment: process.env.NODE_ENV || 'development',
             ...config
         };
 
-        // Will be set after hot reload
+        // Will be set after hot reload and config loading
         this.base_service = null;
-
-        // API Gateway specific configuration
-        this.options = {
-            centralHubUrl: process.env.CENTRAL_HUB_URL || 'http://suho-central-hub:7000',
-            enableCors: true,
-            enableCompression: true,
-            enableHelmet: true,
-            maxRequestSize: '10mb',
-            rateLimitWindow: 15 * 60 * 1000, // 15 minutes
-            rateLimitMax: 1000, // requests per window
-            ...config
-        };
+        this.config = null;
+        this.options = null;
 
         // Express application
         this.app = express();
@@ -129,11 +118,78 @@ class APIGatewayService {
         };
     }
 
+    async loadConfiguration() {
+        try {
+            console.log('🔄 Loading configuration from Central Hub...');
+
+            // Get configuration from Central Hub
+            this.config = await configService.getConfig();
+
+            // Build options from centralized config
+            this.options = {
+                port: this.config.api?.port || 8000,
+                centralHubUrl: this.config.services?.central_hub || 'http://suho-central-hub:7000',
+                enableCors: true,
+                enableCompression: true,
+                enableHelmet: true,
+                maxRequestSize: '10mb',
+                rateLimitWindow: this.config.api?.rate_limit?.window_ms || 15 * 60 * 1000,
+                rateLimitMax: this.config.api?.rate_limit?.max_requests || 1000,
+                cors_origins: this.config.api?.cors_origins || ['*'],
+                jwt: this.config.jwt || {
+                    secret: 'fallback-secret',
+                    expiresIn: '24h',
+                    issuer: 'api-gateway',
+                    audience: 'suho-trading'
+                },
+                websocket: {
+                    trading_port: this.config.api?.trading_ws_port || 8001,
+                    price_stream_port: this.config.api?.price_stream_ws_port || 8002
+                },
+                nats_url: this.config.messaging?.nats || 'nats://suho-nats-server:4222',
+                kafka_brokers: this.config.messaging?.kafka || 'suho-kafka:9092'
+            };
+
+            console.log('✅ Configuration loaded successfully');
+
+        } catch (error) {
+            console.warn('⚠️ Configuration loading failed, using fallback:', error.message);
+
+            // Fallback configuration if Central Hub is not available
+            this.options = {
+                port: parseInt(process.env.PORT) || 8000,
+                centralHubUrl: process.env.CENTRAL_HUB_URL || 'http://suho-central-hub:7000',
+                enableCors: true,
+                enableCompression: true,
+                enableHelmet: true,
+                maxRequestSize: '10mb',
+                rateLimitWindow: 15 * 60 * 1000,
+                rateLimitMax: 1000,
+                cors_origins: ['*'],
+                jwt: {
+                    secret: process.env.JWT_SECRET || 'fallback-secret',
+                    expiresIn: process.env.JWT_EXPIRES_IN || '24h',
+                    issuer: process.env.JWT_ISSUER || 'api-gateway',
+                    audience: process.env.JWT_AUDIENCE || 'suho-trading'
+                },
+                websocket: {
+                    trading_port: 8001,
+                    price_stream_port: 8002
+                },
+                nats_url: process.env.NATS_URL || 'nats://suho-nats-server:4222',
+                kafka_brokers: process.env.KAFKA_BROKERS || 'suho-kafka:9092'
+            };
+        }
+    }
+
     async initialize() {
         // Ensure shared components are loaded
         if (!shared_components_loaded) {
             throw new Error('Shared components not loaded - call loadSharedComponents() first');
         }
+
+        // STEP 1: Load configuration from Central Hub
+        await this.loadConfiguration();
 
         // Use local ServiceTemplate from APIGatewayService to avoid config conflicts
         const { ServiceTemplate: LocalServiceTemplate } = require('./src/core/APIGatewayService');
@@ -467,7 +523,7 @@ class APIGatewayService {
         // CORS
         if (this.options.enableCors) {
             this.app.use(cors({
-                origin: process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:3000'],
+                origin: this.options.cors_origins,
                 credentials: true
             }));
         }
