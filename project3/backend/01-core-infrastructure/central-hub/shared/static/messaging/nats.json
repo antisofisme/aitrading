@@ -1,7 +1,7 @@
 {
   "connection": {
-    "host": "ENV:NATS_HOST",
-    "port": "ENV:NATS_PORT",
+    "host": "${NATS_HOST}",
+    "port": "${NATS_PORT}",
     "monitoring_port": 8222,
     "protocol": "nats",
     "timeout": 10000

@@ -8,7 +8,8 @@
  * - Service coordination dan monitoring
  */
 
-const { createCentralHubClient } = require('./CentralHubClient');
+// Central Hub SDK (installed via npm)
+const { CentralHubClient } = require('@suho/central-hub-sdk');
 const logger = require('../utils/logger');
 
 /**
@@ -19,11 +20,13 @@ class ServiceTemplate {
         this.serviceName = serviceName;
         this.config = serviceConfig;
 
-        // ✅ CENTRAL HUB CLIENT (replaces shared components)
-        this.centralHub = createCentralHubClient({
+        // ✅ CENTRAL HUB CLIENT (from official SDK)
+        this.centralHub = new CentralHubClient({
             serviceName: serviceName,
-            centralHubURL: serviceConfig.centralHubURL || process.env.CENTRAL_HUB_URL,
-            timeout: serviceConfig.timeout || 5000
+            baseURL: serviceConfig.centralHubURL || process.env.CENTRAL_HUB_URL,
+            timeout: serviceConfig.timeout || 10000,
+            retryAttempts: 5,
+            retryDelay: 2000
         });
 
         // ✅ SERVICE LOGGER (local implementation)
@@ -46,19 +49,13 @@ class ServiceTemplate {
         this.logger.info(`Initializing ${this.serviceName}`);
 
         try {
-            // 1. Test Central Hub connection
-            const isConnected = await this.centralHub.ping();
-            if (!isConnected) {
-                throw new Error('Cannot connect to Central Hub');
-            }
-
-            // 2. Load service-specific config
+            // 1. Load service-specific config (will check Central Hub connection)
             await this.loadConfig();
 
-            // 3. Initialize core business logic
+            // 2. Initialize core business logic
             await this.initializeCore();
 
-            // 4. Register contracts dengan Central Hub (optional)
+            // 3. Register contracts dengan Central Hub (optional)
             await this.registerContracts();
 
             this.logger.info(`${this.serviceName} initialized successfully`);
@@ -431,11 +428,7 @@ class SuhoBinaryOptimizer {
 class APIGatewayService extends ServiceTemplate {
     constructor(options = {}) {
         super('api-gateway', {
-            transfer: {
-                nats_url: process.env.NATS_URL || 'nats://suho-nats-server:4222',
-                kafka_brokers: process.env.KAFKA_BROKERS || 'suho-kafka:9092',
-                grpc_port: process.env.GRPC_PORT || 50051
-            },
+            // Transfer config will be set in initializeCore() after fetching from Central Hub
             ...options
         });
 
@@ -453,6 +446,42 @@ class APIGatewayService extends ServiceTemplate {
     async initializeCore() {
         // Initialize API Gateway specific components
         this.logger.info('Initializing API Gateway core components');
+
+        // Fetch messaging configuration from Central Hub
+        try {
+            this.logger.info('⚙️  Fetching messaging configs from Central Hub...');
+
+            const natsConfig = await this.centralHub.getMessagingConfig('nats');
+            const kafkaConfig = await this.centralHub.getMessagingConfig('kafka');
+
+            // Build connection strings from Central Hub config
+            const natsUrl = `nats://${natsConfig.connection.host}:${natsConfig.connection.port}`;
+            const kafkaBrokers = Array.isArray(kafkaConfig.connection.bootstrap_servers)
+                ? kafkaConfig.connection.bootstrap_servers.join(',')
+                : kafkaConfig.connection.bootstrap_servers;
+
+            this.logger.info(`✅ Using NATS from Central Hub: ${natsUrl}`);
+            this.logger.info(`✅ Using Kafka from Central Hub: ${kafkaBrokers}`);
+
+            // Set transfer configuration from Central Hub
+            this.config.transfer = {
+                nats_url: natsUrl,
+                kafka_brokers: kafkaBrokers,
+                grpc_port: process.env.GRPC_PORT || 50051
+            };
+
+        } catch (error) {
+            // Fallback to environment variables if Central Hub config fails
+            this.logger.warn(`⚠️  Failed to get messaging config from Central Hub: ${error.message}`);
+            this.logger.warn('⚠️  Falling back to environment variables...');
+
+            this.config.transfer = {
+                nats_url: process.env.NATS_URL || 'nats://suho-nats-server:4222',
+                kafka_brokers: process.env.KAFKA_BROKERS || 'suho-kafka:9092',
+                grpc_port: process.env.GRPC_PORT || 50051
+            };
+        }
+
         return true;
     }
 

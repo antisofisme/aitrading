@@ -1,0 +1,28 @@
+# Polygon.io Official Client
+polygon-api-client==1.14.1
+
+# Async Support
+asyncio-nats-client==0.11.5
+nats-py==2.8.0
+
+# Kafka (REQUIRED - for complementary pattern)
+kafka-python==2.0.2
+lz4==4.3.2  # Required for Kafka lz4 compression
+
+# Data Processing
+pandas==2.2.0
+numpy==1.26.3
+
+# Logging & Monitoring
+python-json-logger==2.0.7
+
+# Configuration
+pyyaml==6.0.1
+python-dotenv==1.0.1
+
+# HTTP for REST fallback
+aiohttp==3.9.3
+requests==2.31.0
+
+# Central Hub SDK (installed from local path in Dockerfile)
+# httpx will be installed as SDK dependency

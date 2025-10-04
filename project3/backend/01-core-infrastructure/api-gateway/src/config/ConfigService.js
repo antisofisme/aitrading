@@ -56,6 +56,7 @@ class ConfigService {
 
     getFallbackConfig() {
         console.log('📦 Using fallback configuration');
+        console.log('⚠️  NOTE: This ConfigService is deprecated. Use CentralHubClient SDK instead.');
 
         return {
             database: {
@@ -63,6 +64,8 @@ class ConfigService {
                 dragonflydb: process.env.CACHE_URL || 'redis://:dragonfly_secure_2024@suho-dragonflydb:6379'
             },
             messaging: {
+                // NOTE: APIGatewayService now fetches from Central Hub via SDK
+                // These fallbacks are only used if Central Hub is unavailable
                 nats: process.env.NATS_URL || 'nats://suho-nats-server:4222',
                 kafka: process.env.KAFKA_BROKERS || 'suho-kafka:9092'
             },

@@ -169,3 +169,67 @@ async def get_config_history(service_name: str, limit: int = 10) -> Dict[str, An
         ],
         "total": 1
     }
+
+
+@config_router.get("/database/{db_name}")
+async def get_database_config(db_name: str, request: Request) -> Dict[str, Any]:
+    """Get database configuration by name
+
+    Available databases:
+    - postgresql
+    - clickhouse
+    - dragonflydb
+    - arangodb
+    - weaviate
+    """
+    try:
+        # Get config_manager from app state
+        config_manager = request.app.state.config_manager
+
+        config = config_manager.get_database_config(db_name)
+
+        return {
+            "database": db_name,
+            "config": config,
+            "version": "1.0.0",
+            "last_updated": int(time.time() * 1000)
+        }
+
+    except RuntimeError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        import logging
+        logger = logging.getLogger("central-hub.api.config")
+        logger.error(f"Failed to get database config for {db_name}: {e}")
+        raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
+
+
+@config_router.get("/messaging/{msg_name}")
+async def get_messaging_config(msg_name: str, request: Request) -> Dict[str, Any]:
+    """Get messaging configuration by name
+
+    Available messaging systems:
+    - nats
+    - kafka
+    - zookeeper
+    """
+    try:
+        # Get config_manager from app state
+        config_manager = request.app.state.config_manager
+
+        config = config_manager.get_messaging_config(msg_name)
+
+        return {
+            "messaging": msg_name,
+            "config": config,
+            "version": "1.0.0",
+            "last_updated": int(time.time() * 1000)
+        }
+
+    except RuntimeError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        import logging
+        logger = logging.getLogger("central-hub.api.config")
+        logger.error(f"Failed to get messaging config for {msg_name}: {e}")
+        raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")

@@ -8,10 +8,13 @@ python-multipart==0.0.6
 httpx==0.25.2
 
 # Database drivers
-asyncpg==0.29.0
+asyncpg==0.29.0              # PostgreSQL/TimescaleDB
 aiopg==1.4.0
-redis==5.0.1
+redis==5.0.1                 # DragonflyDB (Redis-compatible)
 aioredis==2.0.1
+clickhouse-connect==0.7.0    # ClickHouse analytics
+weaviate-client==3.26.0      # Weaviate vector database
+python-arango==7.8.0         # ArangoDB graph database
 
 # Message transport systems
 nats-py==2.6.0

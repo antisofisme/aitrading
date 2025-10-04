@@ -1,0 +1,54 @@
+# Data Bridge Configuration
+# NATS+Kafka → Database Manager → TimescaleDB + DragonflyDB
+
+# NATS Configuration (PRIMARY real-time path)
+nats:
+  url: "nats://suho-nats-server:4222"
+  max_reconnect_attempts: -1  # Infinite
+  reconnect_time_wait: 2      # seconds
+  ping_interval: 120          # seconds
+
+  subjects:
+    ticks: "ticks.>"           # All tick data
+    aggregates: "bars.>"       # All aggregate bars
+    confirmation: "confirmation.>"  # Confirmation pairs
+
+# Kafka Configuration (BACKUP + gap-filling)
+kafka:
+  brokers:
+    - "suho-kafka:9092"
+
+  group_id: "data-bridge"
+  auto_offset_reset: "latest"  # Start from latest to avoid duplicates on startup
+  enable_auto_commit: true
+  auto_commit_interval_ms: 5000
+
+  fetch_min_bytes: 1024
+  fetch_max_wait_ms: 500
+  max_poll_records: 500
+
+  topics:
+    tick_archive: "tick_archive"
+    aggregate_archive: "aggregate_archive"
+    confirmation_archive: "confirmation_archive"
+
+# Batch Processing Configuration
+batch:
+  tick_batch_size: 1000
+  aggregate_batch_size: 500
+  flush_interval_seconds: 5
+
+# Deduplication Configuration
+deduplication:
+  enabled: true
+  cache_size: 10000          # Max entries in LRU cache
+  cache_ttl_seconds: 3600    # 1 hour
+
+# Monitoring Configuration
+monitoring:
+  report_interval_seconds: 60
+  enable_metrics: true
+
+# Database Manager Configuration
+# (Database Manager reads from Central Hub's static configs)
+# No database credentials needed here - handled by Database Manager

@@ -1,0 +1,182 @@
+# =======================================================================
+# POLYGON.IO HISTORICAL DOWNLOADER - CONFIGURATION
+# =======================================================================
+
+# =======================================================================
+# PAIRS TO DOWNLOAD (ALL 14 pairs from live collector)
+# =======================================================================
+pairs:
+  # Trading Pairs
+  - symbol: "XAU/USD"
+    polygon_symbol: "C:XAUUSD"
+    priority: 1
+
+  - symbol: "GBP/USD"
+    polygon_symbol: "C:GBPUSD"
+    priority: 1
+
+  - symbol: "EUR/USD"
+    polygon_symbol: "C:EURUSD"
+    priority: 1
+
+  - symbol: "AUD/USD"
+    polygon_symbol: "C:AUDUSD"
+    priority: 2
+
+  - symbol: "USD/JPY"
+    polygon_symbol: "C:USDJPY"
+    priority: 2
+
+  - symbol: "USD/CAD"
+    polygon_symbol: "C:USDCAD"
+    priority: 2
+
+  # Analysis Pairs
+  - symbol: "AUD/JPY"
+    polygon_symbol: "C:AUDJPY"
+    priority: 3
+
+  - symbol: "EUR/GBP"
+    polygon_symbol: "C:EURGBP"
+    priority: 3
+
+  - symbol: "GBP/JPY"
+    polygon_symbol: "C:GBPJPY"
+    priority: 3
+
+  - symbol: "EUR/JPY"
+    polygon_symbol: "C:EURJPY"
+    priority: 3
+
+  # Confirmation Pairs
+  - symbol: "NZD/USD"
+    polygon_symbol: "C:NZDUSD"
+    priority: 4
+
+  - symbol: "USD/CHF"
+    polygon_symbol: "C:USDCHF"
+    priority: 4
+
+  - symbol: "NZD/JPY"
+    polygon_symbol: "C:NZDJPY"
+    priority: 4
+
+  - symbol: "CHF/JPY"
+    polygon_symbol: "C:CHFJPY"
+    priority: 4
+
+# =======================================================================
+# DOWNLOAD CONFIGURATION
+# =======================================================================
+download:
+  # Historical data range
+  start_date: "2023-01-01"  # Start from 2 years ago
+  end_date: "today"          # Download until today
+
+  # Granularity for each tier
+  granularity:
+    trading_pairs:      # Priority 1-2 (6 pairs)
+      timeframe: "minute"
+      multiplier: 1      # 1-minute bars
+
+    analysis_pairs:     # Priority 3 (4 pairs)
+      timeframe: "minute"
+      multiplier: 1      # 1-minute bars
+
+    confirmation_pairs: # Priority 4 (4 pairs)
+      timeframe: "minute"
+      multiplier: 5      # 5-minute bars (sufficient for correlation)
+
+  # Batch settings
+  batch_size: 50000      # Records per API call
+  max_parallel: 3        # Concurrent downloads
+  rate_limit_delay: 0.2  # 200ms between requests (5 req/sec limit)
+
+  # Retry settings
+  max_retries: 5
+  retry_delay: 10  # seconds
+
+# =======================================================================
+# GAP DETECTION & BACKFILL
+# =======================================================================
+gap_detection:
+  enabled: true
+
+  # Check for gaps daily
+  schedule: "0 2 * * *"  # Run at 2 AM daily (cron format)
+
+  # Gap detection rules
+  rules:
+    max_gap_minutes: 60    # Alert if gap > 1 hour
+    check_period_days: 7   # Check last 7 days for gaps
+
+  # Auto-backfill settings
+  auto_backfill: true
+  backfill_batch_size: 10000
+
+# =======================================================================
+# CLICKHOUSE STORAGE
+# =======================================================================
+clickhouse:
+  host: "suho-clickhouse"
+  port: 8123
+  database: "suho_analytics"
+  user: "suho_analytics"
+  # Password from env: CLICKHOUSE_PASSWORD
+
+  # Table configuration
+  table: "ticks"
+
+  # Batch insert settings
+  batch_insert_size: 10000
+  insert_timeout: 30
+
+  # Create table if not exists
+  auto_create_table: true
+
+# =======================================================================
+# SCHEDULING
+# =======================================================================
+schedules:
+  # Initial historical download (run once at startup)
+  initial_download:
+    enabled: true
+    on_startup: true
+
+  # Daily gap check and backfill
+  daily_backfill:
+    enabled: true
+    cron: "0 2 * * *"  # 2 AM daily
+    check_days: 1      # Check yesterday for gaps
+
+  # Weekly full validation
+  weekly_validation:
+    enabled: true
+    cron: "0 3 * * 0"  # 3 AM every Sunday
+    check_days: 7      # Validate last 7 days
+
+  # Monthly deep check
+  monthly_deep_check:
+    enabled: true
+    cron: "0 4 1 * *"  # 4 AM on 1st of month
+    check_days: 30     # Check last 30 days
+
+# =======================================================================
+# MONITORING & LOGGING
+# =======================================================================
+monitoring:
+  log_level: "INFO"
+
+  # Progress reporting
+  progress_interval: 1000  # Log every 1000 records
+
+  # Metrics
+  track_metrics: true
+  metrics_interval: 60  # seconds
+
+  # Alerts
+  alerts:
+    enabled: true
+    alert_on_gap: true
+    alert_on_error: true
+    min_gap_minutes: 30  # Alert only if gap > 30 min

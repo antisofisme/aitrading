@@ -485,6 +485,8 @@ app.include_router(metrics_router, prefix="/metrics", tags=["Metrics"])
 @app.on_event("startup")
 async def startup_event():
     await central_hub_service.startup()
+    # Make config_manager available to API endpoints via app state
+    app.state.config_manager = central_hub_service.config_manager
 
 @app.on_event("shutdown")
 async def shutdown_event():

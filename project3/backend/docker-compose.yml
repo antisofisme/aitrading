@@ -240,7 +240,7 @@ services:
   central-hub:
     build:
       context: ./01-core-infrastructure/central-hub
-      dockerfile: Dockerfile.wheelhouse
+      dockerfile: Dockerfile  # Changed from Dockerfile.wheelhouse for new dependencies
     container_name: suho-central-hub
     restart: unless-stopped
     ports:
@@ -272,6 +272,16 @@ services:
       - DRAGONFLY_HOST=${DRAGONFLY_HOST}
       - DRAGONFLY_PORT=${DRAGONFLY_PORT}
 
+      # === CLICKHOUSE CONNECTION DETAILS ===
+      - CLICKHOUSE_HOST=suho-clickhouse
+      - CLICKHOUSE_PORT=8123
+      - CLICKHOUSE_DB=suho_trading
+      - CLICKHOUSE_USER=default
+
+      # === NATS CONNECTION DETAILS ===
+      - NATS_HOST=suho-nats-server
+      - NATS_PORT=4222
+
       # === SERVICE SETTINGS ===
       - HOT_RELOAD_ENABLED=${HOT_RELOAD_ENABLED:-false}
       - COMPONENT_WATCH_ENABLED=${COMPONENT_WATCH_ENABLED:-false}
@@ -300,11 +310,184 @@ services:
       - "com.suho.type=core-service"
 
 
+  # ================================
+  # DATA INGESTION SERVICES
+  # ================================
+
+  # Polygon.io Live Collector - Real-time + OHLCV Data
+  live-collector:
+    build:
+      context: .
+      dockerfile: 00-data-ingestion/polygon-live-collector/Dockerfile
+    container_name: suho-live-collector
+    hostname: suho-live-collector
+    restart: unless-stopped
+    environment:
+      - INSTANCE_ID=polygon-live-collector-1
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - POLYGON_API_KEY=${POLYGON_API_KEY}
+      - NATS_URL=nats://suho-nats-server:4222
+      - KAFKA_BROKERS=suho-kafka:9092
+      - CENTRAL_HUB_URL=http://suho-central-hub:7000
+      - HEARTBEAT_INTERVAL=30
+    volumes:
+      - ./00-data-ingestion/polygon-live-collector/config:/app/config:ro
+      - ./00-data-ingestion/shared:/app/shared:ro
+      - polygon_live_logs:/var/log/polygon-live-collector
+    networks:
+      - suho-trading-network
+    depends_on:
+      nats:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      central-hub:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import sys; sys.exit(0)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    labels:
+      - "com.suho.service=polygon-live-collector"
+      - "com.suho.type=data-collector"
+
+  # Polygon Historical Downloader - Downloads historical data → NATS/Kafka
+  historical-downloader:
+    build:
+      context: .
+      dockerfile: 00-data-ingestion/polygon-historical-downloader/Dockerfile
+    container_name: suho-historical-downloader
+    hostname: suho-historical-downloader
+    restart: "no"  # Run once on startup, then stop
+    environment:
+      - INSTANCE_ID=polygon-historical-downloader-1
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - POLYGON_API_KEY=${POLYGON_API_KEY}
+      - NATS_URL=nats://suho-nats-server:4222
+      - KAFKA_BROKERS=suho-kafka:9092
+      - CENTRAL_HUB_URL=http://suho-central-hub:7000
+    volumes:
+      - ./00-data-ingestion/polygon-historical-downloader/config:/app/config:ro
+      - ./00-data-ingestion/shared:/app/shared:ro
+      - polygon_historical_logs:/var/log/polygon-historical-downloader
+    networks:
+      - suho-trading-network
+    depends_on:
+      nats:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      central-hub:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import sys; sys.exit(0)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    labels:
+      - "com.suho.service=polygon-historical-downloader"
+      - "com.suho.type=data-downloader"
+
+  # ===================================
+  # DATA PROCESSING SERVICES
+  # ===================================
+
+  # Data Bridge - NATS+Kafka → Database Manager → TimescaleDB + DragonflyDB
+  data-bridge:
+    build:
+      context: .  # Root context for SDK access
+      dockerfile: 02-data-processing/data-bridge/Dockerfile
+    container_name: suho-data-bridge
+    hostname: suho-data-bridge
+    restart: unless-stopped
+    environment:
+      - INSTANCE_ID=data-bridge-1
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      # Central Hub URL (for config distribution)
+      - CENTRAL_HUB_URL=http://suho-central-hub:7000
+      # Database credentials (used by Database Manager)
+      - POSTGRES_HOST=suho-postgresql
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=suho_trading
+      - POSTGRES_USER=suho_admin
+      - POSTGRES_PASSWORD=suho_secure_password_2024
+      - DRAGONFLY_HOST=suho-dragonflydb
+      - DRAGONFLY_PORT=6379
+      - DRAGONFLY_PASSWORD=dragonfly_secure_2024
+      # Messaging (fallback if Central Hub unavailable)
+      - NATS_URL=nats://suho-nats-server:4222
+      - KAFKA_BROKERS=suho-kafka:9092
+    volumes:
+      - ./02-data-processing/data-bridge/config:/app/config:ro
+      - ./01-core-infrastructure/central-hub/shared:/app/central-hub/shared:ro  # Access to Database Manager
+      - data_bridge_logs:/app/logs
+    networks:
+      - suho-trading-network
+    depends_on:
+      nats:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      postgresql:
+        condition: service_healthy
+      dragonflydb:
+        condition: service_healthy
+      central-hub:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import sys; sys.exit(0)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    labels:
+      - "com.suho.service=data-bridge"
+      - "com.suho.type=data-processor"
+
+  # ClickHouse Consumer - NATS+Kafka → ClickHouse (DEPRECATED - Use data-bridge instead)
+  # clickhouse-consumer:
+  #   build:
+  #     context: ./clickhouse-consumer
+  #     dockerfile: Dockerfile
+  #   container_name: suho-clickhouse-consumer
+  #   hostname: suho-clickhouse-consumer
+  #   restart: unless-stopped
+  #   environment:
+  #     - INSTANCE_ID=clickhouse-consumer-1
+  #     - LOG_LEVEL=${LOG_LEVEL:-INFO}
+  #     - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD}
+  #     - NATS_URL=nats://suho-nats-server:4222
+  #     - KAFKA_BROKERS=suho-kafka:9092
+  #   volumes:
+  #     - ./00-data-ingestion/clickhouse-consumer/config:/app/config:ro
+  #     - clickhouse_consumer_logs:/var/log/clickhouse-consumer
+  #   networks:
+  #     - suho-trading-network
+  #   depends_on:
+  #     nats:
+  #       condition: service_healthy
+  #     kafka:
+  #       condition: service_healthy
+  #     clickhouse:
+  #       condition: service_healthy
+  #   healthcheck:
+  #     test: ["CMD", "python3", "-c", "import sys; sys.exit(0)"]
+  #     interval: 30s
+  #     timeout: 10s
+  #     retries: 3
+  #     start_period: 40s
+  #   labels:
+  #     - "com.suho.service=clickhouse-consumer"
+  #     - "com.suho.type=data-consumer"
+
   # API Gateway - Main Entry Point (OFFLINE NODE_MODULES)
   api-gateway:
     build:
-      context: ./01-core-infrastructure/api-gateway
-      dockerfile: Dockerfile.offline
+      context: .
+      dockerfile: 01-core-infrastructure/api-gateway/Dockerfile.offline
     container_name: suho-api-gateway
     restart: unless-stopped
     ports:
@@ -433,6 +616,28 @@ volumes:
     driver: local
     labels:
       - "com.suho.data=api-gateway-cache"
+
+  # Polygon.io services
+  polygon_live_logs:
+    driver: local
+    labels:
+      - "com.suho.data=polygon-live-logs"
+
+  polygon_historical_logs:
+    driver: local
+    labels:
+      - "com.suho.data=polygon-historical-logs"
+
+  # Data processing services
+  data_bridge_logs:
+    driver: local
+    labels:
+      - "com.suho.data=data-bridge-logs"
+
+  # clickhouse_consumer_logs:  # DEPRECATED - Use data-bridge instead
+  #   driver: local
+  #   labels:
+  #     - "com.suho.data=clickhouse-consumer-logs"
 
 # ================================
 # NETWORKS

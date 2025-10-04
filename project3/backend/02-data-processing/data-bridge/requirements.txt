@@ -1,0 +1,25 @@
+# NATS Client (async)
+nats-py==2.8.0
+
+# Kafka Client
+kafka-python==2.0.2
+
+# Data Processing
+orjson==3.10.7  # Fast JSON
+
+# Configuration
+pyyaml==6.0.1
+python-dotenv==1.0.1
+
+# Database drivers (for Database Manager)
+asyncpg==0.29.0  # PostgreSQL/TimescaleDB
+redis==5.0.1     # DragonflyDB (Redis-compatible)
+
+# Data validation (Pydantic from Database Manager)
+pydantic==2.5.0
+
+# Logging
+python-json-logger==2.0.7
+
+# Central Hub SDK (for config distribution)
+httpx==0.27.0  # Required by Central Hub SDK

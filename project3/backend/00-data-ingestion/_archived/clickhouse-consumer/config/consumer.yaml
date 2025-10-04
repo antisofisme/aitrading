@@ -1,0 +1,143 @@
+# =======================================================================
+# CLICKHOUSE CONSUMER CONFIGURATION
+# =======================================================================
+# Implements NATS+Kafka complementary pattern
+# Subscribes to BOTH transports for zero data loss
+
+# =======================================================================
+# CLICKHOUSE CONNECTION
+# =======================================================================
+clickhouse:
+  host: "suho-clickhouse"
+  port: 8123
+  database: "forex_data"
+  username: "suho_analytics"  # Match docker-compose.yml
+  password_env: "CLICKHOUSE_PASSWORD"  # From environment
+
+  # Connection settings
+  connect_timeout: 30
+  send_receive_timeout: 300
+  max_retries: 3
+
+# =======================================================================
+# NATS SUBSCRIPTION (PRIMARY - Real-time)
+# =======================================================================
+nats:
+  url: "nats://suho-nats-server:4222"
+
+  # Subscriptions
+  subjects:
+    ticks: "ticks.>"              # All tick data (ticks.EURUSD, ticks.XAUUSD, etc)
+    aggregates: "bars.>"          # All aggregate bars (bars.EURUSD.1s, etc)
+    confirmation: "confirmation.>" # Confirmation pairs
+
+  # Connection settings
+  max_reconnect_attempts: -1  # Infinite reconnects
+  reconnect_time_wait: 2      # seconds
+  ping_interval: 120          # seconds
+
+# =======================================================================
+# KAFKA SUBSCRIPTION (BACKUP - Gap-filling)
+# =======================================================================
+kafka:
+  brokers: ["suho-kafka:9092"]
+
+  # Topics to subscribe
+  topics:
+    tick_archive: "tick_archive"
+    aggregate_archive: "aggregate_archive"
+    confirmation_archive: "confirmation_archive"
+
+  # Consumer settings
+  group_id: "clickhouse-consumer"
+  auto_offset_reset: "latest"  # Start from latest (not earliest)
+  enable_auto_commit: true
+  auto_commit_interval_ms: 5000
+
+  # Performance
+  fetch_min_bytes: 1024        # 1KB
+  fetch_max_wait_ms: 500       # 500ms
+  max_poll_records: 500
+
+# =======================================================================
+# BATCH INSERTION SETTINGS
+# =======================================================================
+batch:
+  # Batch size limits
+  max_size_ticks: 1000          # Insert every 1000 ticks
+  max_size_aggregates: 500      # Insert every 500 aggregates
+
+  # Time limits (insert even if batch not full)
+  max_wait_seconds_ticks: 5     # Insert after 5 seconds
+  max_wait_seconds_aggregates: 10  # Insert after 10 seconds
+
+  # Memory limits
+  max_memory_mb: 100            # Flush if buffer exceeds 100MB
+
+# =======================================================================
+# DEDUPLICATION SETTINGS
+# =======================================================================
+deduplication:
+  enabled: true
+
+  # In-memory cache for recent messages (before checking ClickHouse)
+  cache_size: 10000             # Keep last 10k message IDs in memory
+  cache_ttl_seconds: 3600       # 1 hour
+
+  # Message ID format: "{symbol}:{timestamp_ms}:{event_type}"
+  # Example: "EURUSD:1727996400000:tick"
+
+# =======================================================================
+# MONITORING & LOGGING
+# =======================================================================
+monitoring:
+  log_level: "INFO"
+
+  # Status report interval
+  report_interval_seconds: 60
+
+  # Metrics to track
+  metrics:
+    - "messages_received"
+    - "messages_inserted"
+    - "messages_duplicated"
+    - "batch_insert_count"
+    - "nats_message_count"
+    - "kafka_message_count"
+    - "insertion_latency_ms"
+
+  # Alert thresholds
+  alerts:
+    max_insertion_latency_ms: 1000  # Alert if insert takes > 1s
+    max_duplicate_rate: 0.05        # Alert if > 5% duplicates
+    max_error_rate: 0.01            # Alert if > 1% errors
+
+# =======================================================================
+# COMPLEMENTARY PATTERN EXPLANATION
+# =======================================================================
+#
+# This consumer implements the complementary NATS+Kafka pattern:
+#
+# 1. SUBSCRIBE to BOTH transports:
+#    - NATS: Fast, real-time (primary path)
+#    - Kafka: Reliable, persistent (backup + fills gaps)
+#
+# 2. DEDUPLICATION:
+#    - Check message_id before processing
+#    - If already processed (from other source), skip
+#    - This prevents double-insertion
+#
+# 3. GAP-FILLING:
+#    - If NATS fails/misses messages, Kafka will provide them
+#    - Ensures ZERO data loss
+#    - Kafka consumer starts from 'latest' to avoid duplicates on startup
+#
+# 4. DATA FLOW:
+#    Publisher → NATS ✅ → Consumer processes (fast)
+#             → Kafka ✅ → Consumer skips (duplicate)
+#
+#    Publisher → NATS ❌ (failed) → Consumer didn't get
+#             → Kafka ✅ → Consumer processes (gap-filled!)
+#
+# Result: 100% data delivery guarantee
+# =======================================================================

@@ -25,6 +25,9 @@ class NATSKafkaClient extends EventEmitter {
     constructor(config) {
         super();
 
+        // ✅ CONFIG FLOW: Central Hub → APIGatewayService → BidirectionalRouter → NATSKafkaClient
+        // Config is fetched from Central Hub in APIGatewayService.initializeCore()
+        // Fallback to env vars only if config not provided by caller
         this.config = {
             nats: {
                 servers: config.nats?.servers || (process.env.NATS_URL ? [process.env.NATS_URL] : ['nats://suho-nats-server:4222']),

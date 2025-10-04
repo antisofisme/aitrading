@@ -1,408 +1,513 @@
-# Data Ingestion Service
+# Data Ingestion - Twelve Data Collector
 
-## 🎯 Purpose
-**Server-side market data collection service** yang mengumpulkan real-time tick data dari approved brokers, convert ke Protocol Buffers, dan stream ke NATS/Kafka untuk processing di downstream services.
+## 🎯 Overview
 
----
-
-## 📊 ChainFlow Diagram
-
-```
-Single Source Strategy → UnifiedMarketData → Hybrid Database → Universal Signals
-            ↓                    ↓                 ↓                 ↓
-OANDA v20 API              Proto Convert      market_ticks        Signal Generation
-External-Data (8 APIs)     Schema Validation  market_context      AI Analysis
-Historical References      Binary Format      Optimized Indexes   Broadcast to Users
-```
+**Twelve Data Collector** mengumpulkan market data real-time dari Twelve Data API dan menyimpannya ke database menggunakan **hybrid approach** (database-first + streaming).
 
 ---
 
-## 🏗️ Service Architecture
+## 🏗️ Architecture - Hybrid Approach
 
-### **Input Flow**: 4-category raw data collection
-**Data Sources**:
-- **broker-api**: OANDA v20 API (Single, reliable live tick source)
-- **external-data**: 8 collectors (Yahoo Finance, FRED, CoinGecko, etc.)
-- **Historical References**: Dukascopy Swiss-grade validation data
-**Format**: Raw data converted to Protocol Buffers
-**Frequency**: Real-time (50+ ticks/sec) streaming
-**Performance Target**: <2ms data collection + proto conversion
+```
+┌────────────────────────────────────────────────────────┐
+│              TWELVE DATA COLLECTION                    │
+├────────────────────────────────────────────────────────┤
+│                                                        │
+│  ┌──────────────────┐                                 │
+│  │ Twelve Data API  │  (Primary Source)               │
+│  │ - REST API       │  Pro Plan: $29/month            │
+│  │ - WebSocket      │  40 Symbols (Refined)           │
+│  └────────┬─────────┘                                 │
+│           │                                            │
+│           ▼                                            │
+│  ┌──────────────────────────┐                         │
+│  │ Twelve Data Collector    │                         │
+│  │ - WebSocket (8 symbols)  │                         │
+│  │ - REST Poll (32 symbols) │                         │
+│  │ - Rate Limit Management  │                         │
+│  └────────┬─────────────────┘                         │
+│           │                                            │
+│           ▼                                            │
+│  ┌──────────────────────────┐                         │
+│  │ Data Manager             │ ← CRITICAL LAYER        │
+│  │ - Database Abstraction   │                         │
+│  │ - Multi-DB Routing       │                         │
+│  │ - Connection Pooling     │                         │
+│  └────────┬─────────────────┘                         │
+│           │                                            │
+│           ├──→ DATABASE (PRIMARY - Data Safety)       │
+│           │    ├─ TimescaleDB (ticks, candles)        │
+│           │    ├─ ClickHouse (analytics)              │
+│           │    └─ DragonflyDB (cache)                 │
+│           │                                            │
+│           └──→ NATS/Kafka (OPTIONAL - Streaming)      │
+│                └─ For real-time consumers             │
+│                                                        │
+└────────────────────────────────────────────────────────┘
+```
 
-### **Output Flow**: NATS/Kafka streaming to Data Bridge
-**Destination**: NATS/Kafka message queues → Data Bridge (direct consumer subscription)
-**Format**: Protocol Buffers binary streams (60% smaller than JSON, 10x faster)
-**Processing**: Raw data → Proto serialization → NATS/Kafka publish → Data Bridge consumer
-**Performance Target**: <1ms proto conversion + <2ms NATS/Kafka delivery = <3ms total
+### **Key Principles:**
+
+1. **Database-First**: Data saved to database BEFORE streaming
+2. **Data Safety**: No data loss if NATS/Kafka down
+3. **Replay Capability**: From database, not message queue
+4. **Multi-Level Caching**: Memory → DragonflyDB → Database
+5. **Smart Routing**: Data Manager routes to optimal database
 
 ---
 
-## 🚀 Transport Architecture & Efficiency Gains
+## 📊 Data Coverage - Pro Plan ($29/month)
 
-### **Resource Optimization Strategy:**
+### **40 Symbols (Quality Over Quantity)**
 
-#### **Traditional Architecture (Inefficient):**
-```
-1000 Users × 3 Brokers = 3000 MT5 Connections
-Network: 3000x redundant streams
-CPU: 3000x duplicate processing
-Memory: 3000x data buffers
-```
+**TIER 1: WebSocket Real-time** (8 symbols)
+- **Trading Pairs** (4): EUR/USD, USD/JPY, USD/CAD, XAU/USD
+- **Analysis Pairs** (4): AUD/JPY, EUR/GBP, GBP/JPY, EUR/JPY
 
-#### **Simplified Data Collection Architecture:**
-```
-4-Category Data Collection → Protocol Buffers → NATS/Kafka → Data Bridge:
-- Broker-API: OANDA v20 API (single, reliable live tick source)
-- External-Data: 8 API connections (Yahoo Finance, FRED, CoinGecko, etc.)
-- Historical-References: Dukascopy batch data import processes
-- Secure Stream: Raw data → Proto → NATS/Kafka → Data Bridge (direct consumer)
-Total: ~10 data collection processes → Secure message queue streaming
-```
+**TIER 2: REST Polling** (32 symbols)
+- **Macro** (8): US10Y, DXY, SPX, VIX, DE10Y, JP10Y, COPPER, SILVER
+- **Forex** (20): GBP/USD, AUD/USD, NZD/USD, USD/CHF, etc.
+- **Commodities** (2): WTI/USD, NATGAS
+- **Crypto** (2): BTC/USD, ETH/USD
 
-### **Data Collection Benefits:**
-```
-Resource & Efficiency Optimization:
-- Connection Reduction: 1000+ clients → ~10 server collectors (99% reduction)
-- Secure Message Queues: NATS/Kafka for security, durability, and scalability
-- Protocol Buffers: 60% smaller payloads, 10x faster serialization vs JSON
-- High Throughput: Handle 50+ ticks/second with <1ms processing per tick
-- Cost Efficiency: 99.3% reduction vs traditional client-broker model
-- Centralized Collection: Single data source for all downstream services
-```
-
-### **Protocol Buffers Performance Benefits:**
-```
-Binary Serialization Advantages (external-data/schemas/market_data_pb2.py):
-- Payload Size: 60% smaller than JSON (network bandwidth savings)
-- Serialization Speed: 10x faster than JSON parsing
-- Memory Usage: 40% less memory consumption
-- CPU Efficiency: <1ms processing per tick vs 5-10ms with JSON
-- Type Safety: Schema validation prevents data corruption
-- Backward Compatibility: Schema evolution without breaking changes
-```
+**See**: `PRO_PLAN_SUMMARY.md` for complete breakdown
 
 ---
 
-## 🔄 Simplified Data Collection Pipeline
+## 🔄 Data Flow
 
-### **1. Raw Data Collection**:
+### **1. Collection Layer**
+
 ```python
-class BrokerDataCollector:
-    async def collect_broker_data(self, broker_config: BrokerConfig):
-        """Collect raw data from approved broker"""
+# twelve-data-collector/main.py
 
-        # Connect to approved broker only
-        if not await self.validate_approved_broker(broker_config.name):
-            raise Exception(f"Broker {broker_config.name} not approved")
+class TwelveDataCollector:
+    async def collect_tick(self, symbol: str):
+        """Collect tick from Twelve Data API"""
 
-        # Collect raw tick data
-        raw_data = await self.get_raw_tick_data(broker_config)
+        # Get from Twelve Data
+        tick_data = await self.twelve_data_client.get_quote(symbol)
 
-        # Convert to Protocol Buffers
-        proto_data = self.convert_to_protobuf(raw_data)
+        # Convert to internal format
+        tick = TickData(
+            symbol=tick_data['symbol'],
+            timestamp=tick_data['timestamp'],
+            bid=tick_data['bid'],
+            ask=tick_data['ask'],
+            source='twelve-data'
+        )
 
-        # Stream to NATS/Kafka for secure delivery
-        await self.stream_to_message_queue(proto_data)
+        # Save via Data Manager (DATABASE FIRST)
+        await self.data_manager.save_tick(tick)
 ```
 
-### **2. Protocol Buffer Conversion**:
+### **2. Data Manager Layer**
+
 ```python
-async def convert_to_protobuf(self, raw_tick_data) -> bytes:
-    """Convert raw tick data to Protocol Buffers binary"""
+# central-hub/shared/components/data-manager/router.py
 
-    # Create protobuf message
-    market_data = MarketDataStream()
-    market_data.source = self.broker_name
-        market_tick.broker_timestamp = int(time.time() * 1000)
+class DataRouter:
+    async def save_tick(self, tick: TickData):
+        """Save tick to database + cache"""
 
-        # Send to aggregator
-        await self.stream_to_aggregator(market_tick)
+        # 1. Save to TimescaleDB (PRIMARY)
+        await self.timescale_pool.save_tick(tick)
+
+        # 2. Cache in DragonflyDB (1 hour TTL)
+        await self.dragonfly_pool.cache_tick(tick, ttl=3600)
+
+        # 3. Optional: Publish to NATS (for real-time consumers)
+        if self.streaming_enabled:
+            await self.nats_publisher.publish(f"tick.{tick.symbol}", tick)
 ```
 
-### **2. Market Data Aggregation**:
-```python
-class MarketAggregator:
-    def __init__(self):
-        self.broker_streams = {}  # Track data from each broker
-        self.last_prices = {}     # Price deduplication cache
-        self.quality_tracker = DataQualityTracker()
+### **3. Database Storage**
 
-    async def aggregate_market_data(self, broker_tick: MarketTick):
-        """Aggregate data dari multiple brokers"""
+```sql
+-- TimescaleDB (Primary storage)
+CREATE TABLE market_ticks (
+    time        TIMESTAMPTZ NOT NULL,
+    symbol      VARCHAR(20) NOT NULL,
+    bid         DOUBLE PRECISION,
+    ask         DOUBLE PRECISION,
+    spread      DOUBLE PRECISION,
+    volume      DOUBLE PRECISION,
+    source      VARCHAR(50)
+);
 
-        symbol = broker_tick.symbol
-        broker = broker_tick.source
+-- Create hypertable for time-series optimization
+SELECT create_hypertable('market_ticks', 'time');
 
-        # Update broker stream tracking
-        self.broker_streams[f"{broker}_{symbol}"] = broker_tick
-
-        # Check for price differences antar brokers
-        price_spread = self.calculate_broker_spread(symbol)
-
-        # Select best price (usually tightest spread)
-        best_tick = self.select_best_price(symbol)
-
-        # Create aggregated market data stream
-        market_stream = MarketDataStream()
-        market_stream.ticks.append(best_tick)
-        market_stream.source = "data-ingestion"
-        market_stream.batch_time_msc = int(time.time() * 1000)
-
-        # Distribute to subscribers
-        await self.distribute_to_subscribers(market_stream)
-
-        # Update quality metrics
-        await self.quality_tracker.update_metrics(broker_tick, price_spread)
-```
-
-### **3. NATS/Kafka Distribution Engine**:
-```python
-class SecureDistributionEngine:
-    def __init__(self):
-        self.nats_client = NATSClient()
-        self.kafka_client = KafkaProducer()
-        self.central_hub_client = CentralHubClient()
-
-    async def stream_to_message_queue(self, market_stream: MarketDataStream):
-        """Stream data via NATS/Kafka for secure, scalable delivery"""
-
-        # Serialize Protocol Buffers data
-        binary_data = market_stream.SerializeToString()
-
-        try:
-            # Primary: NATS streaming (fast, low-latency)
-            subject = f"market.{market_stream.source}.ticks"
-            await self.nats_client.publish(subject, binary_data)
-
-            # Backup: Kafka streaming (durability, replay capability)
-            await self.kafka_client.produce(
-                topic="market-data-stream",
-                key=market_stream.source,
-                value=binary_data
-            )
-
-            self.logger.debug(f"Streamed {len(market_stream.ticks)} ticks via NATS/Kafka")
-
-        except Exception as e:
-            self.logger.error(f"Failed to stream to message queue: {e}")
-            # Register with Central Hub for health monitoring
-            await self.register_failure_with_central_hub(e)
-
-    async def register_with_central_hub(self):
-        """Register data-ingestion service dengan Central Hub"""
-        await self.central_hub_client.register_service({
-            "name": "data-ingestion",
-            "host": "data-ingestion",
-            "port": 8002,
-            "protocol": "nats+kafka",
-            "health_endpoint": "/health",
-            "topics": ["market-data-stream"],
-            "subjects": ["market.*.ticks"]
-        })
+-- Create index for fast symbol lookups
+CREATE INDEX idx_symbol_time ON market_ticks (symbol, time DESC);
 ```
 
 ---
 
-## 📋 Broker Configuration
+## 🚀 Quick Start
 
-### **Multi-Broker Setup**:
+### **1. Prerequisites**
+
+```bash
+# Twelve Data API Key
+# Get from: https://twelvedata.com/pricing
+# Pro Plan: $29/month (recommended)
+```
+
+### **2. Configuration**
+
+```bash
+# Edit backend/.env
+TWELVE_DATA_API_KEY_1=your-api-key-here
+TWELVE_DATA_API_KEY_2=optional-backup-key
+TWELVE_DATA_API_KEY_3=optional-backup-key
+```
+
+### **3. Deploy**
+
+```bash
+cd /mnt/g/khoirul/aitrading/project3/backend/00-data-ingestion
+
+# Start services
+docker-compose up -d
+
+# Check logs
+docker logs twelve-data-collector-1 -f
+```
+
+### **4. Verify**
+
+```bash
+# Check collector health
+curl http://localhost:8090/health
+
+# Check database
+docker exec -it suho-postgresql psql -U suho_admin -d suho_trading -c "SELECT COUNT(*) FROM market_ticks;"
+
+# Check cache
+docker exec -it suho-dragonflydb redis-cli -a dragonfly_secure_2024 GET "tick:latest:EUR/USD"
+```
+
+---
+
+## 📁 Project Structure
+
+```
+00-data-ingestion/
+├── README.md                           # This file
+├── README_TWELVE_DATA.md               # Twelve Data details
+├── QUICK_START.md                      # Quick deployment guide
+├── DOCUMENTATION_INDEX.md              # Doc navigator
+│
+├── PRO_PLAN_SUMMARY.md                 # 40 symbols strategy
+├── REFINED_ALLOCATION_PRO.md           # Symbol selection rationale
+├── QUICK_REFERENCE.md                  # Trading guide
+├── PAIR_CLASSIFICATION.md              # Pair details
+├── GROW_PLAN_TIERS.md                  # Pricing info
+│
+├── twelve-data-collector/              # Main collector service
+│   ├── main.py                         # Entry point
+│   ├── config/
+│   │   └── config-pro-plan-refined.yaml  # 40 symbols config
+│   ├── api/                            # API layer
+│   ├── business/                       # Business logic
+│   ├── infrastructure/                 # Infra (logging, config)
+│   └── integration/                    # External integrations
+│       ├── twelve_data/                # Twelve Data client
+│       ├── central_hub/                # Central Hub client
+│       └── streaming/                  # NATS publisher
+│
+└── _archived/                          # Old documentation
+    ├── broker-api/                     # Old OANDA collector
+    ├── external-data/                  # Old external data
+    └── outdated-broker-docs/           # Old broker-focused docs
+```
+
+---
+
+## ⚙️ Configuration
+
+### **Symbol Configuration**
+
+**File**: `twelve-data-collector/config/config-pro-plan-refined.yaml`
+
 ```yaml
-# Broker configurations
-brokers:
-  ic_markets:
-    name: "IC Markets"
-    server: "ICMarkets-Demo01"
-    mt5_path: "/opt/mt5-ic/"
-    symbols: ["EURUSD", "GBPUSD", "USDJPY", "USDCHF", "AUDUSD"]
-    priority: 1  # Primary broker
+# TIER 1: WebSocket (8 symbols max)
+streaming:
+  instruments:
+    forex_trading:
+      - "EUR/USD"
+      - "USD/JPY"
+      - "USD/CAD"
+    commodities_trading:
+      - "XAU/USD"
+    forex_analysis:
+      - "AUD/JPY"
+      - "EUR/GBP"
+      - "GBP/JPY"
+      - "EUR/JPY"
 
-  pepperstone:
-    name: "Pepperstone"
-    server: "Pepperstone-Demo"
-    mt5_path: "/opt/mt5-pepper/"
-    symbols: ["EURUSD", "GBPUSD", "USDJPY", "EURGBP", "EURJPY"]
-    priority: 2  # Secondary broker
-
-  fxcm:
-    name: "FXCM"
-    server: "FXCM-USDDemo01"
-    mt5_path: "/opt/mt5-fxcm/"
-    symbols: ["EURUSD", "GBPUSD", "USDJPY", "USDCAD", "GBPJPY"]
-    priority: 3  # Tertiary broker
+# TIER 2: REST (32 symbols)
+rest_instruments:
+  macro:
+    yields: [US10Y, DE10Y, JP10Y]
+    indices: [DXY, SPX, VIX]
+    commodities: [COPPER, SILVER]
+  forex: [GBP/USD, AUD/USD, ...20 pairs]
+  commodities_extended: [WTI/USD, NATGAS]
+  crypto: [BTC/USD, ETH/USD]
 ```
 
-### **Broker Quality Comparison**:
-```python
-class BrokerQualityTracker:
-    def compare_broker_feeds(self, symbol: str) -> BrokerComparison:
-        """Compare data quality across brokers untuk symbol"""
+### **Rate Limits (Pro Plan)**
 
-        broker_metrics = {}
-
-        for broker in self.active_brokers:
-            metrics = self.get_broker_metrics(broker, symbol)
-            broker_metrics[broker] = {
-                "latency_ms": metrics.avg_latency,
-                "spread_avg": metrics.avg_spread,
-                "uptime_percent": metrics.uptime,
-                "data_completeness": metrics.completeness,
-                "tick_frequency": metrics.ticks_per_second
-            }
-
-        # Rank brokers by composite score
-        best_broker = self.calculate_best_broker(broker_metrics)
-
-        return BrokerComparison(
-            best_broker=best_broker,
-            metrics=broker_metrics,
-            recommendation=f"Use {best_broker} as primary source for {symbol}"
-        )
+```yaml
+rate_limits:
+  rest_per_minute: 55       # Pro: 55 req/min
+  rest_per_day: 15000       # Pro: 15,000 req/day
+  batch_size: 12            # 12 symbols = 1 API call
 ```
 
 ---
 
-## ⚡ Performance Optimizations
+## 📊 Monitoring
 
-### **Connection Pooling & Management**:
-```python
-class ConnectionManager:
-    def __init__(self):
-        self.mt5_pools = {}      # Connection pools per broker
-        self.health_checker = BrokerHealthChecker()
-        self.failover_manager = FailoverManager()
+### **Health Check**
 
-    async def maintain_connections(self):
-        """Maintain optimal broker connections"""
+```bash
+curl http://localhost:8090/health
 
-        while True:
-            for broker_name, pool in self.mt5_pools.items():
-                # Health check
-                if not await self.health_checker.check_broker(broker_name):
-                    await self.failover_manager.handle_broker_failure(broker_name)
-                    continue
-
-                # Connection optimization
-                if pool.active_connections < pool.optimal_connections:
-                    await pool.add_connection()
-                elif pool.active_connections > pool.optimal_connections:
-                    await pool.remove_connection()
-
-            await asyncio.sleep(30)  # Check every 30 seconds
-```
-
-### **Data Deduplication & Quality Control**:
-```python
-class DataQualityManager:
-    def __init__(self):
-        self.tick_cache = TTLCache(maxsize=10000, ttl=60)  # 1 minute cache
-        self.quality_thresholds = {
-            "max_spread": 0.005,     # 5 pips maximum spread
-            "min_tick_interval": 50,  # 50ms minimum between ticks
-            "max_price_change": 0.02  # 2% maximum price change
-        }
-
-    async def validate_tick_quality(self, tick: MarketTick) -> ValidationResult:
-        """Validate tick data quality"""
-
-        errors = []
-
-        # Spread validation
-        spread = tick.ask - tick.bid
-        if spread > self.quality_thresholds["max_spread"]:
-            errors.append(f"Excessive spread: {spread}")
-
-        # Price movement validation
-        last_price = self.tick_cache.get(f"{tick.symbol}_price")
-        if last_price:
-            price_change = abs(tick.bid - last_price) / last_price
-            if price_change > self.quality_thresholds["max_price_change"]:
-                errors.append(f"Excessive price movement: {price_change:.2%}")
-
-        # Update cache
-        self.tick_cache[f"{tick.symbol}_price"] = tick.bid
-
-        return ValidationResult(
-            is_valid=len(errors) == 0,
-            errors=errors,
-            confidence=1.0 - (len(errors) * 0.2)
-        )
-```
-
----
-
-## 🔗 Integration Points
-
-### **Service Dependencies**:
-- **OANDA v20 API**: Direct connection to primary data source
-- **NATS/Kafka Cluster**: Secure message streaming untuk processed data
-- **Central Hub**: Service discovery, registration, dan health reporting
-- **External Data APIs**: 8 data collectors (Yahoo Finance, FRED, etc.)
-
-### **External Dependencies**:
-- **OANDA v20 Servers**: Primary market data provider
-- **External API Providers**: News, calendar, sentiment data sources
-- **NATS/Kafka Infrastructure**: High-throughput message distribution
-- **Monitoring System**: Real-time data collection monitoring
-
----
-
-## 🎯 Business Value
-
-### **Cost Efficiency**:
-- **99.9% Infrastructure Savings**: From 3000 to 3 broker connections
-- **99.7% Bandwidth Reduction**: Eliminate redundant data streams
-- **99.8% Processing Savings**: Single aggregation vs multiple processing
-- **Linear Scaling**: Add users without additional broker connections
-
-### **Data Quality**:
-- **Multi-Broker Redundancy**: Best price selection across brokers
-- **Real-time Quality Control**: Automated spread dan price validation
-- **Broker Performance Tracking**: Data-driven broker selection
-- **Failover Capability**: Automatic broker switching untuk reliability
-
-### **User Experience**:
-- **<1ms Data Latency**: Optimized distribution pipeline
-- **99.9% Uptime**: Multi-broker redundancy dan failover
-- **Consistent Pricing**: Quality-controlled data feeds
-- **Scalable Architecture**: Support 10,000+ concurrent users
-
----
-
-## 📊 Monitoring & Observability
-
-### **Broker Connection Health**:
-```python
-@app.get("/health")
-async def ingestion_health_check():
-    """Comprehensive ingestion service health"""
-    return {
-        "service_name": "data-ingestion",
-        "status": "healthy",
-        "timestamp": datetime.utcnow().isoformat(),
-        "version": "1.0.0",
-        "uptime_seconds": await get_uptime_seconds(),
-        "broker_connections": {
-            broker: {
-                "status": await check_broker_health(broker),
-                "active_symbols": await get_active_symbols(broker),
-                "ticks_per_second": await get_broker_throughput(broker),
-                "latency_ms": await get_broker_latency(broker)
-            } for broker in ["ic_markets", "pepperstone", "fxcm"]
-        },
-        "aggregation_metrics": {
-            "total_symbols_tracked": await count_active_symbols(),
-            "subscribers_count": await count_active_subscribers(),
-            "distribution_latency_ms": await get_distribution_latency()
-        },
-        "quality_metrics": {
-            "data_completeness_percent": await get_data_completeness(),
-            "avg_spread_quality": await get_spread_quality(),
-            "broker_sync_status": await get_broker_sync_status()
-        }
+# Response
+{
+  "status": "healthy",
+  "service": "twelve-data-collector",
+  "version": "2.0.0-pro-refined",
+  "uptime": 3600,
+  "collectors": {
+    "websocket": {
+      "status": "connected",
+      "symbols": 8,
+      "latency_ms": 170
+    },
+    "rest": {
+      "status": "active",
+      "symbols": 32,
+      "requests_today": 1250,
+      "daily_limit": 15000
     }
+  },
+  "database": {
+    "timescale": "healthy",
+    "clickhouse": "healthy",
+    "dragonfly": "healthy"
+  }
+}
+```
+
+### **Metrics**
+
+```bash
+# Check tick count
+curl http://localhost:8090/metrics
+
+# Database metrics
+docker exec suho-postgresql psql -U suho_admin -d suho_trading -c "
+SELECT
+    symbol,
+    COUNT(*) as tick_count,
+    MAX(time) as last_tick
+FROM market_ticks
+WHERE time > NOW() - INTERVAL '1 hour'
+GROUP BY symbol
+ORDER BY tick_count DESC;
+"
 ```
 
 ---
 
-**Input Flow**: OANDA v20 API + External Data APIs → Data Ingestion (aggregation & quality control)
-**Output Flow**: Data Ingestion → NATS/Kafka (secure streaming) → Data Bridge (direct consumer subscription)
-**Key Innovation**: Server-side data aggregation dengan secure message queue streaming untuk optimal performance, security, dan scalability
+## 🔧 Integration Points
+
+### **1. Data Manager Integration**
+
+```python
+from central_hub.shared.components.data_manager import DataRouter
+
+# Initialize router
+data_router = DataRouter()
+
+# Save tick (database-first)
+await data_router.save_tick(tick_data)
+
+# Query latest
+latest = await data_router.get_latest_tick('EUR/USD')
+```
+
+### **2. NATS Streaming (Optional)**
+
+```python
+from integration.streaming.nats_publisher import NATSPublisher
+
+# After database save, optionally publish
+nats = NATSPublisher(nats_url='nats://suho-nats-server:4222')
+await nats.publish(f'tick.{symbol}', tick_data)
+```
+
+### **3. Central Hub Registration**
+
+```python
+from integration.central_hub.client import CentralHubClient
+
+hub = CentralHubClient(host='suho-central-hub', port=7000)
+await hub.register_service({
+    'service_name': 'twelve-data-collector',
+    'capabilities': ['rest-api', 'websocket-streaming'],
+    'symbols_count': 40
+})
+```
+
+---
+
+## 💰 Cost Analysis
+
+### **Pro Plan: $29/month**
+
+```yaml
+Investment: $29/month = $348/year
+
+What You Get:
+✅ 40 high-quality symbols (refined allocation)
+✅ Real-time WebSocket (8 symbols, ~170ms latency)
+✅ REST API (55 req/min, 15,000 req/day)
+✅ Historical data (up to 20 years)
+✅ Macro instruments (US10Y, DXY, SPX, VIX)
+✅ Complete forex correlation matrix
+✅ Commodities + Crypto coverage
+
+Break-Even:
+- Prevent 1 bad trade/month, OR
+- Improve win rate by 1-2%, OR
+- Better entries by 5-10 pips
+
+ROI: Excellent! ⭐⭐⭐⭐⭐
+```
+
+---
+
+## 🎯 Performance Targets
+
+### **Collection Performance**
+
+- **WebSocket Latency**: <200ms (target: 170ms)
+- **REST Polling**: Every 3 minutes (32 symbols)
+- **Database Save**: <5ms (p95)
+- **Cache Update**: <2ms (p95)
+- **Total Pipeline**: <10ms (collection → database → cache)
+
+### **Reliability**
+
+- **Uptime**: >99.5%
+- **Data Completeness**: >99%
+- **Failover Time**: <5s (API key rotation)
+- **Reconnect**: Auto (WebSocket disconnection)
+
+### **Scalability**
+
+- **Tick Rate**: 50+ ticks/second (supported)
+- **Daily Volume**: ~2M ticks/day (estimated)
+- **Storage**: ~100MB/day (compressed TimescaleDB)
+- **Database Query**: <10ms (recent data with cache)
+
+---
+
+## 📚 Documentation
+
+### **Quick References**
+
+- **[QUICK_START.md](./QUICK_START.md)** - 5-minute deployment
+- **[QUICK_REFERENCE.md](./QUICK_REFERENCE.md)** - Trading guide
+- **[DOCUMENTATION_INDEX.md](./DOCUMENTATION_INDEX.md)** - Complete navigator
+
+### **Strategy & Allocation**
+
+- **[PRO_PLAN_SUMMARY.md](./PRO_PLAN_SUMMARY.md)** - 40 symbols overview
+- **[REFINED_ALLOCATION_PRO.md](./REFINED_ALLOCATION_PRO.md)** - Why these symbols?
+- **[PAIR_CLASSIFICATION.md](./PAIR_CLASSIFICATION.md)** - Trading vs analysis
+
+### **Pricing**
+
+- **[GROW_PLAN_TIERS.md](./GROW_PLAN_TIERS.md)** - Pricing tiers ($29/$49/$79)
+
+### **Technical**
+
+- **[README_TWELVE_DATA.md](./README_TWELVE_DATA.md)** - Twelve Data details
+- **[Central Hub Data Manager](../01-core-infrastructure/central-hub/DATA_MANAGER_SPEC.md)** - Database layer
+
+---
+
+## 🚨 Troubleshooting
+
+### **WebSocket Not Connecting**
+
+```bash
+# Check API key
+echo $TWELVE_DATA_API_KEY_1
+
+# Check config
+cat twelve-data-collector/config/config-pro-plan-refined.yaml | grep "enabled: true"
+
+# Check logs
+docker logs twelve-data-collector-1 | grep -i websocket
+```
+
+### **Rate Limit Exceeded**
+
+```bash
+# Check current usage
+curl http://localhost:8090/metrics | jq '.api_usage'
+
+# Reduce polling frequency
+# Edit: config-pro-plan-refined.yaml
+# Change: poll_interval from 180 to 300 seconds
+```
+
+### **Database Connection Failed**
+
+```bash
+# Check database health
+docker exec suho-postgresql pg_isready
+
+# Check credentials
+echo $POSTGRES_PASSWORD
+
+# Restart collector
+docker-compose restart twelve-data-collector
+```
+
+---
+
+## ✅ Next Steps
+
+1. **Deploy Collector**: Follow `QUICK_START.md`
+2. **Verify Data Flow**: Check database + cache
+3. **Historical Backfill**: Download 10 years data (separate service)
+4. **Build Strategies**: Use collected data for trading signals
+5. **Monitor Performance**: Set up dashboards
+
+---
+
+## 📞 Support
+
+- **Twelve Data**: https://twelvedata.com/docs
+- **Central Hub**: http://suho-central-hub:7000/health
+- **Data Manager Spec**: `../01-core-infrastructure/central-hub/DATA_MANAGER_SPEC.md`
+
+---
+
+**🚀 Architecture**: Hybrid Approach (Database-First + Optional Streaming)
+**📊 Coverage**: 40 Symbols (Quality Over Quantity)
+**💰 Cost**: $29/month Pro Plan
+**✅ Status**: Production Ready
+
+---
+
+**Last Updated**: 2025-10-02
+**Version**: 2.0.0-hybrid

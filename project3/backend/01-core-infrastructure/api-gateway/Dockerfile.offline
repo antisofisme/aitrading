@@ -12,18 +12,27 @@ RUN addgroup -g 1001 -S nodejs && \
 
 WORKDIR /app
 
-# Copy package files first
-COPY --chown=apigateway:nodejs package*.json ./
+# Copy and install Central Hub SDK first
+COPY --chown=apigateway:nodejs 01-core-infrastructure/central-hub/sdk/nodejs /tmp/central-hub-sdk
+WORKDIR /tmp/central-hub-sdk
+RUN npm install && npm pack
 
-# Install dependencies fresh - remove any existing problematic files
-RUN rm -rf node_modules package-lock.json && \
+# Back to app directory
+WORKDIR /app
+
+# Copy package files
+COPY --chown=apigateway:nodejs 01-core-infrastructure/api-gateway/package*.json ./
+
+# Install SDK from local tarball and install dependencies
+RUN npm install /tmp/central-hub-sdk/suho-central-hub-sdk-*.tgz && \
+    rm -rf package-lock.json && \
     npm cache clean --force && \
     npm install --omit=dev --no-optional --no-audit --no-fund --force && \
     npm ls || true && \
     npm cache clean --force
 
 # Copy application source code
-COPY --chown=apigateway:nodejs . .
+COPY --chown=apigateway:nodejs 01-core-infrastructure/api-gateway/ .
 
 # Create logs directory
 RUN mkdir -p logs && chown apigateway:nodejs logs
@@ -40,4 +49,4 @@ EXPOSE 8000 8001 8002
 
 # Start with dumb-init for proper signal handling
 ENTRYPOINT ["dumb-init", "--"]
-CMD ["node", "app.js"]
+CMD ["node", "src/index.js"]

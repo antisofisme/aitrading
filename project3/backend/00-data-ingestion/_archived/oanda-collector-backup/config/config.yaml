@@ -1,0 +1,115 @@
+service:
+  name: "oanda-collector"
+  version: "1.0.0"
+  instance_id: "${INSTANCE_ID:-oanda-collector-1}"
+
+central_hub:
+  host: "${CENTRAL_HUB_HOST:-central-hub}"
+  port: ${CENTRAL_HUB_PORT:-3000}
+  api_version: "v1"
+  service_discovery:
+    enabled: true
+    heartbeat_interval: 30  # seconds
+    register_on_startup: true
+  config_sync:
+    enabled: true
+    watch_interval: 60  # seconds
+  memory_store:
+    enabled: true
+    prefix: "oanda-collector"
+
+oanda:
+  environment: "${OANDA_ENVIRONMENT:-practice}"  # practice or live
+  api_version: "v3"
+  timeout: 30
+  max_retries: 3
+
+  # Multi-account configuration
+  accounts:
+    - id: "${OANDA_ACCOUNT_ID_1}"
+      token: "${OANDA_API_TOKEN_1}"
+      priority: 1
+      enabled: true
+    - id: "${OANDA_ACCOUNT_ID_2}"
+      token: "${OANDA_API_TOKEN_2}"
+      priority: 2
+      enabled: false
+    - id: "${OANDA_ACCOUNT_ID_3}"
+      token: "${OANDA_API_TOKEN_3}"
+      priority: 3
+      enabled: false
+    - id: "${OANDA_ACCOUNT_ID_4}"
+      token: "${OANDA_API_TOKEN_4}"
+      priority: 4
+      enabled: false
+
+  # Rate limiting (per IP)
+  rate_limits:
+    max_streams_per_ip: 20
+    max_requests_per_second: 120
+    burst_size: 150
+
+  # Failover configuration
+  failover:
+    enabled: true
+    health_check_interval: 60  # seconds
+    max_failures_before_switch: 3
+    cooldown_period: 300  # seconds before retry failed account
+
+streaming:
+  # Instrument configuration
+  instruments:
+    forex:
+      - "EUR_USD"
+      - "GBP_USD"
+      - "USD_JPY"
+      - "AUD_USD"
+      - "USD_CAD"
+      - "NZD_USD"
+      - "EUR_GBP"
+      - "EUR_JPY"
+
+  # Stream settings
+  heartbeat_interval: 5  # seconds
+  reconnect_delay: 5  # seconds
+  max_reconnect_attempts: 10
+
+  # Data buffering
+  buffer_size: 1000
+  flush_interval: 1  # seconds
+
+nats:
+  url: "${NATS_URL:-nats://nats:4222}"
+  cluster_id: "${NATS_CLUSTER_ID:-trading-cluster}"
+  client_id: "${NATS_CLIENT_ID:-oanda-collector-1}"
+
+  subjects:
+    pricing: "market.pricing.oanda"
+    candles: "market.candles.oanda"
+    trades: "market.trades.oanda"
+    heartbeat: "service.heartbeat.oanda-collector"
+
+  connection:
+    max_reconnect_attempts: -1  # infinite
+    reconnect_wait: 2  # seconds
+    timeout: 10  # seconds
+
+logging:
+  level: "${LOG_LEVEL:-INFO}"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+  format: "json"
+  outputs:
+    - type: "console"
+    - type: "file"
+      path: "/var/log/oanda-collector/app.log"
+      max_size: 100  # MB
+      max_files: 10
+
+monitoring:
+  metrics:
+    enabled: true
+    port: 9090
+    path: "/metrics"
+  health_check:
+    enabled: true
+    port: 8080
+    path: "/health"

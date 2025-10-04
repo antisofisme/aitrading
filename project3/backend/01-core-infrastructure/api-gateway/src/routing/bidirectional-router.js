@@ -203,15 +203,30 @@ class BidirectionalRouter extends EventEmitter {
         this.messageQueue = [];
         this.isProcessing = false;
 
-        // Fix Kafka brokers configuration - ensure proper fallback
-        const kafkaBrokers = process.env.KAFKA_BROKERS ?
-            (process.env.KAFKA_BROKERS.includes(',') ? process.env.KAFKA_BROKERS.split(',') : [process.env.KAFKA_BROKERS]) :
-            ['suho-kafka:9092'];
+        // ✅ USE CONFIG FROM CENTRAL HUB (via APIGatewayService)
+        // Config is fetched in APIGatewayService.initializeCore() from Central Hub
+        // Fallback to environment variables only if config not provided
+        const natsUrl = this.config?.transfer?.nats_url ||
+                        process.env.NATS_URL ||
+                        'nats://suho-nats-server:4222';
+
+        const kafkaBrokers = this.config?.transfer?.kafka_brokers ?
+            (typeof this.config.transfer.kafka_brokers === 'string'
+                ? this.config.transfer.kafka_brokers.split(',')
+                : this.config.transfer.kafka_brokers)
+            : (process.env.KAFKA_BROKERS
+                ? (process.env.KAFKA_BROKERS.includes(',')
+                    ? process.env.KAFKA_BROKERS.split(',')
+                    : [process.env.KAFKA_BROKERS])
+                : ['suho-kafka:9092']);
+
+        console.log(`[ROUTER] Using NATS from config: ${natsUrl}`);
+        console.log(`[ROUTER] Using Kafka from config: ${kafkaBrokers}`);
 
         // Initialize NATS+Kafka transport
         this.natsKafkaClient = new NATSKafkaClient({
             nats: {
-                servers: (process.env.NATS_SERVERS?.split(',')) || (process.env.NATS_URL ? [process.env.NATS_URL] : ['nats://suho-nats-server:4222']),
+                servers: Array.isArray(natsUrl) ? natsUrl : [natsUrl],
                 reconnectTimeWait: parseInt(process.env.NATS_RECONNECT_TIME_WAIT) || 250,
                 maxReconnectAttempts: parseInt(process.env.NATS_MAX_RECONNECT_ATTEMPTS) || -1,
                 pingInterval: parseInt(process.env.NATS_PING_INTERVAL) || 30000

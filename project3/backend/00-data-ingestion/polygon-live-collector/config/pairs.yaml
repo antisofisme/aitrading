@@ -1,0 +1,222 @@
+# =======================================================================
+# POLYGON.IO LIVE COLLECTOR - PAIR CONFIGURATION
+# =======================================================================
+# Based on TRADING_PAIRS_SELECTION.md strategy
+# Total: 14 pairs (10 WebSocket + 4 REST)
+
+# =======================================================================
+# TIER 1: REAL-TIME TRADING PAIRS (WebSocket - 6 pairs)
+# =======================================================================
+websocket_trading_pairs:
+  - symbol: "XAU/USD"
+    polygon_symbol: "C:XAUUSD"
+    description: "Gold - Primary safe haven asset"
+    volatility: "HIGH"
+    priority: 1
+
+  - symbol: "GBP/USD"
+    polygon_symbol: "C:GBPUSD"
+    description: "Cable - Highest volatility major"
+    volatility: "VERY_HIGH"
+    priority: 1
+
+  - symbol: "EUR/USD"
+    polygon_symbol: "C:EURUSD"
+    description: "Fiber - Most liquid pair"
+    volatility: "MEDIUM"
+    priority: 1
+
+  - symbol: "AUD/USD"
+    polygon_symbol: "C:AUDUSD"
+    description: "Aussie - Commodity currency"
+    volatility: "MEDIUM_HIGH"
+    priority: 2
+
+  - symbol: "USD/JPY"
+    polygon_symbol: "C:USDJPY"
+    description: "Gopher - Safe haven pair"
+    volatility: "MEDIUM"
+    priority: 2
+
+  - symbol: "USD/CAD"
+    polygon_symbol: "C:USDCAD"
+    description: "Loonie - Oil correlation"
+    volatility: "MEDIUM"
+    priority: 3
+
+# =======================================================================
+# TIER 2: REAL-TIME ANALYSIS PAIRS (WebSocket - 4 pairs)
+# =======================================================================
+websocket_analysis_pairs:
+  - symbol: "AUD/JPY"
+    polygon_symbol: "C:AUDJPY"
+    description: "Primary risk-on/risk-off indicator"
+    use_case: "RISK_INDICATOR"
+    priority: 1
+
+  - symbol: "EUR/GBP"
+    polygon_symbol: "C:EURGBP"
+    description: "Currency strength indicator"
+    use_case: "STRENGTH_INDICATOR"
+    priority: 2
+
+  - symbol: "GBP/JPY"
+    polygon_symbol: "C:GBPJPY"
+    description: "Extreme volatility indicator"
+    use_case: "VOLATILITY_INDICATOR"
+    priority: 2
+
+  - symbol: "EUR/JPY"
+    polygon_symbol: "C:EURJPY"
+    description: "EUR strength + risk confirmation"
+    use_case: "CONFIRMATION"
+    priority: 3
+
+# =======================================================================
+# TIER 3: CONFIRMATION PAIRS (REST API - 4 pairs)
+# =======================================================================
+# 3-minute polling interval (sufficient for correlation check)
+rest_confirmation_pairs:
+  - symbol: "NZD/USD"
+    polygon_symbol: "C:NZDUSD"
+    description: "Commodity correlation validator"
+    use_case: "AUD_USD_CONFIRMATION"
+    poll_interval: 180  # seconds
+
+  - symbol: "USD/CHF"
+    polygon_symbol: "C:USDCHF"
+    description: "EUR/USD inverse confirmation"
+    use_case: "EUR_USD_INVERSE"
+    poll_interval: 180
+
+  - symbol: "NZD/JPY"
+    polygon_symbol: "C:NZDJPY"
+    description: "Risk sentiment double-check"
+    use_case: "RISK_CONFIRMATION"
+    poll_interval: 180
+
+  - symbol: "CHF/JPY"
+    polygon_symbol: "C:CHFJPY"
+    description: "Safe haven flow comparison"
+    use_case: "SAFE_HAVEN"
+    poll_interval: 180
+
+# =======================================================================
+# WEBSOCKET CONFIGURATION
+# =======================================================================
+websocket_config:
+  url: "wss://socket.polygon.io/forex"
+  reconnect_attempts: 10
+  reconnect_delay: 5  # seconds
+  heartbeat_interval: 30  # seconds
+  message_queue_size: 10000
+
+  # Subscription format: CA.{symbol} for quotes
+  subscription_prefix: "CA"
+
+  # Data streams available:
+  # - CA.*  : Quotes (best bid/ask)
+  # - CAS.* : Aggregates per second (OHLCV)
+  # - XA.*  : Aggregates per minute (OHLCV)
+  # - FMV.* : Fair Market Value (Business plan only)
+  stream_type: "CA"  # Quotes
+
+# =======================================================================
+# AGGREGATE CONFIGURATION (OHLCV + Tick Volume like MT5)
+# =======================================================================
+aggregate_config:
+  enabled: true  # Enable aggregate collection
+
+  # WebSocket configuration for aggregates
+  websocket:
+    url: "wss://socket.polygon.io/forex"
+    reconnect_attempts: 10
+    reconnect_delay: 5
+
+    # Subscription format: CAS.{symbol} for per-second aggregates
+    subscription_prefix: "CAS"  # Currency Aggregate Second
+
+    # Pairs to collect aggregates for (OHLCV + tick volume)
+    # Using all 10 WebSocket pairs for maximum trading insight
+    pairs:
+      - "C:XAUUSD"   # Gold
+      - "C:GBPUSD"   # Cable
+      - "C:EURUSD"   # Fiber
+      - "C:AUDUSD"   # Aussie
+      - "C:USDJPY"   # Gopher
+      - "C:USDCAD"   # Loonie
+      - "C:AUDJPY"   # Risk indicator
+      - "C:EURGBP"   # Strength
+      - "C:GBPJPY"   # Volatility
+      - "C:EURJPY"   # Confirmation
+
+  # Timeframe settings
+  timeframe: "1s"  # 1-second bars (real-time like MT5)
+
+  # Note: Tick volume in aggregates = number of price changes
+  # This is the SAME as volume shown in MT5 for forex pairs!
+
+# =======================================================================
+# REST API CONFIGURATION
+# =======================================================================
+rest_config:
+  base_url: "https://api.polygon.io/v2"
+  timeout: 30  # seconds
+  retry_attempts: 3
+  retry_delay: 2  # seconds
+  rate_limit_delay: 0.1  # 100ms between requests
+
+# =======================================================================
+# NATS PUBLISHING CONFIGURATION
+# =======================================================================
+nats_config:
+  url: "nats://suho-nats-server:4222"
+
+  # Subject patterns
+  subjects:
+    realtime_quotes: "ticks.{symbol}"          # e.g., ticks.EURUSD
+    confirmation: "confirmation.{symbol}"      # e.g., confirmation.NZDUSD
+    aggregates: "bars.{symbol}.{timeframe}"    # e.g., bars.EURUSD.1s
+    status: "collector.status"
+    errors: "collector.errors"
+
+  # Message settings
+  max_reconnect: 10
+  reconnect_delay: 2
+  ping_interval: 120
+
+# =======================================================================
+# KAFKA CONFIGURATION (Persistent Archive - ALWAYS ENABLED)
+# =======================================================================
+# Purpose: Long-term storage, replay, audit trail, backtesting
+# This is NOT a fallback - it's part of hybrid architecture!
+kafka_config:
+  enabled: true  # REQUIRED for persistent storage
+  brokers: ["suho-kafka:9092"]
+
+  # Topics for persistent archive
+  topics:
+    tick_archive: "tick_archive"              # Real-time tick archive
+    confirmation_archive: "confirmation_archive"  # Confirmation tick archive
+    aggregate_archive: "aggregate_archive"     # OHLCV aggregate archive
+
+  # Producer settings
+  compression: "lz4"    # Compress for storage efficiency
+  linger_ms: 10         # Batch delay (10ms)
+  batch_size: 16384     # Batch size (16KB)
+
+  # Retention policy (set in Kafka broker config)
+  # Recommended: 7-30 days for tick data
+
+# =======================================================================
+# MONITORING & LOGGING
+# =======================================================================
+monitoring:
+  log_level: "INFO"
+  metrics_interval: 60  # seconds
+
+  # Alert thresholds
+  thresholds:
+    max_latency_ms: 100
+    min_messages_per_minute: 100
+    max_error_rate: 0.05  # 5%

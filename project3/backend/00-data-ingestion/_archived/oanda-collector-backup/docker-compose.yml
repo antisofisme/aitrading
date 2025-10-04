@@ -1,0 +1,85 @@
+services:
+  # OANDA Collector Instance 1 (Primary)
+  oanda-collector-1:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: oanda-collector-1
+    hostname: oanda-collector-1
+    environment:
+      # Service Config
+      - INSTANCE_ID=oanda-collector-1
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+
+      # Central Hub
+      - CENTRAL_HUB_HOST=${CENTRAL_HUB_HOST:-suho-central-hub}
+      - CENTRAL_HUB_PORT=${CENTRAL_HUB_PORT:-7000}
+
+      # OANDA Config (from parent .env)
+      - OANDA_ENVIRONMENT=${OANDA_ENVIRONMENT:-practice}
+      - OANDA_ACCOUNT_ID_1=${OANDA_ACCOUNT_ID_1:-7030924}
+      - OANDA_API_TOKEN_1=${OANDA_API_TOKEN_1:-c7e9b76f-d52d-46bc-a448-e503bdf8d06c}
+      - OANDA_ACCOUNT_ID_2=${OANDA_ACCOUNT_ID_2:-}
+      - OANDA_API_TOKEN_2=${OANDA_API_TOKEN_2:-}
+      - OANDA_ACCOUNT_ID_3=${OANDA_ACCOUNT_ID_3:-}
+      - OANDA_API_TOKEN_3=${OANDA_API_TOKEN_3:-}
+      - OANDA_ACCOUNT_ID_4=${OANDA_ACCOUNT_ID_4:-}
+      - OANDA_API_TOKEN_4=${OANDA_API_TOKEN_4:-}
+
+      # NATS Config
+      - NATS_URL=${NATS_URL:-nats://suho-nats-server:4222}
+      - NATS_CLUSTER_ID=${NATS_CLUSTER_ID:-trading-cluster}
+      - NATS_CLIENT_ID=oanda-collector-1
+
+    volumes:
+      - ./config:/app/config:ro
+      - oanda-collector-1-logs:/var/log/oanda-collector
+
+    networks:
+      - suho-network
+
+    restart: unless-stopped
+
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sys; sys.exit(0)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # OANDA Collector Instance 2 (Backup - Optional)
+  # oanda-collector-2:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile
+  #   container_name: oanda-collector-2
+  #   hostname: oanda-collector-2
+  #   environment:
+  #     - INSTANCE_ID=oanda-collector-2
+  #     - LOG_LEVEL=${LOG_LEVEL:-INFO}
+  #     - CENTRAL_HUB_HOST=${CENTRAL_HUB_HOST:-central-hub}
+  #     - CENTRAL_HUB_PORT=${CENTRAL_HUB_PORT:-3000}
+  #     - OANDA_ENVIRONMENT=${OANDA_ENVIRONMENT:-practice}
+  #     - OANDA_ACCOUNT_ID_1=${OANDA_ACCOUNT_ID_1}
+  #     - OANDA_API_TOKEN_1=${OANDA_API_TOKEN_1}
+  #     - NATS_URL=${NATS_URL:-nats://nats:4222}
+  #     - NATS_CLUSTER_ID=${NATS_CLUSTER_ID:-trading-cluster}
+  #     - NATS_CLIENT_ID=oanda-collector-2
+  #   volumes:
+  #     - ./config:/app/config:ro
+  #     - oanda-collector-2-logs:/var/log/oanda-collector
+  #   networks:
+  #     - suho-network
+  #   depends_on:
+  #     - nats
+  #   restart: unless-stopped
+
+volumes:
+  oanda-collector-1-logs:
+    driver: local
+  # oanda-collector-2-logs:
+  #   driver: local
+
+networks:
+  suho-network:
+    external: true
