@@ -9,6 +9,7 @@ import logging
 import signal
 import sys
 from datetime import datetime
+from typing import Dict, Any, List, Optional
 from pathlib import Path
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
@@ -43,6 +44,7 @@ class TickAggregatorService:
         self.aggregator: TickAggregator = None
         self.publisher: AggregatePublisher = None
         self.scheduler: AsyncIOScheduler = None
+        self.status_task: Optional[asyncio.Task] = None
 
         self.start_time = datetime.utcnow()
         self.is_running = False
@@ -103,8 +105,12 @@ class TickAggregatorService:
                 logger.info(f"   - {tf['name']}: {tf['cron']}")
             logger.info("=" * 80)
 
-            # Run status reporter
-            await self._status_reporter()
+            # Run status reporter as background task (not blocking!)
+            self.status_task = asyncio.create_task(self._status_reporter())
+
+            # Keep service running
+            while self.is_running:
+                await asyncio.sleep(1)
 
         except Exception as e:
             logger.error(f"❌ Error starting Tick Aggregator: {e}", exc_info=True)
@@ -204,6 +210,14 @@ class TickAggregatorService:
         """Stop the aggregator service"""
         logger.info("🛑 Stopping Tick Aggregator Service...")
         self.is_running = False
+
+        # Cancel status reporter task
+        if self.status_task and not self.status_task.done():
+            self.status_task.cancel()
+            try:
+                await self.status_task
+            except asyncio.CancelledError:
+                pass
 
         # Stop scheduler
         if self.scheduler:

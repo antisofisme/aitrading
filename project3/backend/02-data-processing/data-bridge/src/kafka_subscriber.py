@@ -49,6 +49,17 @@ class KafkaSubscriber:
                 topics_config.get('confirmation_archive', 'confirmation_archive')
             ]
 
+            # Add external data topics
+            external_topics = [
+                'market.external.economic_calendar',
+                'market.external.fred_economic',
+                'market.external.crypto_sentiment',
+                'market.external.fear_greed_index',
+                'market.external.commodity_prices',
+                'market.external.market_sessions'
+            ]
+            topics.extend(external_topics)
+
             self.consumer = KafkaConsumer(
                 *topics,
                 bootstrap_servers=self.config.get('brokers', ['localhost:9092']),
@@ -106,7 +117,9 @@ class KafkaSubscriber:
             data['_topic'] = record.topic
 
             # Determine data type from topic
-            if 'aggregate' in record.topic:
+            if 'market.external' in record.topic:
+                data_type = 'external'
+            elif 'aggregate' in record.topic:
                 data_type = 'aggregate'
                 self.aggregate_messages += 1
             elif 'confirmation' in record.topic:

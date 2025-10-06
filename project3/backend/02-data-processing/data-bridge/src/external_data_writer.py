@@ -58,18 +58,27 @@ class ExternalDataWriter:
     async def connect(self):
         """Connect to ClickHouse"""
         try:
+            connection_config = self.config.get('connection', {})
+
+            # Get connection params (same pattern as clickhouse_writer.py)
+            host = connection_config.get('host', 'localhost')
+            port = connection_config.get('http_port', connection_config.get('port', 8123))
+            database = connection_config.get('database', 'suho_analytics')
+            username = connection_config.get('username', connection_config.get('user', 'default'))
+            password = connection_config.get('password', '')
+
             self.client = clickhouse_connect.get_client(
-                host=self.config.get('host', 'localhost'),
-                port=self.config.get('port', 8123),
-                username=self.config.get('username', 'default'),
-                password=self.config.get('password', ''),
-                database=self.config.get('database', 'default')
+                host=host,
+                port=int(port),
+                username=username,
+                password=password,
+                database=database
             )
 
             # Test connection
             self.client.command('SELECT 1')
 
-            logger.info(f"✅ Connected to ClickHouse: {self.config.get('host')}:{self.config.get('port')}")
+            logger.info(f"✅ Connected to ClickHouse for External Data: {host}:{port}")
 
         except Exception as e:
             logger.error(f"❌ ClickHouse connection failed: {e}")
@@ -94,11 +103,22 @@ class ExternalDataWriter:
             message_data = data.get('data', {})
             metadata = data.get('metadata', {})
 
+            # Parse collected_at timestamp (string → datetime)
+            collected_at_str = metadata.get('timestamp', datetime.utcnow().isoformat())
+            try:
+                # Parse ISO string to datetime
+                if isinstance(collected_at_str, str):
+                    collected_at = datetime.fromisoformat(collected_at_str.replace('Z', '+00:00'))
+                else:
+                    collected_at = collected_at_str
+            except:
+                collected_at = datetime.utcnow()
+
             # Add to buffer
             self.buffers[external_type].append({
                 'data': message_data,
                 'metadata': metadata,
-                'received_at': datetime.utcnow()
+                'collected_at': collected_at  # datetime object, not string
             })
 
             # Check if should flush
@@ -163,7 +183,7 @@ class ExternalDataWriter:
                 data.get('actual'),
                 data.get('impact'),
                 metadata.get('source', 'mql5'),
-                metadata.get('timestamp', datetime.utcnow().isoformat())
+                item['collected_at']  # datetime object
             ])
 
         self.client.insert('external_economic_calendar', rows,
@@ -182,7 +202,7 @@ class ExternalDataWriter:
                 data.get('value'),
                 data.get('date'),
                 metadata.get('source', 'fred'),
-                metadata.get('timestamp', datetime.utcnow().isoformat())
+                item['collected_at']  # datetime object
             ])
 
         self.client.insert('external_fred_economic', rows,
@@ -207,7 +227,7 @@ class ExternalDataWriter:
                 data.get('twitter_followers'),
                 data.get('reddit_subscribers'),
                 metadata.get('source', 'coingecko'),
-                metadata.get('timestamp', datetime.utcnow().isoformat())
+                item['collected_at']  # datetime object
             ])
 
         self.client.insert('external_crypto_sentiment', rows,
@@ -228,7 +248,7 @@ class ExternalDataWriter:
                 data.get('sentiment_score'),
                 data.get('timestamp'),
                 metadata.get('source', 'alternative.me'),
-                metadata.get('timestamp', datetime.utcnow().isoformat())
+                item['collected_at']  # datetime object
             ])
 
         self.client.insert('external_fear_greed_index', rows,
@@ -252,7 +272,7 @@ class ExternalDataWriter:
                 data.get('change_percent'),
                 data.get('volume'),
                 metadata.get('source', 'yahoo'),
-                metadata.get('timestamp', datetime.utcnow().isoformat())
+                item['collected_at']  # datetime object
             ])
 
         self.client.insert('external_commodity_prices', rows,
@@ -271,7 +291,7 @@ class ExternalDataWriter:
                 data.get('active_sessions_count'),
                 ','.join(data.get('active_sessions', [])),
                 data.get('liquidity_level'),
-                metadata.get('timestamp', datetime.utcnow().isoformat())
+                item['collected_at']  # datetime object
             ])
 
         self.client.insert('external_market_sessions', rows,

@@ -268,10 +268,11 @@ services:
       - DRAGONFLY_PORT=${DRAGONFLY_PORT}
 
       # === CLICKHOUSE CONNECTION DETAILS ===
-      - CLICKHOUSE_HOST=suho-clickhouse
-      - CLICKHOUSE_PORT=8123
-      - CLICKHOUSE_DB=suho_trading
-      - CLICKHOUSE_USER=default
+      - CLICKHOUSE_HOST=${CLICKHOUSE_HOST}
+      - CLICKHOUSE_PORT=${CLICKHOUSE_PORT}
+      - CLICKHOUSE_DB=${CLICKHOUSE_DB}
+      - CLICKHOUSE_USER=${CLICKHOUSE_USER}
+      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD}
 
       # === NATS CONNECTION DETAILS ===
       - NATS_HOST=suho-nats-server
@@ -352,8 +353,7 @@ services:
       - KAFKA_BROKERS=suho-kafka:9092
       - CENTRAL_HUB_URL=http://suho-central-hub:7000
     volumes:
-      - ./00-data-ingestion/polygon-historical-downloader/config:/app/config:ro
-      - ./00-data-ingestion/shared:/app/shared:ro
+      # Use named volumes instead of bind mounts (WSL Docker Desktop fix)
       - polygon_historical_logs:/var/log/polygon-historical-downloader
     networks:
       - suho-trading-network
@@ -468,6 +468,40 @@ services:
         condition: service_started
     labels:
       - "com.suho.service=data-bridge"
+      - "com.suho.type=data-processor"
+
+  # Tick Aggregator - TimescaleDB Ticks → Aggregated Candles with Indicators → NATS
+  tick-aggregator:
+    build:
+      context: .  # Root context for SDK access
+      dockerfile: 02-data-processing/tick-aggregator/Dockerfile
+    container_name: suho-tick-aggregator
+    hostname: suho-tick-aggregator
+    restart: unless-stopped
+    environment:
+      - INSTANCE_ID=tick-aggregator-1
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      # TimescaleDB connection
+      - TIMESCALEDB_HOST=${TIMESCALEDB_HOST}
+      - TIMESCALEDB_PORT=${TIMESCALEDB_PORT}
+      - TIMESCALEDB_DB=${TIMESCALEDB_DB}
+      - TIMESCALEDB_USER=${TIMESCALEDB_USER}
+      - TIMESCALEDB_PASSWORD=${TIMESCALEDB_PASSWORD}
+      # NATS for publishing aggregates
+      - NATS_URL=nats://suho-nats-server:4222
+    volumes:
+      - ./02-data-processing/tick-aggregator/config:/app/config:ro
+      - ./01-core-infrastructure/central-hub/shared:/app/shared:ro
+      - tick_aggregator_logs:/app/logs
+    networks:
+      - suho-trading-network
+    depends_on:
+      postgresql:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    labels:
+      - "com.suho.service=tick-aggregator"
       - "com.suho.type=data-processor"
 
   # ClickHouse Consumer - NATS+Kafka → ClickHouse (DEPRECATED - Use data-bridge instead)
@@ -660,6 +694,11 @@ volumes:
     driver: local
     labels:
       - "com.suho.data=data-bridge-logs"
+
+  tick_aggregator_logs:
+    driver: local
+    labels:
+      - "com.suho.data=tick-aggregator-logs"
 
   # clickhouse_consumer_logs:  # DEPRECATED - Use data-bridge instead
   #   driver: local

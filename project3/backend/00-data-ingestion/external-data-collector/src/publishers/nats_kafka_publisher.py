@@ -131,6 +131,7 @@ class ExternalDataPublisher:
             if self.nats:
                 try:
                     await self.nats.publish(nats_subject, message_json)
+                    await self.nats.flush()  # Force flush to ensure delivery
                     self.nats_publish_count += 1
                     nats_success = True
                 except Exception as e:
