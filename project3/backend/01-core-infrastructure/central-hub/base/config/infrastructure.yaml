@@ -1,0 +1,174 @@
+# Central Hub - Infrastructure Monitoring Configuration
+# Complete system infrastructure with health checks and dependencies
+
+# Database Infrastructure
+databases:
+  postgresql:
+    host: suho-postgresql
+    port: 5432
+    type: postgres
+    health_check:
+      method: tcp
+      timeout: 5
+      interval: 30
+    dependencies: []
+    critical: true
+    description: "Primary relational database"
+
+  dragonflydb:
+    host: suho-dragonflydb
+    port: 6379
+    type: redis
+    health_check:
+      method: redis_ping
+      password: ${DRAGONFLY_PASSWORD}
+      timeout: 5
+      interval: 30
+    dependencies: []
+    critical: true
+    description: "High-performance cache and pub/sub"
+
+  arangodb:
+    host: suho-arangodb
+    port: 8529
+    type: arango
+    health_check:
+      method: http
+      endpoint: /_api/version
+      timeout: 5
+      interval: 30
+    dependencies: []
+    critical: false
+    description: "Graph database (optional)"
+
+  clickhouse:
+    host: suho-clickhouse
+    port: 8123
+    type: clickhouse
+    health_check:
+      method: http
+      endpoint: /ping
+      timeout: 5
+      interval: 30
+    dependencies: []
+    critical: true
+    description: "OLAP database for time-series data"
+
+# Messaging Infrastructure
+messaging:
+  nats:
+    host: suho-nats-server
+    port: 4222
+    management_port: 8222
+    type: nats
+    health_check:
+      method: http
+      endpoint: /healthz
+      port: 8222
+      timeout: 5
+      interval: 30
+    dependencies: []
+    critical: true
+    description: "Primary message broker"
+
+  kafka:
+    host: suho-kafka
+    port: 9092
+    type: kafka
+    health_check:
+      method: kafka_admin
+      command: list_topics
+      timeout: 10
+      interval: 30
+    dependencies: [zookeeper]
+    critical: true
+    description: "Stream processing platform"
+
+  zookeeper:
+    host: suho-zookeeper
+    port: 2181
+    type: zookeeper
+    health_check:
+      method: tcp
+      command: ruok
+      timeout: 5
+      interval: 30
+    dependencies: []
+    critical: true
+    description: "Kafka coordination service"
+
+# Search/Vector Infrastructure
+search:
+  weaviate:
+    host: suho-weaviate
+    port: 8080
+    type: weaviate
+    health_check:
+      method: http
+      endpoint: /v1/.well-known/ready
+      timeout: 5
+      interval: 30
+    dependencies: []
+    critical: false
+    description: "Vector search database (optional)"
+
+# Service Dependencies Configuration
+# Maps which services depend on which infrastructure
+service_dependencies:
+  external-data-collector:
+    requires:
+      - postgresql
+      - nats
+    optional:
+      - kafka
+    description: "Economic calendar and market data collector"
+
+  polygon-live-collector:
+    requires:
+      - nats
+      - kafka
+      - clickhouse
+    optional: []
+    description: "Real-time Polygon.io data collector"
+
+  data-bridge:
+    requires:
+      - nats
+      - kafka
+      - clickhouse
+      - dragonflydb
+    optional:
+      - postgresql
+    description: "Data processing and routing service"
+
+  api-gateway:
+    requires:
+      - dragonflydb
+      - nats
+    optional:
+      - kafka
+    description: "Main API gateway"
+
+# Alert Configuration
+alerts:
+  enabled: true
+  channels:
+    - type: log
+      level: error
+      enabled: true
+    - type: console
+      enabled: true
+    # Future: webhook, email, telegram, etc
+  rules:
+    critical_infrastructure_down:
+      severity: critical
+      message: "Critical infrastructure {name} is down"
+      notify: true
+    optional_infrastructure_down:
+      severity: warning
+      message: "Optional infrastructure {name} is down"
+      notify: false
+    service_degraded:
+      severity: warning
+      message: "Service {service} degraded due to {reason}"
+      notify: true

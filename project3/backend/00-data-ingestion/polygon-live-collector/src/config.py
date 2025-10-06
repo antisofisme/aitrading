@@ -1,11 +1,24 @@
 """
 Configuration loader for Polygon.io Live Collector
+Enhanced to fetch NATS/Kafka config from Central Hub
 """
 import os
 import yaml
+import asyncio
+import logging
 from pathlib import Path
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 from dataclasses import dataclass
+
+# Import Central Hub SDK
+try:
+    from central_hub_sdk import CentralHubClient
+    SDK_AVAILABLE = True
+except ImportError:
+    SDK_AVAILABLE = False
+    logging.warning("Central Hub SDK not available, using fallback config")
+
+logger = logging.getLogger(__name__)
 
 @dataclass
 class PairConfig:
@@ -29,6 +42,40 @@ class Config:
 
         self.instance_id = os.getenv("INSTANCE_ID", "polygon-live-collector-1")
         self.log_level = os.getenv("LOG_LEVEL", "INFO")
+
+        # Central Hub client (will be initialized async)
+        self.central_hub: Optional[CentralHubClient] = None
+        self._nats_config_from_hub: Optional[Dict] = None
+        self._kafka_config_from_hub: Optional[Dict] = None
+
+    async def fetch_messaging_configs_from_central_hub(self):
+        """
+        Fetch NATS and Kafka configurations from Central Hub
+        This method should be called async after instantiation
+        """
+        if not SDK_AVAILABLE:
+            logger.warning("⚠️  Central Hub SDK not available, using YAML config")
+            return
+
+        try:
+            # Note: central_hub is already initialized in main.py
+            if not self.central_hub:
+                logger.warning("⚠️  Central Hub client not initialized")
+                return
+
+            logger.info("📡 Fetching messaging configs from Central Hub...")
+
+            # Fetch NATS config
+            self._nats_config_from_hub = await self.central_hub.get_messaging_config('nats')
+            logger.info(f"✅ NATS config loaded from Central Hub: {self._nats_config_from_hub['connection']['host']}:{self._nats_config_from_hub['connection']['port']}")
+
+            # Fetch Kafka config
+            self._kafka_config_from_hub = await self.central_hub.get_messaging_config('kafka')
+            logger.info(f"✅ Kafka config loaded from Central Hub: {self._kafka_config_from_hub['connection']['bootstrap_servers']}")
+
+        except Exception as e:
+            logger.warning(f"⚠️  Failed to fetch messaging configs from Central Hub: {e}")
+            logger.warning("⚠️  Falling back to YAML configuration")
 
     def _load_config(self) -> Dict:
         """Load YAML configuration"""
@@ -99,12 +146,39 @@ class Config:
 
     @property
     def nats_config(self) -> Dict:
-        """Get NATS configuration"""
+        """
+        Get NATS configuration
+        Priority: 1. Central Hub, 2. YAML config
+        """
+        # If config fetched from Central Hub, use it
+        if self._nats_config_from_hub:
+            conn = self._nats_config_from_hub['connection']
+            return {
+                'url': f"nats://{conn['host']}:{conn['port']}",
+                'max_reconnect_attempts': -1,
+                'reconnect_time_wait': 2
+            }
+
+        # Fallback to YAML config
         return self._config.get('nats_config', {})
 
     @property
     def kafka_config(self) -> Dict:
-        """Get Kafka configuration"""
+        """
+        Get Kafka configuration
+        Priority: 1. Central Hub, 2. YAML config
+        """
+        # If config fetched from Central Hub, use it
+        if self._kafka_config_from_hub:
+            conn = self._kafka_config_from_hub['connection']
+            brokers = conn['bootstrap_servers']
+            return {
+                'brokers': brokers if isinstance(brokers, list) else [brokers],
+                'client_id': 'polygon-live-collector',
+                'group_id': 'polygon-collectors'
+            }
+
+        # Fallback to YAML config
         return self._config.get('kafka_config', {})
 
     @property

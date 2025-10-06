@@ -78,19 +78,25 @@ class PolygonLiveCollector:
             # Register with Central Hub
             await self.central_hub.register()
 
+            # Link config to Central Hub client for later use
+            self.config.central_hub = self.central_hub
+
             # Get messaging configs from Central Hub
             try:
                 logger.info("⚙️  Fetching messaging configs from Central Hub...")
-                nats_config = await self.central_hub.get_messaging_config('nats')
-                kafka_config = await self.central_hub.get_messaging_config('kafka')
 
-                logger.info(f"✅ Using NATS from Central Hub: {nats_config['connection']['host']}:{nats_config['connection']['port']}")
-                logger.info(f"✅ Using Kafka from Central Hub: {kafka_config['connection']['bootstrap_servers']}")
+                # Fetch and store in config object
+                await self.config.fetch_messaging_configs_from_central_hub()
+
+                # Use the fetched configs
+                nats_config = self.config.nats_config
+                kafka_config = self.config.kafka_config
+
+                logger.info(f"✅ Messaging configs loaded from Central Hub")
 
             except Exception as e:
-                # Fallback to local config if Central Hub config fails
-                logger.warning(f"⚠️  Failed to get messaging config from Central Hub: {e}")
-                logger.warning("⚠️  Falling back to local configuration...")
+                # Fallback already handled by config.py
+                logger.warning(f"⚠️  Using fallback configuration")
                 nats_config = self.config.nats_config
                 kafka_config = self.config.kafka_config
 

@@ -23,7 +23,8 @@ const { SuhoBinaryProtocol } = require('./protocols/suho-binary-protocol');
 const AuthMiddleware = require('./middleware/auth');
 const logger = require('./utils/logger');
 
-// Import Central Hub client instead of shared components
+// Import Central Hub Config Loader (NEW!)
+const CentralHubConfigLoader = require('./config/central-hub-config');
 const { APIGatewayService } = require('./core/APIGatewayService');
 
 // Import modular handlers organized by transfer method (corrected structure)
@@ -49,6 +50,10 @@ class APIGateway {
 
         this.app = express();
         this.server = null;
+
+        // ✅ NEW: Initialize Central Hub Config Loader
+        this.centralHubConfig = new CentralHubConfigLoader();
+        this.config = null;
 
         // ✅ NEW: Initialize ServiceTemplate-based service
         this.apiGatewayService = new APIGatewayService(this.options);
@@ -772,7 +777,12 @@ class APIGateway {
      */
     async start() {
         try {
-            // ✅ Initialize ServiceTemplate-based components first
+            // ✅ STEP 1: Initialize Central Hub connection and fetch configs
+            logger.info('📡 Connecting to Central Hub...');
+            this.config = await this.centralHubConfig.initialize();
+            logger.info('✅ Central Hub configuration loaded');
+
+            // ✅ STEP 2: Initialize ServiceTemplate-based components
             await this.initializeComponents();
 
             // Create HTTP server
@@ -821,7 +831,13 @@ class APIGateway {
         console.log('\n🔄 Shutting down API Gateway...');
 
         try {
-            // ✅ Shutdown ServiceTemplate-based service first
+            // ✅ STEP 1: Unregister from Central Hub
+            if (this.centralHubConfig) {
+                await this.centralHubConfig.shutdown();
+                console.log('✅ Central Hub integration shutdown complete');
+            }
+
+            // ✅ STEP 2: Shutdown ServiceTemplate-based service
             if (this.apiGatewayService) {
                 await this.apiGatewayService.shutdown();
                 console.log('✅ ServiceTemplate-based service shutdown complete');

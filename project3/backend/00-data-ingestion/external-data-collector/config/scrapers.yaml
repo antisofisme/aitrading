@@ -1,0 +1,61 @@
+# External Data Collector Configuration
+# Economic Calendar and Market Data Scrapers
+
+scrapers:
+  # MQL5 Economic Calendar
+  mql5_economic_calendar:
+    enabled: true
+    source: mql5.com
+    priority: 1
+    scrape_interval: 3600  # 1 hour (3600 seconds)
+    metadata:
+      data_type: economic_calendar
+      update_mode: incremental  # incremental or full
+      parser: zai  # zai or regex
+      rate_limit_seconds: 2
+      date_tracking: true
+
+storage:
+  # Storage type: json or postgresql
+  type: json  # Use JSON file for tracking (fallback)
+
+  # JSON file path
+  json_path: /app/data
+
+  # PostgreSQL configuration (if type: postgresql)
+  postgresql:
+    host: ${DB_HOST:-suho-postgresql}
+    port: ${DB_PORT:-5432}
+    database: ${DB_NAME:-aitrading}
+    user: ${DB_USER:-postgres}
+    password: ${DB_PASSWORD:-}
+    schema: public
+
+messaging:
+  # NATS configuration
+  nats:
+    enabled: false  # Disabled by default, enable when needed
+    host: suho-nats
+    port: 4222
+    topics:
+      economic_calendar: market.economic.calendar
+
+  # Kafka configuration
+  kafka:
+    enabled: false  # Disabled by default, enable when needed
+    bootstrap_servers: suho-kafka:9092
+    topics:
+      economic_calendar: market.economic.calendar
+
+# Historical backfill configuration
+backfill:
+  enabled: false  # Set to true to run backfill on first start
+  months_back: 12  # How many months to backfill
+  batch_days: 30   # Days per batch
+  rate_limit_seconds: 2
+
+# Monitoring configuration
+monitoring:
+  metrics_enabled: true
+  health_check_port: 8080
+  log_level: ${LOG_LEVEL:-INFO}

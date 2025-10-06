@@ -1,4 +1,0 @@
-service:
-  description: Test microservice
-  name: test
-  version: 1.0.0

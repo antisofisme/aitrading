@@ -1,4 +1,0 @@
-service:
-  description: Ml-Processing microservice
-  name: ml-processing
-  version: 1.0.0

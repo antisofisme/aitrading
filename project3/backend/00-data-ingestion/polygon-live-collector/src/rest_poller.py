@@ -120,9 +120,9 @@ class PolygonRESTPoller:
                     spread = round((ask - bid) * 10000, 2)  # pips
                     mid = round((ask + bid) / 2, 5)
 
-                    # Timestamp
+                    # Timestamp (keep as Unix milliseconds for Data Bridge)
                     timestamp_ms = last_quote.get('timestamp', int(datetime.now().timestamp() * 1000))
-                    timestamp = datetime.fromtimestamp(timestamp_ms / 1000.0).isoformat()
+                    timestamp = timestamp_ms  # Data Bridge expects Unix milliseconds
 
                     return {
                         'symbol': pair.symbol,

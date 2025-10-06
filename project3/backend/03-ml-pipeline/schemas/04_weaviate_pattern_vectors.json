@@ -1,0 +1,473 @@
+{
+  "schema_name": "weaviate_trading_patterns",
+  "description": "Vector schema for storing trading pattern embeddings and enabling similarity search",
+  "version": "1.0.0",
+
+  "classes": [
+    {
+      "class": "TradingPattern",
+      "description": "Stores vectorized trading patterns for similarity matching",
+      "vectorIndexType": "hnsw",
+      "vectorIndexConfig": {
+        "skip": false,
+        "cleanupIntervalSeconds": 300,
+        "pq": {
+          "enabled": false,
+          "trainingLimit": 100000,
+          "segments": 0
+        },
+        "maxConnections": 64,
+        "efConstruction": 128,
+        "ef": -1,
+        "dynamicEfMin": 100,
+        "dynamicEfMax": 500,
+        "dynamicEfFactor": 8,
+        "vectorCacheMaxObjects": 1000000,
+        "flatSearchCutoff": 40000,
+        "distance": "cosine"
+      },
+      "vectorizer": "none",
+      "moduleConfig": {},
+
+      "properties": [
+        {
+          "name": "tenantId",
+          "dataType": ["text"],
+          "description": "Multi-tenant isolation identifier",
+          "indexFilterable": true,
+          "indexSearchable": false
+        },
+        {
+          "name": "userId",
+          "dataType": ["text"],
+          "description": "User who owns this pattern",
+          "indexFilterable": true,
+          "indexSearchable": false
+        },
+        {
+          "name": "patternId",
+          "dataType": ["text"],
+          "description": "Unique pattern identifier (UUID)",
+          "indexFilterable": true,
+          "indexSearchable": false
+        },
+        {
+          "name": "symbol",
+          "dataType": ["text"],
+          "description": "Trading pair (EUR/USD, XAU/USD)",
+          "indexFilterable": true,
+          "indexSearchable": false
+        },
+        {
+          "name": "timeframe",
+          "dataType": ["text"],
+          "description": "Pattern timeframe (1h, 4h, 1d)",
+          "indexFilterable": true,
+          "indexSearchable": false
+        },
+        {
+          "name": "timestamp",
+          "dataType": ["date"],
+          "description": "Pattern observation timestamp",
+          "indexFilterable": true,
+          "indexSearchable": false
+        },
+        {
+          "name": "patternType",
+          "dataType": ["text"],
+          "description": "Pattern category (trend_continuation, reversal, breakout, consolidation)",
+          "indexFilterable": true,
+          "indexSearchable": false
+        },
+        {
+          "name": "sequenceLength",
+          "dataType": ["int"],
+          "description": "Number of bars in pattern sequence",
+          "indexFilterable": true,
+          "indexSearchable": false
+        },
+        {
+          "name": "featureVector",
+          "dataType": ["number[]"],
+          "description": "Raw feature vector (not for vector search, stored for reference)"
+        },
+        {
+          "name": "technicalIndicators",
+          "dataType": ["object"],
+          "description": "Technical indicator snapshot at pattern time",
+          "nestedProperties": [
+            {
+              "name": "rsi14",
+              "dataType": ["number"]
+            },
+            {
+              "name": "macdHistogram",
+              "dataType": ["number"]
+            },
+            {
+              "name": "atr14",
+              "dataType": ["number"]
+            },
+            {
+              "name": "bbPercentB",
+              "dataType": ["number"]
+            },
+            {
+              "name": "adx14",
+              "dataType": ["number"]
+            }
+          ]
+        },
+        {
+          "name": "historicalOutcome",
+          "dataType": ["text"],
+          "description": "Pattern outcome (profitable, loss, breakeven)",
+          "indexFilterable": true,
+          "indexSearchable": false
+        },
+        {
+          "name": "profitLossPips",
+          "dataType": ["number"],
+          "description": "Actual profit/loss in pips from this pattern",
+          "indexFilterable": true,
+          "indexSearchable": false
+        },
+        {
+          "name": "returnPercent",
+          "dataType": ["number"],
+          "description": "Return percentage from pattern",
+          "indexFilterable": true,
+          "indexSearchable": false
+        },
+        {
+          "name": "winRate",
+          "dataType": ["number"],
+          "description": "Historical win rate for similar patterns",
+          "indexFilterable": true,
+          "indexSearchable": false
+        },
+        {
+          "name": "occurrenceCount",
+          "dataType": ["int"],
+          "description": "How many times this pattern has been observed",
+          "indexFilterable": true,
+          "indexSearchable": false
+        },
+        {
+          "name": "modelId",
+          "dataType": ["text"],
+          "description": "Model that generated this pattern embedding",
+          "indexFilterable": true,
+          "indexSearchable": false
+        },
+        {
+          "name": "embeddingVersion",
+          "dataType": ["text"],
+          "description": "Version of embedding model used",
+          "indexFilterable": true,
+          "indexSearchable": false
+        },
+        {
+          "name": "marketConditions",
+          "dataType": ["object"],
+          "description": "Market context at pattern time",
+          "nestedProperties": [
+            {
+              "name": "volatility",
+              "dataType": ["text"]
+            },
+            {
+              "name": "trend",
+              "dataType": ["text"]
+            },
+            {
+              "name": "session",
+              "dataType": ["text"]
+            },
+            {
+              "name": "economicEventImpact",
+              "dataType": ["text"]
+            }
+          ]
+        },
+        {
+          "name": "confidence",
+          "dataType": ["number"],
+          "description": "Confidence score for pattern quality (0-1)",
+          "indexFilterable": true,
+          "indexSearchable": false
+        },
+        {
+          "name": "verified",
+          "dataType": ["boolean"],
+          "description": "Whether pattern outcome has been verified",
+          "indexFilterable": true,
+          "indexSearchable": false
+        },
+        {
+          "name": "tags",
+          "dataType": ["text[]"],
+          "description": "Pattern tags for categorization",
+          "indexFilterable": true,
+          "indexSearchable": false
+        },
+        {
+          "name": "createdAt",
+          "dataType": ["date"],
+          "description": "Pattern creation timestamp",
+          "indexFilterable": true,
+          "indexSearchable": false
+        },
+        {
+          "name": "updatedAt",
+          "dataType": ["date"],
+          "description": "Last update timestamp",
+          "indexFilterable": true,
+          "indexSearchable": false
+        }
+      ]
+    },
+
+    {
+      "class": "LiveMarketState",
+      "description": "Real-time market state embeddings for pattern matching against live data",
+      "vectorIndexType": "hnsw",
+      "vectorIndexConfig": {
+        "skip": false,
+        "maxConnections": 64,
+        "efConstruction": 128,
+        "ef": -1,
+        "distance": "cosine"
+      },
+      "vectorizer": "none",
+
+      "properties": [
+        {
+          "name": "tenantId",
+          "dataType": ["text"],
+          "indexFilterable": true
+        },
+        {
+          "name": "userId",
+          "dataType": ["text"],
+          "indexFilterable": true
+        },
+        {
+          "name": "symbol",
+          "dataType": ["text"],
+          "indexFilterable": true
+        },
+        {
+          "name": "timeframe",
+          "dataType": ["text"],
+          "indexFilterable": true
+        },
+        {
+          "name": "timestamp",
+          "dataType": ["date"],
+          "indexFilterable": true
+        },
+        {
+          "name": "currentPrice",
+          "dataType": ["number"]
+        },
+        {
+          "name": "featureSnapshot",
+          "dataType": ["object"],
+          "description": "Current market features",
+          "nestedProperties": [
+            {
+              "name": "close",
+              "dataType": ["number"]
+            },
+            {
+              "name": "rsi14",
+              "dataType": ["number"]
+            },
+            {
+              "name": "macdHistogram",
+              "dataType": ["number"]
+            },
+            {
+              "name": "atr14",
+              "dataType": ["number"]
+            },
+            {
+              "name": "volume",
+              "dataType": ["number"]
+            }
+          ]
+        },
+        {
+          "name": "matchedPatternIds",
+          "dataType": ["text[]"],
+          "description": "IDs of similar patterns found"
+        },
+        {
+          "name": "topSimilarityScore",
+          "dataType": ["number"],
+          "description": "Highest similarity score from pattern matching"
+        },
+        {
+          "name": "signalGenerated",
+          "dataType": ["boolean"],
+          "indexFilterable": true
+        },
+        {
+          "name": "predictionId",
+          "dataType": ["text"],
+          "description": "Link to ml_predictions table",
+          "indexFilterable": true
+        },
+        {
+          "name": "ttlSeconds",
+          "dataType": ["int"],
+          "description": "Time-to-live in seconds (for auto cleanup)"
+        },
+        {
+          "name": "createdAt",
+          "dataType": ["date"]
+        }
+      ]
+    },
+
+    {
+      "class": "AnomalyPattern",
+      "description": "Detected anomalies and unusual market behavior patterns",
+      "vectorIndexType": "hnsw",
+      "vectorIndexConfig": {
+        "skip": false,
+        "maxConnections": 32,
+        "efConstruction": 64,
+        "distance": "cosine"
+      },
+      "vectorizer": "none",
+
+      "properties": [
+        {
+          "name": "tenantId",
+          "dataType": ["text"],
+          "indexFilterable": true
+        },
+        {
+          "name": "anomalyId",
+          "dataType": ["text"],
+          "indexFilterable": true
+        },
+        {
+          "name": "symbol",
+          "dataType": ["text"],
+          "indexFilterable": true
+        },
+        {
+          "name": "timestamp",
+          "dataType": ["date"],
+          "indexFilterable": true
+        },
+        {
+          "name": "anomalyType",
+          "dataType": ["text"],
+          "description": "Type of anomaly (price_spike, volume_surge, volatility_explosion)",
+          "indexFilterable": true
+        },
+        {
+          "name": "severity",
+          "dataType": ["text"],
+          "description": "Anomaly severity (low, medium, high, critical)",
+          "indexFilterable": true
+        },
+        {
+          "name": "anomalyScore",
+          "dataType": ["number"],
+          "description": "Anomaly detection score (0-1)",
+          "indexFilterable": true
+        },
+        {
+          "name": "marketImpact",
+          "dataType": ["text"],
+          "description": "Impact on trading decisions",
+          "indexFilterable": true
+        },
+        {
+          "name": "eventCause",
+          "dataType": ["text"],
+          "description": "Suspected cause (news, economic_data, technical)"
+        },
+        {
+          "name": "affectedModels",
+          "dataType": ["text[]"],
+          "description": "Models affected by this anomaly"
+        },
+        {
+          "name": "createdAt",
+          "dataType": ["date"]
+        }
+      ]
+    }
+  ],
+
+  "usage_examples": {
+    "pattern_similarity_search": {
+      "description": "Find top 10 similar patterns to current market state",
+      "graphql_query": "{\n  Get {\n    TradingPattern(\n      nearVector: {\n        vector: [0.1, 0.2, ...],  # Current market embedding\n        certainty: 0.7\n      },\n      where: {\n        operator: And,\n        operands: [\n          { path: [\"tenantId\"], operator: Equal, valueText: \"tenant_001\" },\n          { path: [\"symbol\"], operator: Equal, valueText: \"EUR/USD\" },\n          { path: [\"verified\"], operator: Equal, valueBoolean: true }\n        ]\n      },\n      limit: 10\n    ) {\n      patternId\n      timestamp\n      historicalOutcome\n      profitLossPips\n      winRate\n      _additional { certainty distance }\n    }\n  }\n}",
+      "python_client": "results = client.query.get(\n    'TradingPattern',\n    ['patternId', 'timestamp', 'historicalOutcome', 'profitLossPips', 'winRate']\n).with_near_vector({\n    'vector': current_market_embedding,\n    'certainty': 0.7\n}).with_where({\n    'operator': 'And',\n    'operands': [\n        {'path': ['tenantId'], 'operator': 'Equal', 'valueText': 'tenant_001'},\n        {'path': ['symbol'], 'operator': 'Equal', 'valueText': 'EUR/USD'},\n        {'path': ['verified'], 'operator': 'Equal', 'valueBoolean': True}\n    ]\n}).with_limit(10).do()"
+    },
+
+    "profitable_pattern_search": {
+      "description": "Find profitable patterns similar to current state",
+      "graphql_query": "{\n  Get {\n    TradingPattern(\n      nearVector: { vector: [...] },\n      where: {\n        operator: And,\n        operands: [\n          { path: [\"historicalOutcome\"], operator: Equal, valueText: \"profitable\" },\n          { path: [\"winRate\"], operator: GreaterThan, valueNumber: 0.6 },\n          { path: [\"occurrenceCount\"], operator: GreaterThan, valueNumber: 5 }\n        ]\n      },\n      limit: 5\n    ) {\n      patternId\n      profitLossPips\n      returnPercent\n      winRate\n      occurrenceCount\n      technicalIndicators { rsi14 macdHistogram }\n      _additional { certainty }\n    }\n  }\n}"
+    },
+
+    "anomaly_detection": {
+      "description": "Store and retrieve anomalies",
+      "create": "client.data_object.create(\n    {\n        'tenantId': 'tenant_001',\n        'symbol': 'EUR/USD',\n        'timestamp': '2025-10-05T14:30:00Z',\n        'anomalyType': 'price_spike',\n        'severity': 'high',\n        'anomalyScore': 0.95,\n        'eventCause': 'NFP_release'\n    },\n    'AnomalyPattern',\n    vector=anomaly_embedding\n)",
+      "search": "Similar anomalies can be found using nearVector search"
+    }
+  },
+
+  "integration_notes": {
+    "vector_generation": {
+      "method": "Use autoencoder or pretrained transformer to generate embeddings from ml_features",
+      "model_options": [
+        "Custom LSTM Autoencoder trained on ml_features",
+        "Time2Vec + Transformer encoder",
+        "FinBERT fine-tuned for trading patterns"
+      ],
+      "vector_dimension": "128 or 256 (configurable based on pattern complexity)",
+      "normalization": "L2 normalization before insertion"
+    },
+
+    "multi_tenant_isolation": {
+      "method": "Always filter by tenantId in queries",
+      "enforcement": "Application-level (add where filter to all queries)",
+      "sharding": "Can use Weaviate multi-tenancy feature for complete isolation"
+    },
+
+    "real_time_workflow": {
+      "steps": [
+        "1. New market data arrives → Feature engineering service computes features",
+        "2. Features → Embedding model → Generate vector",
+        "3. Store as LiveMarketState object in Weaviate",
+        "4. Perform similarity search against TradingPattern collection",
+        "5. Return top K similar patterns with outcomes",
+        "6. ML prediction service uses similar patterns as additional features",
+        "7. Generate trading signal based on ML prediction + pattern consensus",
+        "8. If signal executed → Create TradingPattern from outcome",
+        "9. Auto-delete LiveMarketState after TTL (e.g., 1 hour)"
+      ]
+    },
+
+    "feedback_loop": {
+      "pattern_verification": "When trade_results are recorded, update TradingPattern.verified = true and update outcome",
+      "pattern_evolution": "Periodically retrain embedding model on verified patterns",
+      "quality_improvement": "Remove low-confidence or inconsistent patterns"
+    },
+
+    "performance_optimization": {
+      "indexing": "HNSW provides sub-100ms similarity search for millions of vectors",
+      "caching": "Cache frequently accessed patterns in DragonflyDB",
+      "batch_processing": "Batch vector insertions for historical data",
+      "ttl_cleanup": "Auto-delete LiveMarketState objects older than 24h"
+    }
+  }
+}

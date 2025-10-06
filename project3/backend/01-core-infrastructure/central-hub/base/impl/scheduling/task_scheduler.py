@@ -223,10 +223,11 @@ class TaskScheduler:
         try:
             self.logger.info(f"Executing task: {task.name} ({task.task_id})")
 
-            # Check if target service is available
-            service_info = self.service_registry.get(task.target_service)
-            if not service_info or service_info.get('status') != 'active':
-                raise Exception(f"Target service {task.target_service} not available")
+            # Check if target service is available (skip for central-hub internal operations)
+            if task.target_service not in ["central-hub", "self"]:
+                service_info = self.service_registry.get(task.target_service)
+                if not service_info or service_info.get('status') != 'active':
+                    raise Exception(f"Target service {task.target_service} not available")
 
             # Execute real task
             result = await self._execute_real_task(task)

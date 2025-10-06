@@ -68,17 +68,31 @@ class Config:
             nats_config = await self.central_hub.get_messaging_config('nats')
             kafka_config = await self.central_hub.get_messaging_config('kafka')
 
+            # Fetch database configs from Central Hub
+            logger.info("⚙️  Fetching database configs from Central Hub...")
+
+            postgresql_config = await self.central_hub.get_database_config('postgresql')
+            clickhouse_config = await self.central_hub.get_database_config('clickhouse')
+            dragonflydb_config = await self.central_hub.get_database_config('dragonflydb')
+
             # Store Central Hub config
             self._central_hub_config = {
                 'nats': nats_config,
-                'kafka': kafka_config
+                'kafka': kafka_config,
+                'postgresql': postgresql_config,
+                'clickhouse': clickhouse_config,
+                'dragonflydb': dragonflydb_config
             }
 
+            logger.info(f"🔍 DEBUG: _central_hub_config keys: {list(self._central_hub_config.keys())}")
+            logger.info(f"🔍 DEBUG: postgresql config type: {type(postgresql_config)}")
             logger.info(f"✅ Using NATS from Central Hub: {nats_config['connection']['host']}:{nats_config['connection']['port']}")
             logger.info(f"✅ Using Kafka from Central Hub: {kafka_config['connection']['bootstrap_servers']}")
+            logger.info(f"✅ Using PostgreSQL from Central Hub: {postgresql_config['connection']['host']}:{postgresql_config['connection']['port']}")
+            logger.info(f"✅ Using ClickHouse from Central Hub: {clickhouse_config['connection']['host']}:{clickhouse_config['connection'].get('http_port', clickhouse_config['connection'].get('port', '8123'))}")
 
         except Exception as e:
-            logger.warning(f"⚠️  Failed to get messaging config from Central Hub: {e}")
+            logger.warning(f"⚠️  Failed to get config from Central Hub: {e}")
             logger.warning("⚠️  Falling back to YAML configuration...")
 
     @property
@@ -170,3 +184,21 @@ class Config:
             'report_interval_seconds': 60,
             'enable_metrics': True
         })
+
+    @property
+    def database_configs(self) -> Dict[str, Any]:
+        """
+        Get database configurations from Central Hub
+
+        Returns database configs in format expected by DatabasePoolManager:
+        {'postgresql': {...}, 'dragonflydb': {...}, 'clickhouse': {...}}
+
+        Note: DatabasePoolManager will map these to internal names:
+        - postgresql -> timescale
+        - dragonflydb -> dragonfly
+        """
+        return {
+            'postgresql': self._central_hub_config.get('postgresql') if self._central_hub_config else None,
+            'dragonflydb': self._central_hub_config.get('dragonflydb') if self._central_hub_config else None,
+            'clickhouse': self._central_hub_config.get('clickhouse') if self._central_hub_config else None
+        }

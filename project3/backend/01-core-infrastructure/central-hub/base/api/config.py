@@ -233,3 +233,46 @@ async def get_messaging_config(msg_name: str, request: Request) -> Dict[str, Any
         logger = logging.getLogger("central-hub.api.config")
         logger.error(f"Failed to get messaging config for {msg_name}: {e}")
         raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
+
+
+@config_router.get("/databases/all")
+async def get_all_database_configs(request: Request) -> Dict[str, Any]:
+    """Get all database configurations in format expected by services
+
+    Returns:
+        {
+            "timescale": {...},
+            "dragonfly": {...},
+            "clickhouse": {...},
+            ...
+        }
+    """
+    try:
+        config_manager = request.app.state.config_manager
+
+        # Map database names to their config keys expected by services
+        db_mapping = {
+            "timescale": "postgresql",  # Services use "timescale" key for PostgreSQL/TimescaleDB
+            "dragonfly": "dragonflydb",
+            "clickhouse": "clickhouse",
+            "arango": "arangodb",
+            "weaviate": "weaviate"
+        }
+
+        all_configs = {}
+
+        for service_key, config_key in db_mapping.items():
+            try:
+                config = config_manager.get_database_config(config_key)
+                all_configs[service_key] = config
+            except RuntimeError:
+                # Skip databases that don't have configs
+                continue
+
+        return all_configs
+
+    except Exception as e:
+        import logging
+        logger = logging.getLogger("central-hub.api.config")
+        logger.error(f"Failed to get all database configs: {e}")
+        raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")

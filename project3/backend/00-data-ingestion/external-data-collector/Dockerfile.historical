@@ -1,0 +1,27 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install Python dependencies (no Playwright needed!)
+RUN pip install --no-cache-dir \
+    aiohttp==3.9.3 \
+    beautifulsoup4==4.12.3 \
+    lxml==5.1.0 \
+    python-dateutil==2.8.2 \
+    asyncpg==0.29.0
+
+# Copy source code
+COPY src/ ./src/
+COPY tests/ ./tests/
+COPY scripts/ ./scripts/
+COPY analyze_mql5_data.py ./
+COPY test_mql5_simple.py ./
+
+# Create data and logs directories
+RUN mkdir -p /app/data /app/logs
+
+# Environment
+ENV PYTHONPATH=/app
+ENV ZAI_API_KEY=2d6f4aef9cbf429b81684dc83c7dad9d.6OdXF8oPxTqbmGuJ
+
+CMD ["python3", "tests/test_mql5_historical.py"]

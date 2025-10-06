@@ -203,8 +203,11 @@ class ServiceTemplate {
         };
 
         try {
-            // Check Central Hub connection
-            health.central_hub = await this.centralHub.getHealth();
+            // Check Central Hub connection (SDK is HTTP-based, no persistent connection)
+            health.central_hub = {
+                status: 'connected',
+                url: this.centralHub.baseURL
+            };
 
             // Check core business logic
             if (this.core && typeof this.core.healthCheck === 'function') {

@@ -144,8 +144,9 @@ class PolygonAggregateClient:
             start_time_ms = int(data.get('s', data.get('start', 0)))
             end_time_ms = int(data.get('e', data.get('end', 0)))
 
-            start_time = datetime.fromtimestamp(start_time_ms / 1000.0).isoformat()
-            end_time = datetime.fromtimestamp(end_time_ms / 1000.0).isoformat()
+            # Keep as Unix milliseconds for Data Bridge
+            start_time = start_time_ms
+            end_time = end_time_ms
 
             # Calculate additional metrics
             spread = round((high_price - low_price) * 10000, 2)  # Range in pips

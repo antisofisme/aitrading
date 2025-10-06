@@ -144,11 +144,6 @@ services:
       - arangodb_apps:/var/lib/arangodb3-apps
     networks:
       - suho-trading-network
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8529/_api/version"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
     labels:
       - "com.suho.service=arangodb"
       - "com.suho.type=graph-database"
@@ -299,12 +294,6 @@ services:
       - dragonflydb
       - nats
       - kafka
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:7000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
     labels:
       - "com.suho.service=central-hub"
       - "com.suho.type=core-service"
@@ -343,12 +332,6 @@ services:
         condition: service_healthy
       central-hub:
         condition: service_started
-    healthcheck:
-      test: ["CMD", "python3", "-c", "import sys; sys.exit(0)"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
     labels:
       - "com.suho.service=polygon-live-collector"
       - "com.suho.type=data-collector"
@@ -381,15 +364,61 @@ services:
         condition: service_healthy
       central-hub:
         condition: service_started
-    healthcheck:
-      test: ["CMD", "python3", "-c", "import sys; sys.exit(0)"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
     labels:
       - "com.suho.service=polygon-historical-downloader"
       - "com.suho.type=data-downloader"
+
+  # External Data Collector - Economic Calendar & Market Data (MQL5, etc)
+  external-data-collector:
+    build:
+      context: .
+      dockerfile: 00-data-ingestion/external-data-collector/Dockerfile
+    container_name: suho-external-collector
+    hostname: suho-external-collector
+    restart: unless-stopped
+    environment:
+      # Service identity
+      - INSTANCE_ID=external-data-collector-1
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+
+      # Central Hub
+      - CENTRAL_HUB_URL=http://suho-central-hub:7000
+      - HEARTBEAT_INTERVAL=30
+
+      # API Keys for external services
+      - ZAI_API_KEY=${ZAI_API_KEY:-}
+      - FRED_API_KEY=${FRED_API_KEY:-}
+      - COINGECKO_API_KEY=${COINGECKO_API_KEY:-}
+
+      # Database (optional - falls back to JSON if not set)
+      - DB_HOST=suho-postgresql
+      - DB_PORT=5432
+      - DB_NAME=suho_trading
+      - DB_USER=suho_admin
+      - DB_PASSWORD=${POSTGRES_PASSWORD:-suho_secure_password_2024}
+
+      # Messaging (optional - for future data streaming)
+      - NATS_URL=nats://suho-nats-server:4222
+      - KAFKA_BROKERS=suho-kafka:9092
+
+      # Python
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ./00-data-ingestion/external-data-collector/config:/app/config:ro
+      - external_collector_data:/app/data
+      - external_collector_logs:/app/logs
+    networks:
+      - suho-trading-network
+    depends_on:
+      nats:
+        condition: service_healthy
+      postgresql:
+        condition: service_healthy
+      central-hub:
+        condition: service_started
+    labels:
+      - "com.suho.service=external-data-collector"
+      - "com.suho.type=data-collector"
 
   # ===================================
   # DATA PROCESSING SERVICES
@@ -437,12 +466,6 @@ services:
         condition: service_healthy
       central-hub:
         condition: service_started
-    healthcheck:
-      test: ["CMD", "python3", "-c", "import sys; sys.exit(0)"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
     labels:
       - "com.suho.service=data-bridge"
       - "com.suho.type=data-processor"
@@ -535,12 +558,6 @@ services:
       - nats
       - kafka
       - central-hub
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
     labels:
       - "com.suho.service=api-gateway"
       - "com.suho.type=gateway-service"
@@ -627,6 +644,16 @@ volumes:
     driver: local
     labels:
       - "com.suho.data=polygon-historical-logs"
+
+  external_collector_data:
+    driver: local
+    labels:
+      - "com.suho.data=external-collector-data"
+
+  external_collector_logs:
+    driver: local
+    labels:
+      - "com.suho.data=external-collector-logs"
 
   # Data processing services
   data_bridge_logs:

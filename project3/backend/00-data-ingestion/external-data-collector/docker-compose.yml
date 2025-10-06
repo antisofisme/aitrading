@@ -1,0 +1,69 @@
+version: '3.8'
+
+# Local development docker-compose for external-data-collector
+# For production, use main docker-compose.yml at backend root
+
+services:
+  external-data-collector:
+    build:
+      context: ../../../  # Build from backend root
+      dockerfile: 00-data-ingestion/external-data-collector/Dockerfile
+    container_name: suho-external-collector-dev
+    hostname: suho-external-collector-dev
+    restart: unless-stopped
+    environment:
+      # Service identity
+      - INSTANCE_ID=external-data-collector-dev-1
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+
+      # Central Hub
+      - CENTRAL_HUB_URL=${CENTRAL_HUB_URL:-http://suho-central-hub:7000}
+      - HEARTBEAT_INTERVAL=30
+
+      # API Keys
+      - ZAI_API_KEY=${ZAI_API_KEY:-}
+      - FRED_API_KEY=${FRED_API_KEY:-}
+      - COINGECKO_API_KEY=${COINGECKO_API_KEY:-}
+
+      # Database (optional - falls back to JSON)
+      - DB_HOST=${DB_HOST:-suho-postgresql}
+      - DB_PORT=${DB_PORT:-5432}
+      - DB_NAME=${DB_NAME:-suho_trading}
+      - DB_USER=${DB_USER:-suho_admin}
+      - DB_PASSWORD=${DB_PASSWORD:-suho_secure_password_2024}
+
+      # Messaging (optional)
+      - NATS_URL=${NATS_URL:-nats://suho-nats-server:4222}
+      - KAFKA_BROKERS=${KAFKA_BROKERS:-suho-kafka:9092}
+
+      # Python
+      - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/app/src
+
+    volumes:
+      # Local development volumes
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./config:/app/config:ro
+
+    networks:
+      - suho-trading-network
+
+    depends_on:
+      - suho-central-hub
+
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import sys; sys.exit(0)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+    labels:
+      - "com.suho.service=external-data-collector"
+      - "com.suho.type=data-collector"
+      - "com.suho.env=development"
+
+networks:
+  suho-trading-network:
+    external: true

@@ -79,8 +79,17 @@ class DataBridge:
             await self.config.initialize_central_hub()
             logger.info("✅ Central Hub configuration loaded")
 
-            # Initialize Database Manager
+            # Initialize Database Manager with Central Hub configs
             logger.info("📦 Initializing Database Manager...")
+            from components.data_manager.pools import get_pool_manager
+
+            # Get database configs from Central Hub
+            db_configs = self.config.database_configs
+
+            # Initialize pool manager with Central Hub configs
+            pool_manager = await get_pool_manager(configs=db_configs)
+
+            # Initialize DataRouter (will use the pool manager we just created)
             self.db_router = DataRouter()
             await self.db_router.initialize()
             logger.info("✅ Database Manager ready (TimescaleDB + DragonflyDB)")

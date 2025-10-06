@@ -1,3 +1,0 @@
-"""
-ML Processing Microservice Tests
-"""

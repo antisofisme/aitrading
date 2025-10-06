@@ -55,6 +55,19 @@ class HealthMonitor:
 
     async def _check_service_health(self, client: httpx.AsyncClient, service_name: str, service_info: Dict[str, Any]):
         """Perform real health check on individual service"""
+
+        # Check if service has recent heartbeat (< 60s) - if so, skip HTTP check
+        last_seen = service_info.get('last_seen', 0)
+        current_time = int(time.time() * 1000)
+        time_since_heartbeat = (current_time - last_seen) / 1000  # Convert to seconds
+
+        if time_since_heartbeat < 60:
+            # Recent heartbeat means service is healthy - no need for HTTP check
+            self.logger.debug(f"✅ {service_name} healthy via heartbeat ({time_since_heartbeat:.1f}s ago)")
+            service_info['status'] = 'active'
+            return
+
+        # No recent heartbeat - try HTTP health check
         health_url = f"http://{service_info['host']}:{service_info['port']}{service_info.get('health_endpoint', '/health')}"
 
         start_time = time.time()
@@ -70,8 +83,13 @@ class HealthMonitor:
                 await self._record_unhealthy_service(service_name, service_info, f"HTTP {response.status_code}")
 
         except Exception as e:
-            # Service completely down
-            await self._record_unhealthy_service(service_name, service_info, str(e))
+            # Service completely down or no HTTP endpoint
+            # Only log as warning if no recent heartbeat at all (> 2 minutes)
+            if time_since_heartbeat > 120:
+                await self._record_unhealthy_service(service_name, service_info, str(e))
+            else:
+                # Service has heartbeat but no HTTP endpoint - this is OK
+                self.logger.debug(f"⚠️ {service_name} has no HTTP endpoint but heartbeat is OK")
 
     async def _record_healthy_service(self, service_name: str, service_info: Dict[str, Any], response_time: float, health_data: Dict[str, Any]):
         """Record healthy service status"""

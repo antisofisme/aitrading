@@ -79,8 +79,8 @@ class ContractValidationMiddleware(BaseHTTPMiddleware):
         # Process the request
         response = await call_next(request)
 
-        # Process response formatting
-        if self.enable_response_formatting and response.status_code < 400:
+        # Process response formatting (skip for POST/PUT/PATCH to avoid body_iterator issues)
+        if self.enable_response_formatting and response.status_code < 400 and method == 'GET':
             try:
                 response = await self._format_response(response, route_path)
             except Exception as e:
@@ -97,7 +97,7 @@ class ContractValidationMiddleware(BaseHTTPMiddleware):
         if not contract_type:
             return  # No contract validation needed
 
-        # Read request body
+        # Read request body (FastAPI will read it again, so we need to save it)
         body = await request.body()
         if not body:
             return  # No body to validate
@@ -106,6 +106,13 @@ class ContractValidationMiddleware(BaseHTTPMiddleware):
             request_data = json.loads(body)
         except json.JSONDecodeError as e:
             raise ValueError(f"Invalid JSON in request body: {str(e)}")
+
+        # IMPORTANT: Restore body for FastAPI to read again
+        # We need to use a custom receive that returns the cached body
+        async def receive():
+            return {"type": "http.request", "body": body}
+
+        request._receive = receive
 
         # Add request metadata
         request_context = {
@@ -183,7 +190,10 @@ class ContractValidationMiddleware(BaseHTTPMiddleware):
             '/health',
             '/docs',
             '/openapi.json',
-            '/favicon.ico'
+            '/favicon.ico',
+            '/api/discovery/heartbeat',  # Heartbeat doesn't need contract validation
+            '/api/health/',
+            '/api/metrics/'
         ]
 
         for skip_route in skip_routes:

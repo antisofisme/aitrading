@@ -137,9 +137,9 @@ class PolygonWebSocketClient:
             # Calculate mid price
             mid = round((ask + bid) / 2, 5)
 
-            # Timestamp
+            # Timestamp (keep as Unix milliseconds for Data Bridge)
             timestamp_ms = int(data.get('t', data.get('timestamp', 0)))
-            timestamp = datetime.fromtimestamp(timestamp_ms / 1000.0).isoformat()
+            timestamp = timestamp_ms  # Data Bridge expects Unix milliseconds
 
             # Exchange ID
             exchange = data.get('x', data.get('exchange', 0))

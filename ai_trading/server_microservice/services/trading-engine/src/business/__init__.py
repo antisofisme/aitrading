@@ -1,3 +1,0 @@
-"""
-Trading Engine Core Module
-"""

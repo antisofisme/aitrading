@@ -229,7 +229,7 @@ class CentralHubClient:
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 response = await client.get(
-                    f"{self.central_hub_url}/config/database/{db_name}"
+                    f"{self.central_hub_url}/api/config/database/{db_name}"
                 )
                 response.raise_for_status()
                 result = response.json()
@@ -263,7 +263,7 @@ class CentralHubClient:
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 response = await client.get(
-                    f"{self.central_hub_url}/config/messaging/{msg_name}"
+                    f"{self.central_hub_url}/api/config/messaging/{msg_name}"
                 )
                 response.raise_for_status()
                 result = response.json()

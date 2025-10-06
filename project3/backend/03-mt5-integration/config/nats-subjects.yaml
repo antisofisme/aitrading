@@ -1,0 +1,445 @@
+# ============================================================================
+# NATS Subject Configuration for MT5 EA Integration
+# ============================================================================
+# Subject naming convention: mt5.{category}.{account_id}.{subcategory}.{detail}
+# All subjects use JetStream for guaranteed delivery and persistence
+# ============================================================================
+
+# ============================================================================
+# INBOUND: MT5 EA → Backend
+# ============================================================================
+inbound:
+  # Account profile updates
+  account_profile:
+    subject: "mt5.account.{account_id}.profile"
+    description: "Account profile and broker connection details"
+    frequency: "on_connect, on_change"
+    message_type: "ACCOUNT_PROFILE"
+    retention: "1 day"
+    max_msgs: 100
+    example_subject: "mt5.account.a1b2c3d4.profile"
+
+  # Account balance/equity snapshots
+  account_balance:
+    subject: "mt5.account.{account_id}.balance"
+    description: "Account balance, equity, margin, P&L snapshot"
+    frequency: "every 30 seconds"
+    message_type: "ACCOUNT_PROFILE"
+    retention: "1 hour"
+    max_msgs: 1000
+    example_subject: "mt5.account.a1b2c3d4.balance"
+
+  # EA heartbeat/health
+  ea_heartbeat:
+    subject: "mt5.account.{account_id}.heartbeat"
+    description: "EA connection status, latency, errors"
+    frequency: "every 30 seconds"
+    message_type: "SYSTEM_STATUS"
+    retention: "1 hour"
+    max_msgs: 1000
+    example_subject: "mt5.account.a1b2c3d4.heartbeat"
+
+  # Broker quotes (tick stream)
+  broker_quotes:
+    subject: "mt5.account.{account_id}.quotes.{symbol}"
+    description: "Real-time broker bid/ask quotes"
+    frequency: "on_tick (high frequency)"
+    message_type: "PRICE_STREAM"
+    retention: "5 minutes"
+    max_msgs: 10000
+    example_subject: "mt5.account.a1b2c3d4.quotes.EURUSD"
+
+  # Trade events
+  trade_open:
+    subject: "mt5.account.{account_id}.trades.open"
+    description: "Trade opened notification"
+    frequency: "on_trade_open"
+    message_type: "EXECUTION_CONFIRM"
+    retention: "7 days"
+    max_msgs: 10000
+    example_subject: "mt5.account.a1b2c3d4.trades.open"
+
+  trade_close:
+    subject: "mt5.account.{account_id}.trades.close"
+    description: "Trade closed notification"
+    frequency: "on_trade_close"
+    message_type: "EXECUTION_CONFIRM"
+    retention: "7 days"
+    max_msgs: 10000
+    example_subject: "mt5.account.a1b2c3d4.trades.close"
+
+  trade_modify:
+    subject: "mt5.account.{account_id}.trades.modify"
+    description: "Trade SL/TP modified"
+    frequency: "on_modify"
+    message_type: "EXECUTION_CONFIRM"
+    retention: "7 days"
+    max_msgs: 10000
+    example_subject: "mt5.account.a1b2c3d4.trades.modify"
+
+  # Error notifications
+  ea_error:
+    subject: "mt5.account.{account_id}.error"
+    description: "EA error events"
+    frequency: "on_error"
+    message_type: "ERROR_MESSAGE"
+    retention: "7 days"
+    max_msgs: 5000
+    example_subject: "mt5.account.a1b2c3d4.error"
+
+
+# ============================================================================
+# OUTBOUND: Backend → MT5 EA
+# ============================================================================
+outbound:
+  # Trading signals
+  signal_individual:
+    subject: "mt5.signal.{account_id}.{signal_id}"
+    description: "Trading signal for specific account"
+    frequency: "on_signal_generation"
+    message_type: "TRADING_COMMAND"
+    retention: "1 hour"
+    max_msgs: 1000
+    example_subject: "mt5.signal.a1b2c3d4.sig-uuid-1234"
+
+  signal_broadcast:
+    subject: "mt5.signal.broadcast.{signal_id}"
+    description: "Broadcast signal to all accounts (strategy-based)"
+    frequency: "on_signal_generation"
+    message_type: "TRADING_COMMAND"
+    retention: "1 hour"
+    max_msgs: 100
+    example_subject: "mt5.signal.broadcast.sig-uuid-5678"
+
+  # Risk management updates
+  risk_params:
+    subject: "mt5.config.{account_id}.risk_params"
+    description: "Risk management parameter updates"
+    frequency: "on_change"
+    message_type: "SYSTEM_STATUS"
+    retention: "1 day"
+    max_msgs: 100
+    example_subject: "mt5.config.a1b2c3d4.risk_params"
+
+  # EA configuration
+  ea_settings:
+    subject: "mt5.config.{account_id}.settings"
+    description: "EA configuration updates"
+    frequency: "on_change"
+    message_type: "SYSTEM_STATUS"
+    retention: "1 day"
+    max_msgs: 100
+    example_subject: "mt5.config.a1b2c3d4.settings"
+
+  # Control commands
+  command_close_all:
+    subject: "mt5.command.{account_id}.close_all"
+    description: "Emergency: Close all positions"
+    frequency: "on_demand"
+    message_type: "TRADING_COMMAND"
+    retention: "1 day"
+    max_msgs: 100
+    example_subject: "mt5.command.a1b2c3d4.close_all"
+
+  command_disable_trading:
+    subject: "mt5.command.{account_id}.disable_trading"
+    description: "Disable trading (risk limit breach)"
+    frequency: "on_demand"
+    message_type: "SYSTEM_STATUS"
+    retention: "1 day"
+    max_msgs: 100
+    example_subject: "mt5.command.a1b2c3d4.disable_trading"
+
+  command_modify_order:
+    subject: "mt5.command.{account_id}.modify_order"
+    description: "Modify existing order SL/TP"
+    frequency: "on_demand"
+    message_type: "TRADING_COMMAND"
+    retention: "1 day"
+    max_msgs: 1000
+    example_subject: "mt5.command.a1b2c3d4.modify_order"
+
+
+# ============================================================================
+# INTERNAL: Backend Services Communication
+# ============================================================================
+internal:
+  # ML Engine → Backend
+  ml_predictions:
+    subject: "internal.ml.predictions.{symbol}"
+    description: "ML predictions for signal generation"
+    frequency: "on_prediction"
+    retention: "1 hour"
+    max_msgs: 1000
+    example_subject: "internal.ml.predictions.EURUSD"
+
+  # Data Bridge → Database Manager
+  market_data:
+    subject: "internal.market.{source}.{symbol}"
+    description: "Market data from Polygon/other sources"
+    frequency: "on_tick"
+    retention: "5 minutes"
+    max_msgs: 100000
+    example_subject: "internal.market.polygon.EURUSD"
+
+  # Audit events
+  audit_events:
+    subject: "internal.audit.{event_type}"
+    description: "Audit log events"
+    frequency: "on_event"
+    retention: "7 days"
+    max_msgs: 100000
+    example_subject: "internal.audit.trade_executed"
+
+  # Risk management events
+  risk_events:
+    subject: "internal.risk.{account_id}.{event_type}"
+    description: "Risk management alerts"
+    frequency: "on_event"
+    retention: "7 days"
+    max_msgs: 10000
+    example_subject: "internal.risk.a1b2c3d4.margin_call"
+
+
+# ============================================================================
+# JETSTREAM CONFIGURATION
+# ============================================================================
+jetstream:
+  # Stream for MT5 account data (inbound)
+  stream_mt5_accounts:
+    name: "MT5_ACCOUNTS"
+    subjects:
+      - "mt5.account.>"
+    storage: "file"
+    retention: "interest"  # Keep until consumed
+    max_age: "24h"
+    max_msgs: 1000000
+    max_bytes: 10737418240  # 10 GB
+    discard: "old"
+
+  # Stream for MT5 signals (outbound)
+  stream_mt5_signals:
+    name: "MT5_SIGNALS"
+    subjects:
+      - "mt5.signal.>"
+    storage: "file"
+    retention: "interest"
+    max_age: "1h"
+    max_msgs: 100000
+    max_bytes: 1073741824  # 1 GB
+    discard: "old"
+
+  # Stream for MT5 commands (outbound)
+  stream_mt5_commands:
+    name: "MT5_COMMANDS"
+    subjects:
+      - "mt5.command.>"
+      - "mt5.config.>"
+    storage: "file"
+    retention: "interest"
+    max_age: "24h"
+    max_msgs: 10000
+    max_bytes: 107374182  # 100 MB
+    discard: "old"
+
+  # Stream for internal services
+  stream_internal:
+    name: "INTERNAL"
+    subjects:
+      - "internal.>"
+    storage: "file"
+    retention: "workqueue"
+    max_age: "1h"
+    max_msgs: 1000000
+    max_bytes: 5368709120  # 5 GB
+    discard: "old"
+
+
+# ============================================================================
+# CONSUMER CONFIGURATIONS
+# ============================================================================
+consumers:
+  # Data Bridge consumes MT5 account data
+  data_bridge_mt5:
+    stream: "MT5_ACCOUNTS"
+    durable_name: "data-bridge-mt5-consumer"
+    ack_policy: "explicit"
+    max_deliver: 3
+    ack_wait: "30s"
+    filter_subject: "mt5.account.>"
+
+  # Signal Service consumes ML predictions
+  signal_service_ml:
+    stream: "INTERNAL"
+    durable_name: "signal-service-ml-consumer"
+    ack_policy: "explicit"
+    max_deliver: 3
+    ack_wait: "10s"
+    filter_subject: "internal.ml.predictions.>"
+
+  # Audit Service consumes audit events
+  audit_service:
+    stream: "INTERNAL"
+    durable_name: "audit-service-consumer"
+    ack_policy: "explicit"
+    max_deliver: 5
+    ack_wait: "60s"
+    filter_subject: "internal.audit.>"
+
+
+# ============================================================================
+# MESSAGE SCHEMAS (Reference)
+# ============================================================================
+message_schemas:
+  # Account Balance Message
+  account_balance:
+    format: "Suho Binary Protocol"
+    size: 144
+    fields:
+      - name: "header"
+        type: "binary_header"
+        size: 16
+      - name: "balance"
+        type: "uint32"
+        size: 4
+        encoding: "fixed_point_2_decimal"
+      - name: "equity"
+        type: "uint32"
+        size: 4
+        encoding: "fixed_point_2_decimal"
+      - name: "margin_used"
+        type: "uint32"
+        size: 4
+        encoding: "fixed_point_2_decimal"
+      - name: "margin_free"
+        type: "uint32"
+        size: 4
+        encoding: "fixed_point_2_decimal"
+      - name: "floating_profit"
+        type: "int32"
+        size: 4
+        encoding: "fixed_point_2_decimal"
+      - name: "open_positions"
+        type: "uint16"
+        size: 2
+      - name: "pending_orders"
+        type: "uint16"
+        size: 2
+
+  # Trading Signal Message
+  trading_signal:
+    format: "Suho Binary Protocol"
+    size: 144
+    fields:
+      - name: "header"
+        type: "binary_header"
+        size: 16
+      - name: "signal_id"
+        type: "uuid"
+        size: 16
+      - name: "symbol_id"
+        type: "uint32"
+        size: 4
+      - name: "action"
+        type: "uint8"
+        size: 1
+        values: { 0: "BUY", 1: "SELL", 2: "CLOSE" }
+      - name: "entry_price"
+        type: "uint32"
+        size: 4
+        encoding: "fixed_point_5_decimal"
+      - name: "stop_loss"
+        type: "uint32"
+        size: 4
+        encoding: "fixed_point_5_decimal"
+      - name: "take_profit"
+        type: "uint32"
+        size: 4
+        encoding: "fixed_point_5_decimal"
+      - name: "volume"
+        type: "uint32"
+        size: 4
+        encoding: "fixed_point_2_decimal"
+      - name: "valid_until"
+        type: "uint64"
+        size: 8
+        encoding: "unix_timestamp_microseconds"
+
+
+# ============================================================================
+# MONITORING & METRICS
+# ============================================================================
+monitoring:
+  # Key metrics to track
+  metrics:
+    - name: "message_publish_rate"
+      subject_pattern: "mt5.account.*.balance"
+      alert_threshold: 100  # msg/sec
+    - name: "message_latency"
+      subject_pattern: "mt5.signal.>"
+      alert_threshold: 100  # milliseconds
+    - name: "consumer_lag"
+      consumer: "data-bridge-mt5-consumer"
+      alert_threshold: 1000  # messages
+    - name: "stream_size"
+      stream: "MT5_ACCOUNTS"
+      alert_threshold: 8589934592  # 8 GB
+
+  # Health checks
+  health_checks:
+    - name: "stream_exists"
+      streams: ["MT5_ACCOUNTS", "MT5_SIGNALS", "MT5_COMMANDS", "INTERNAL"]
+    - name: "consumer_active"
+      consumers: ["data-bridge-mt5-consumer", "signal-service-ml-consumer"]
+    - name: "message_flow"
+      subject: "mt5.account.*.heartbeat"
+      min_rate: 1  # At least 1 msg/min from any account
+
+
+# ============================================================================
+# USAGE EXAMPLES
+# ============================================================================
+examples:
+  publish_balance:
+    description: "EA publishes account balance update"
+    subject: "mt5.account.a1b2c3d4.balance"
+    code: |
+      // MQL5 EA Code
+      string subject = StringFormat("mt5.account.%s.balance", AccountID);
+      uchar data[144];
+      CreateBalancePacket(data);  // Uses Suho Binary Protocol
+      NATS_Publish(subject, data);
+
+  subscribe_signals:
+    description: "EA subscribes to trading signals"
+    subject: "mt5.signal.a1b2c3d4.>"
+    code: |
+      // MQL5 EA Code
+      string subject = StringFormat("mt5.signal.%s.>", AccountID);
+      NATS_Subscribe(subject, OnSignalReceived);
+
+      void OnSignalReceived(uchar &data[]) {
+          SuhoBinaryProtocol parser;
+          TradingSignal signal = parser.ParseTradingCommand(data);
+          // Execute trade
+      }
+
+  publish_signal:
+    description: "Backend publishes trading signal"
+    subject: "mt5.signal.a1b2c3d4.sig-uuid-1234"
+    code: |
+      // Node.js Backend Code
+      const nats = await connect({ servers: "nats://localhost:4222" });
+      const js = nats.jetstream();
+
+      const signal = {
+        signal_id: "uuid-1234",
+        symbol: "EURUSD",
+        action: "BUY",
+        entry_price: 1.0953,
+        stop_loss: 1.0932,
+        take_profit: 1.0982
+      };
+
+      const binaryPacket = SuhoBinaryProtocol.createPacket(signal);
+      await js.publish(`mt5.signal.${accountId}.${signal.signal_id}`, binaryPacket);

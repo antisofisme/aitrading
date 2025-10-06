@@ -60,6 +60,16 @@ from impl.coordination.service_coordinator import ServiceCoordinator
 from impl.workflow.workflow_engine import WorkflowEngine
 from impl.scheduling.task_scheduler import TaskScheduler
 
+# Infrastructure monitoring (NEW)
+from core.infrastructure_monitor import InfrastructureMonitor
+from core.dependency_graph import DependencyGraph
+from core.health_aggregator import HealthAggregator
+from core.alert_manager import AlertManager
+
+# Infrastructure monitoring API
+from api.infrastructure import infrastructure_router
+from api.dashboard import dashboard_router
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -108,6 +118,12 @@ class CentralHubService(BaseService):
         # Contract integration
         self.contract_processor: Optional[ContractProcessorIntegration] = None
 
+        # Infrastructure monitoring (NEW)
+        self.infrastructure_monitor = None
+        self.dependency_graph = None
+        self.health_aggregator = None
+        self.alert_manager = None
+
     async def startup(self):
         """Initialize all real connections and components"""
         try:
@@ -128,10 +144,13 @@ class CentralHubService(BaseService):
             # 5. Initialize implementation modules
             await self._initialize_impl_modules()
 
-            # 6. Initialize contract integration (DISABLED FOR TESTING)
+            # 6. Initialize infrastructure monitoring (NEW)
+            await self._initialize_infrastructure_monitoring()
+
+            # 7. Initialize contract integration (DISABLED FOR TESTING)
             # await self._initialize_contracts()
 
-            # 7. Start background services
+            # 8. Start background services
             await self._start_background_services()
 
             self.logger.info("✅ Central Hub fully initialized with all real integrations!")
@@ -330,6 +349,46 @@ class CentralHubService(BaseService):
 
         self.logger.info("✅ Implementation modules initialized")
 
+    async def _initialize_infrastructure_monitoring(self):
+        """Initialize infrastructure monitoring system"""
+        try:
+            self.logger.info("🔧 Initializing infrastructure monitoring...")
+
+            # Initialize infrastructure monitor
+            self.infrastructure_monitor = InfrastructureMonitor()
+            await self.infrastructure_monitor.initialize()
+
+            # Initialize dependency graph
+            self.dependency_graph = DependencyGraph()
+            await self.dependency_graph.initialize()
+
+            # Initialize alert manager
+            self.alert_manager = AlertManager()
+            await self.alert_manager.initialize()
+
+            # Initialize health aggregator
+            self.health_aggregator = HealthAggregator(
+                self.infrastructure_monitor,
+                self.service_registry,
+                self.dependency_graph
+            )
+
+            # Connect alert callback
+            self.infrastructure_monitor.set_alert_callback(
+                self.alert_manager.trigger_alert
+            )
+
+            # Start infrastructure monitoring
+            await self.infrastructure_monitor.start_monitoring()
+
+            self.logger.info("✅ Infrastructure monitoring initialized and started")
+
+        except Exception as e:
+            self.logger.error(f"❌ Infrastructure monitoring initialization failed: {str(e)}")
+            self.logger.error(f"❌ Traceback: {traceback.format_exc()}")
+            # Non-critical - Central Hub can run without infrastructure monitoring
+            self.logger.warning("⚠️ Continuing without infrastructure monitoring")
+
     async def _initialize_contracts(self):
         """Initialize real contract validation integration"""
         try:
@@ -362,6 +421,10 @@ class CentralHubService(BaseService):
 
             if self.health_monitor:
                 await self.health_monitor.stop_monitoring()
+
+            # Stop infrastructure monitoring
+            if self.infrastructure_monitor:
+                await self.infrastructure_monitor.stop_monitoring()
 
             # Close transport connections
             if self.nats_client:
@@ -472,11 +535,13 @@ app.add_middleware(
 # Add contract validation middleware
 app.add_middleware(ContractValidationMiddleware, enable_validation=True)
 
-# Add routers
-app.include_router(discovery_router, prefix="/discovery", tags=["Service Discovery"])
-app.include_router(health_router, prefix="/health", tags=["Health Monitoring"])
-app.include_router(config_router, prefix="/config", tags=["Configuration"])
-app.include_router(metrics_router, prefix="/metrics", tags=["Metrics"])
+# Add routers with /api prefix to match SDK expectations
+app.include_router(discovery_router, prefix="/api/discovery", tags=["Service Discovery"])
+app.include_router(health_router, prefix="/api/health", tags=["Health Monitoring"])
+app.include_router(config_router, prefix="/api/config", tags=["Configuration"])
+app.include_router(metrics_router, prefix="/api/metrics", tags=["Metrics"])
+app.include_router(infrastructure_router, prefix="/api/infrastructure", tags=["Infrastructure Monitoring"])
+app.include_router(dashboard_router, prefix="/api/dashboard", tags=["Dashboard"])
 
 # Component sync endpoints - MOVED to component-manager-service
 # These endpoints are now handled by the standalone Component Manager Service
@@ -491,6 +556,17 @@ async def startup_event():
 @app.on_event("shutdown")
 async def shutdown_event():
     await central_hub_service.shutdown()
+
+# Health check endpoint (for Docker healthcheck)
+@app.get("/health")
+async def health():
+    """Health check endpoint for Docker and monitoring"""
+    return {
+        "status": "healthy",
+        "service": "central-hub",
+        "version": "3.0.0",
+        "timestamp": int(time.time() * 1000)
+    }
 
 # Root endpoint
 @app.get("/")

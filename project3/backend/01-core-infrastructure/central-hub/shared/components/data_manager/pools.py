@@ -25,9 +25,10 @@ class DatabasePoolManager:
     Phase 3: Weaviate + ArangoDB (coming soon)
     """
 
-    def __init__(self):
+    def __init__(self, configs: Optional[Dict[str, Any]] = None):
         self.pools: Dict[str, Any] = {}
         self.configs: Dict[str, Dict] = {}
+        self._external_configs = configs  # Configs from Central Hub
         self._initialized = False
 
     async def initialize(self):
@@ -51,7 +52,27 @@ class DatabasePoolManager:
             raise ConfigurationError("database_pools", str(e))
 
     async def _load_configs(self):
-        """Load database configurations from shared/static/database/"""
+        """
+        Load database configurations
+        Priority:
+        1. External configs from Central Hub (already resolved env vars)
+        2. Static files from shared/static/database/
+        """
+        # If external configs provided (from Central Hub), use them
+        if self._external_configs:
+            print("✅ Using database configs from Central Hub")
+
+            # Map Central Hub config names to internal names
+            if 'postgresql' in self._external_configs:
+                self.configs['timescale'] = self._external_configs['postgresql']
+
+            if 'dragonflydb' in self._external_configs:
+                self.configs['dragonfly'] = self._external_configs['dragonflydb']
+
+            return
+
+        # Fallback: Load from static files
+        print("⚠️  Loading database configs from static files (fallback)")
         config_dir = Path(__file__).parent.parent.parent / "static" / "database"
 
         # Load PostgreSQL config
@@ -217,10 +238,16 @@ class DatabasePoolManager:
 _pool_manager = None
 
 
-async def get_pool_manager() -> DatabasePoolManager:
-    """Get or create singleton pool manager instance"""
+async def get_pool_manager(configs: Optional[Dict[str, Any]] = None) -> DatabasePoolManager:
+    """
+    Get or create singleton pool manager instance
+
+    Args:
+        configs: Optional database configs from Central Hub
+                 Format: {'postgresql': {...}, 'clickhouse': {...}, 'dragonflydb': {...}}
+    """
     global _pool_manager
     if _pool_manager is None:
-        _pool_manager = DatabasePoolManager()
+        _pool_manager = DatabasePoolManager(configs=configs)
         await _pool_manager.initialize()
     return _pool_manager
