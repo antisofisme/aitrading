@@ -12,6 +12,7 @@ nats:
     ticks: "ticks.>"           # All tick data
     aggregates: "bars.>"       # All aggregate bars
     confirmation: "confirmation.>"  # Confirmation pairs
+    external: "market.external.>"   # All external data (economic, sentiment, etc.)
 
 # Kafka Configuration (BACKUP + gap-filling)
 kafka:

@@ -144,28 +144,31 @@ class PolygonAggregateClient:
             start_time_ms = int(data.get('s', data.get('start', 0)))
             end_time_ms = int(data.get('e', data.get('end', 0)))
 
-            # Keep as Unix milliseconds for Data Bridge
-            start_time = start_time_ms
-            end_time = end_time_ms
+            # Convert to datetime (ISO string format - matching Historical)
+            start_time_dt = datetime.fromtimestamp(start_time_ms / 1000.0)
+            end_time_dt = datetime.fromtimestamp(end_time_ms / 1000.0)
+
+            start_time = start_time_dt.isoformat()
+            end_time = end_time_dt.isoformat()
 
             # Calculate additional metrics
-            spread = round((high_price - low_price) * 10000, 2)  # Range in pips
+            range_pips = round((high_price - low_price) * 10000, 2)  # Range in pips
             vwap = data.get('vw', data.get('vwap', 0))  # Volume weighted average price
 
+            # Output format matching TimescaleDB schema + Historical format
             return {
                 'symbol': pair,
                 'timeframe': '1s',  # 1-second bars
+                'timestamp_ms': start_time_ms,  # Unix MS for TimescaleDB
                 'open': open_price,
                 'high': high_price,
                 'low': low_price,
                 'close': close_price,
                 'volume': volume,  # Tick volume (same as MT5!)
                 'vwap': vwap,
-                'range_pips': spread,
-                'start_time': start_time,
-                'end_time': end_time,
-                'start_time_ms': start_time_ms,
-                'end_time_ms': end_time_ms,
+                'range_pips': range_pips,
+                'start_time': start_time,  # ISO string
+                'end_time': end_time,  # ISO string
                 'source': 'polygon_aggregate',
                 'event_type': 'ohlcv'
             }

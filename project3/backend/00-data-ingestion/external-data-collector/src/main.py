@@ -16,6 +16,12 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from config import Config
 from scrapers.mql5_historical_scraper import MQL5HistoricalScraper
+from scrapers.fred_economic import FREDEconomicCollector
+from scrapers.coingecko_sentiment import CoinGeckoSentimentCollector
+from scrapers.fear_greed_index import FearGreedIndexCollector
+from scrapers.yahoo_finance_commodity import YahooFinanceCommodityCollector
+from scrapers.market_sessions import MarketSessionsCollector
+from publishers import ExternalDataPublisher
 
 # Central Hub SDK (installed via pip)
 # REQUIRED: Service MUST have Central Hub SDK installed
@@ -36,6 +42,7 @@ class ExternalDataCollector:
     def __init__(self):
         self.config = Config()
         self.scrapers = {}
+        self.publisher = None
 
         # Initialize Central Hub client (REQUIRED)
         self.central_hub = CentralHubClient(
@@ -48,13 +55,18 @@ class ExternalDataCollector:
                 "incremental-scraping",
                 "mql5-data-source",
                 "zai-parsing",
-                "date-tracking"
+                "date-tracking",
+                "nats-kafka-publishing"
             ],
             metadata={
                 "sources": ["mql5.com"],
                 "data_types": ["economic_calendar"],
                 "storage": self.config.storage_config.get('type', 'json'),
-                "backfill_enabled": self.config.backfill_config.get('enabled', False)
+                "backfill_enabled": self.config.backfill_config.get('enabled', False),
+                "messaging": {
+                    "nats_enabled": self.config.messaging_config.get('nats', {}).get('enabled', False),
+                    "kafka_enabled": self.config.messaging_config.get('kafka', {}).get('enabled', False)
+                }
             }
         )
 
@@ -157,27 +169,99 @@ class ExternalDataCollector:
         """Initialize all enabled scrapers"""
         logger.info("🔧 Initializing scrapers...")
 
+        # Initialize NATS+Kafka publisher if enabled
+        nats_config = self.config.messaging_config.get('nats', {})
+        kafka_config = self.config.messaging_config.get('kafka', {})
+
+        if nats_config.get('enabled') or kafka_config.get('enabled'):
+            logger.info("📡 Initializing NATS+Kafka publisher...")
+            self.publisher = ExternalDataPublisher(nats_config, kafka_config)
+            await self.publisher.connect()
+            logger.info(f"✅ Publisher initialized | NATS: {nats_config.get('enabled')} | Kafka: {kafka_config.get('enabled')}")
+
         for scraper_config in self.config.scrapers:
+            scraper_name = None
+            scraper = None
+
+            # MQL5 Economic Calendar
             if scraper_config.source == 'mql5.com':
-                # Initialize MQL5 scraper
                 use_zai = bool(self.config.zai_api_key)
                 db_conn = self.config.get_db_connection_string()
 
                 scraper = MQL5HistoricalScraper(
                     zai_api_key=self.config.zai_api_key or "test",
                     db_connection_string=db_conn,
-                    use_zai=use_zai
+                    use_zai=use_zai,
+                    publisher=self.publisher
                 )
+                scraper_name = 'mql5_economic_calendar'
+                logger.info(f"✅ MQL5 Economic Calendar | Z.ai: {use_zai} | DB: {bool(db_conn)}")
 
-                self.scrapers['mql5_economic_calendar'] = {
+            # FRED Economic Indicators
+            elif scraper_config.source == 'fred.stlouisfed.org':
+                fred_api_key = scraper_config.api_key
+                indicators = scraper_config.indicators
+
+                scraper = FREDEconomicCollector(
+                    api_key=fred_api_key,
+                    indicators=indicators,
+                    publisher=self.publisher
+                )
+                await scraper.initialize()
+                scraper_name = 'fred_economic'
+                logger.info(f"✅ FRED Economic | Indicators: {len(indicators)}")
+
+            # CoinGecko Crypto Sentiment
+            elif scraper_config.source == 'coingecko.com':
+                coins = scraper_config.coins
+
+                scraper = CoinGeckoSentimentCollector(
+                    coins=coins,
+                    publisher=self.publisher
+                )
+                await scraper.initialize()
+                scraper_name = 'coingecko_sentiment'
+                logger.info(f"✅ CoinGecko Sentiment | Coins: {len(coins)}")
+
+            # Fear & Greed Index
+            elif scraper_config.source == 'alternative.me':
+                scraper = FearGreedIndexCollector(publisher=self.publisher)
+                await scraper.initialize()
+                scraper_name = 'fear_greed_index'
+                logger.info(f"✅ Fear & Greed Index")
+
+            # Yahoo Finance Commodities
+            elif scraper_config.source == 'finance.yahoo.com':
+                symbols = scraper_config.symbols
+
+                scraper = YahooFinanceCommodityCollector(
+                    symbols=symbols,
+                    publisher=self.publisher
+                )
+                await scraper.initialize()
+                scraper_name = 'yahoo_finance_commodity'
+                logger.info(f"✅ Yahoo Finance | Commodities: {len(symbols)}")
+
+            # Market Sessions
+            elif scraper_config.source == 'market_sessions':
+                sessions = scraper_config.sessions
+
+                scraper = MarketSessionsCollector(
+                    sessions=sessions,
+                    publisher=self.publisher
+                )
+                scraper_name = 'market_sessions'
+                logger.info(f"✅ Market Sessions | Sessions: {len(sessions)}")
+
+            # Store scraper if initialized
+            if scraper and scraper_name:
+                self.scrapers[scraper_name] = {
                     'scraper': scraper,
                     'config': scraper_config,
                     'last_run': None
                 }
 
-                logger.info(f"✅ Initialized MQL5 Economic Calendar scraper")
-                logger.info(f"   Z.ai Parser: {'Enabled' if use_zai else 'Disabled (regex fallback)'}")
-                logger.info(f"   Database: {'Enabled' if db_conn else 'JSON fallback'}")
+        logger.info(f"✅ Initialized {len(self.scrapers)} collectors")
 
         # Run backfill if enabled and first time
         if self.config.backfill_config.get('enabled', False):
@@ -210,21 +294,24 @@ class ExternalDataCollector:
 
         while self.is_running:
             try:
-                logger.info(f"📡 Scraping {scraper_name}...")
+                # MQL5 scraper uses update_recent_actuals
+                if scraper_name == 'mql5_economic_calendar':
+                    await scraper.update_recent_actuals(days_back=7)
 
-                # Update recent actual values (last 7 days)
-                await scraper.update_recent_actuals(days_back=7)
+                    # Get coverage stats
+                    stats = await scraper.tracker.get_coverage_stats()
+                    self.metrics['events_scraped'] = stats.get('total_events', 0)
+                    self.metrics['dates_tracked'] = stats.get('total_dates', 0)
+
+                # All other collectors use collect()
+                else:
+                    await scraper.collect()
 
                 # Update metrics
                 scraper_data['last_run'] = datetime.now()
                 self.metrics['last_scrape'] = datetime.now().isoformat()
 
-                # Get coverage stats
-                stats = await scraper.tracker.get_coverage_stats()
-                self.metrics['events_scraped'] = stats.get('total_events', 0)
-                self.metrics['dates_tracked'] = stats.get('total_dates', 0)
-
-                logger.info(f"✅ {scraper_name} completed - Events: {self.metrics['events_scraped']}, Dates: {self.metrics['dates_tracked']}")
+                logger.info(f"✅ {scraper_name} completed")
 
             except Exception as e:
                 logger.error(f"❌ Scraping error for {scraper_name}: {e}", exc_info=True)
@@ -260,6 +347,14 @@ class ExternalDataCollector:
                 await self.heartbeat_task
             except asyncio.CancelledError:
                 pass
+
+        # Close publisher
+        if self.publisher:
+            try:
+                await self.publisher.close()
+                logger.info("✅ NATS+Kafka publisher closed")
+            except Exception as e:
+                logger.error(f"⚠️ Failed to close publisher: {e}")
 
         # Deregister from Central Hub (REQUIRED for clean shutdown)
         try:

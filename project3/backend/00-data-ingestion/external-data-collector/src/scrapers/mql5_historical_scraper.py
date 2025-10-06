@@ -17,6 +17,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from utils.date_tracker import DateTracker
+from publishers import ExternalDataPublisher, DataType
 
 
 class ZAIParser:
@@ -178,7 +179,8 @@ class MQL5HistoricalScraper:
         self,
         zai_api_key: str,
         db_connection_string: Optional[str] = None,
-        use_zai: bool = True
+        use_zai: bool = True,
+        publisher: Optional[ExternalDataPublisher] = None
     ):
         """
         Initialize scraper
@@ -187,10 +189,12 @@ class MQL5HistoricalScraper:
             zai_api_key: Z.ai API key
             db_connection_string: PostgreSQL connection string
             use_zai: Whether to use Z.ai parser (fallback to regex if False)
+            publisher: Optional NATS+Kafka publisher for real-time distribution
         """
         self.base_url = "https://www.mql5.com/en/economic-calendar"
         self.zai_parser = ZAIParser(zai_api_key) if use_zai else None
         self.tracker = DateTracker(db_connection_string)
+        self.publisher = publisher
 
         # HTTP headers (proven to work)
         self.headers = {
@@ -312,6 +316,20 @@ class MQL5HistoricalScraper:
             events = [e for e in events if e['date'] == target_date.strftime('%Y-%m-%d')]
 
         print(f"   ✅ Found {len(events)} events")
+
+        # Publish to NATS+Kafka if publisher available
+        if self.publisher and events:
+            print(f"   📤 Publishing {len(events)} events to NATS+Kafka...")
+            for event in events:
+                await self.publisher.publish(
+                    data=event,
+                    data_type=DataType.ECONOMIC_CALENDAR,
+                    metadata={
+                        'source': 'mql5',
+                        'scraper_id': 'mql5_historical_scraper',
+                        'scrape_date': target_date.isoformat()
+                    }
+                )
 
         return events
 

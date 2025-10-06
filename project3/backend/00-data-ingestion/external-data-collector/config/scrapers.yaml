@@ -15,6 +15,75 @@ scrapers:
       rate_limit_seconds: 2
       date_tracking: true
 
+  # FRED Economic Indicators
+  fred_economic:
+    enabled: true
+    source: fred.stlouisfed.org
+    priority: 2
+    scrape_interval: 14400  # 4 hours (14400 seconds)
+    api_key: ${FRED_API_KEY:-}
+    indicators:
+      - GDP        # Gross Domestic Product
+      - UNRATE     # Unemployment Rate
+      - CPIAUCSL   # Consumer Price Index
+      - DFF        # Federal Funds Rate
+      - DGS10      # 10-Year Treasury Rate
+      - DEXUSEU    # USD/EUR Exchange Rate
+      - DEXJPUS    # JPY/USD Exchange Rate
+
+  # CoinGecko Crypto Sentiment
+  coingecko_sentiment:
+    enabled: true
+    source: coingecko.com
+    priority: 3
+    scrape_interval: 1800  # 30 minutes (1800 seconds)
+    coins:
+      - bitcoin
+      - ethereum
+      - ripple
+      - cardano
+      - solana
+
+  # Fear & Greed Index
+  fear_greed_index:
+    enabled: true
+    source: alternative.me
+    priority: 4
+    scrape_interval: 3600  # 1 hour (3600 seconds)
+
+  # Yahoo Finance Commodities
+  yahoo_finance_commodity:
+    enabled: true
+    source: finance.yahoo.com
+    priority: 5
+    scrape_interval: 1800  # 30 minutes (1800 seconds)
+    symbols:
+      - GC=F   # Gold Futures
+      - CL=F   # Crude Oil Futures
+      - SI=F   # Silver Futures
+      - HG=F   # Copper Futures
+      - NG=F   # Natural Gas Futures
+
+  # Market Sessions
+  market_sessions:
+    enabled: true
+    source: market_sessions
+    priority: 6
+    scrape_interval: 300  # 5 minutes (300 seconds)
+    sessions:
+      tokyo:
+        open: "00:00"
+        close: "09:00"
+      london:
+        open: "08:00"
+        close: "16:30"
+      newyork:
+        open: "13:00"
+        close: "22:00"
+      sydney:
+        open: "22:00"
+        close: "07:00"
+
 storage:
   # Storage type: json or postgresql
   type: json  # Use JSON file for tracking (fallback)
@@ -32,20 +101,37 @@ storage:
     schema: public
 
 messaging:
-  # NATS configuration
+  # NATS configuration (real-time distribution)
   nats:
-    enabled: false  # Disabled by default, enable when needed
+    enabled: true  # ✅ ENABLED for real-time data
     host: suho-nats
     port: 4222
     topics:
-      economic_calendar: market.economic.calendar
+      base: market.external  # Base subject pattern
+      # Specific topics (optional overrides):
+      # economic_calendar: market.external.economic_calendar
+      # news: market.external.news
+      # sentiment: market.external.sentiment
+      # cot_report: market.external.cot_report
 
-  # Kafka configuration
+  # Kafka configuration (persistence + backup)
   kafka:
-    enabled: false  # Disabled by default, enable when needed
+    enabled: true  # ✅ ENABLED for persistence
     bootstrap_servers: suho-kafka:9092
     topics:
-      economic_calendar: market.economic.calendar
+      # Default: market.external.{data_type}
+      # Can override specific types:
+      economic_calendar: market.external.economic_calendar
+      fred_economic: market.external.fred_economic
+      crypto_sentiment: market.external.crypto_sentiment
+      fear_greed_index: market.external.fear_greed_index
+      commodity_prices: market.external.commodity_prices
+      market_sessions: market.external.market_sessions
+      news: market.external.news
+      sentiment: market.external.sentiment
+      cot_report: market.external.cot_report
+      market_context: market.external.market_context
+      alternative_data: market.external.alternative_data
 
 # Historical backfill configuration
 backfill:

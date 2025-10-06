@@ -124,8 +124,9 @@ websocket_config:
 # =======================================================================
 # AGGREGATE CONFIGURATION (OHLCV + Tick Volume like MT5)
 # =======================================================================
+# DISABLED: We use tick data + Aggregator Service instead
 aggregate_config:
-  enabled: true  # Enable aggregate collection
+  enabled: false  # Disabled - using tick data + Aggregator Service for 7 timeframes
 
   # WebSocket configuration for aggregates
   websocket:

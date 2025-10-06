@@ -15,6 +15,7 @@ python-dotenv==1.0.1
 # Database drivers (for Database Manager)
 asyncpg==0.29.0  # PostgreSQL/TimescaleDB
 redis==5.0.1     # DragonflyDB (Redis-compatible)
+clickhouse-connect==0.7.0  # ClickHouse (for historical data)
 
 # Data validation (Pydantic from Database Manager)
 pydantic==2.5.0

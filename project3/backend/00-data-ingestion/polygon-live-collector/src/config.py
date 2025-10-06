@@ -186,6 +186,27 @@ class Config:
         """Get monitoring configuration"""
         return self._config.get('monitoring', {})
 
+    @property
+    def timescaledb_config(self) -> Dict:
+        """
+        Get TimescaleDB configuration
+        Priority: 1. Environment variables, 2. YAML config
+        """
+        yaml_config = self._config.get('timescaledb_config', {})
+
+        return {
+            'host': os.getenv('TIMESCALEDB_HOST', yaml_config.get('host', 'suho-timescaledb')),
+            'port': int(os.getenv('TIMESCALEDB_PORT', yaml_config.get('port', 5432))),
+            'database': os.getenv('TIMESCALEDB_DATABASE', yaml_config.get('database', 'suho_trading')),
+            'user': os.getenv('TIMESCALEDB_USER', yaml_config.get('user', 'suho_service')),
+            'password': os.getenv('TIMESCALEDB_PASSWORD', yaml_config.get('password', '')),
+            'tenant_id': os.getenv('TENANT_ID', yaml_config.get('tenant_id', 'default_tenant')),
+            'pool_min_size': yaml_config.get('pool_min_size', 2),
+            'pool_max_size': yaml_config.get('pool_max_size', 10),
+            'batch_size': yaml_config.get('batch_size', 100),
+            'batch_timeout': yaml_config.get('batch_timeout', 5.0)
+        }
+
     def get_websocket_subscriptions(self) -> List[str]:
         """
         Generate WebSocket subscription list

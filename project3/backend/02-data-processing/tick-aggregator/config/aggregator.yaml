@@ -1,0 +1,95 @@
+# =======================================================================
+# TICK AGGREGATOR CONFIGURATION
+# =======================================================================
+# Purpose: Aggregate tick data from TimescaleDB into OHLCV candles
+# Version: 1.0.0
+# Last Updated: 2025-10-06
+# =======================================================================
+
+# Service Configuration
+service:
+  name: "tick-aggregator"
+  instance_id: "aggregator-1"
+  log_level: "INFO"
+
+# Database Configuration (will be overridden by Central Hub)
+database:
+  host: "suho-timescaledb"
+  port: 5432
+  database: "suho_trading"
+  user: "suho_service"
+  password: "${TIMESCALEDB_PASSWORD}"
+  pool_size: 5
+  tenant_id: "system"  # Application-level tenant
+
+# Aggregation Configuration
+aggregation:
+  # Timeframes to aggregate (maps to schedule)
+  timeframes:
+    - name: "5m"
+      interval_minutes: 5
+      cron: "*/5 * * * *"  # Every 5 minutes
+      lookback_minutes: 10  # Query last 10 minutes of ticks
+
+    - name: "15m"
+      interval_minutes: 15
+      cron: "*/15 * * * *"  # Every 15 minutes
+      lookback_minutes: 20
+
+    - name: "30m"
+      interval_minutes: 30
+      cron: "*/30 * * * *"  # Every 30 minutes
+      lookback_minutes: 35
+
+    - name: "1h"
+      interval_minutes: 60
+      cron: "0 * * * *"  # Every hour at :00
+      lookback_minutes: 65
+
+    - name: "4h"
+      interval_minutes: 240
+      cron: "0 */4 * * *"  # Every 4 hours
+      lookback_minutes: 245
+
+    - name: "1d"
+      interval_minutes: 1440
+      cron: "0 0 * * *"  # Daily at 00:00 UTC
+      lookback_minutes: 1445
+
+    - name: "1w"
+      interval_minutes: 10080
+      cron: "0 0 * * 1"  # Weekly on Monday 00:00 UTC
+      lookback_minutes: 10085
+
+  # Batch configuration
+  batch_size: 10000  # Ticks per query
+  max_symbols_per_batch: 10  # Process N symbols in parallel
+
+# NATS Configuration (will be fetched from Central Hub)
+nats:
+  url: "nats://suho-nats-server:4222"
+  max_reconnect_attempts: -1  # Infinite
+  reconnect_time_wait: 2
+  ping_interval: 120
+  subjects:
+    aggregates: "bars.{symbol}.{timeframe}"  # e.g., bars.EURUSD.5m
+
+# Kafka Configuration (will be fetched from Central Hub)
+kafka:
+  brokers:
+    - "suho-kafka:9092"
+  topics:
+    aggregate_archive: "aggregate_archive"
+  compression_type: "lz4"
+
+# Monitoring
+monitoring:
+  report_interval_seconds: 300  # Report every 5 minutes
+  enable_metrics: true
+  log_performance: true
+
+# State Management
+state:
+  # Track last aggregation timestamp per timeframe/symbol
+  persist_state: true
+  state_file: "/tmp/aggregator_state.json"  # Will be volume-mounted

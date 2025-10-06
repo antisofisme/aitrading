@@ -19,6 +19,8 @@ from config import Config
 from deduplicator import Deduplicator
 from nats_subscriber import NATSSubscriber
 from kafka_subscriber import KafkaSubscriber
+from clickhouse_writer import ClickHouseWriter
+from external_data_writer import ExternalDataWriter
 
 # Import Database Manager from Central Hub
 from components.data_manager import DataRouter, TickData, CandleData
@@ -49,8 +51,14 @@ class DataBridge:
     def __init__(self):
         self.config = Config()
 
-        # Database Manager (replaces ClickHouseClient)
+        # Database Manager (for Live data → TimescaleDB + DragonflyDB)
         self.db_router = None
+
+        # ClickHouse Writer (for Historical data → ClickHouse)
+        self.clickhouse_writer = None
+
+        # External Data Writer (for External data → ClickHouse)
+        self.external_data_writer = None
 
         self.deduplicator = None
         self.nats_subscriber = None
@@ -61,10 +69,12 @@ class DataBridge:
 
         # Statistics
         self.ticks_saved = 0
-        self.candles_saved = 0
+        self.candles_saved_timescale = 0
+        self.candles_saved_clickhouse = 0
+        self.external_data_saved = 0
 
         logger.info("=" * 80)
-        logger.info("DATA BRIDGE - NATS+KAFKA → DATABASE MANAGER")
+        logger.info("DATA BRIDGE - INTELLIGENT ROUTING")
         logger.info("=" * 80)
         logger.info(f"Instance ID: {self.config.instance_id}")
         logger.info(f"Log Level: {self.config.log_level}")
@@ -79,8 +89,8 @@ class DataBridge:
             await self.config.initialize_central_hub()
             logger.info("✅ Central Hub configuration loaded")
 
-            # Initialize Database Manager with Central Hub configs
-            logger.info("📦 Initializing Database Manager...")
+            # Initialize Database Manager with Central Hub configs (Live → TimescaleDB)
+            logger.info("📦 Initializing Database Manager for Live data...")
             from components.data_manager.pools import get_pool_manager
 
             # Get database configs from Central Hub
@@ -93,6 +103,26 @@ class DataBridge:
             self.db_router = DataRouter()
             await self.db_router.initialize()
             logger.info("✅ Database Manager ready (TimescaleDB + DragonflyDB)")
+
+            # Initialize ClickHouse Writer (Historical → ClickHouse)
+            logger.info("📦 Initializing ClickHouse Writer for Historical data...")
+            clickhouse_config = self.config.database_configs.get('clickhouse')
+            if clickhouse_config:
+                self.clickhouse_writer = ClickHouseWriter(
+                    config=clickhouse_config,
+                    batch_size=1000,  # Larger batches for historical data
+                    batch_timeout=10.0  # 10 seconds
+                )
+                await self.clickhouse_writer.connect()
+                logger.info("✅ ClickHouse Writer ready")
+
+                # Initialize External Data Writer (External → ClickHouse)
+                logger.info("📦 Initializing External Data Writer...")
+                self.external_data_writer = ExternalDataWriter(clickhouse_config)
+                await self.external_data_writer.connect()
+                logger.info("✅ External Data Writer ready")
+            else:
+                logger.warning("⚠️  ClickHouse config not found, historical/external data will not be saved")
 
             # Initialize deduplicator
             self.deduplicator = Deduplicator(self.config.dedup_config)
@@ -120,9 +150,14 @@ class DataBridge:
                 # Process message based on type
                 try:
                     if data_type == 'tick':
+                        # Tick data → TimescaleDB.market_ticks
                         await self._save_tick(data)
                     elif data_type == 'aggregate':
+                        # Aggregate data → ClickHouse.aggregates (live_aggregated or historical)
                         await self._save_candle(data)
+                    elif data_type == 'external':
+                        # External data → ClickHouse.external_* tables
+                        await self._save_external_data(data)
                     else:
                         logger.warning(f"Unknown data type: {data_type}")
 
@@ -152,11 +187,13 @@ class DataBridge:
             self.is_running = True
 
             logger.info("=" * 80)
-            logger.info("✅ DATA BRIDGE STARTED")
+            logger.info("✅ DATA BRIDGE STARTED - INTELLIGENT ROUTING")
             logger.info("📊 NATS: Real-time data path (PRIMARY)")
             logger.info("📊 Kafka: Backup + gap-filling (COMPLEMENTARY)")
             logger.info("🔍 Deduplication: ENABLED")
-            logger.info("💾 Storage: Database Manager (TimescaleDB + DragonflyDB)")
+            logger.info("💾 Live Ticks (polygon_websocket) → TimescaleDB.market_ticks")
+            logger.info("💾 Live Aggregates (live_aggregated) → ClickHouse.aggregates")
+            logger.info("💾 Historical (polygon_historical) → ClickHouse.aggregates")
             logger.info("=" * 80)
 
             # Run Kafka poller and status reporter concurrently
@@ -189,14 +226,13 @@ class DataBridge:
                 event_type=data.get('ev', 'quote')
             )
 
-            # Save via Database Manager
-            # → Auto-routes to TimescaleDB + DragonflyDB cache
+            # Save via Database Manager → TimescaleDB + DragonflyDB cache
             await self.db_router.save_tick(tick_data)
 
             self.ticks_saved += 1
 
             if self.ticks_saved % 100 == 0:
-                logger.debug(f"Saved {self.ticks_saved} ticks")
+                logger.debug(f"Saved {self.ticks_saved} ticks to TimescaleDB")
 
         except Exception as e:
             logger.error(f"Error saving tick: {e}")
@@ -205,11 +241,20 @@ class DataBridge:
 
     async def _save_candle(self, data: dict):
         """
-        Save candle/aggregate data via Database Manager
+        Save candle/aggregate data with intelligent routing
 
-        Maps Polygon aggregate → CandleData model
+        Routing Logic:
+        - Live data (source != 'historical') → TimescaleDB (via Database Manager)
+        - Historical data (source == 'historical') → ClickHouse (direct write)
+
+        This ensures:
+        - Live 1s bars → TimescaleDB.market_candles (90 days retention)
+        - Historical M5-W1 → ClickHouse.aggregates (10 years retention)
         """
         try:
+            # Determine source
+            source = data.get('_source', 'unknown')
+
             # Determine timeframe from subject/topic
             timeframe = data.get('timeframe', '1s')
             if not timeframe and '_subject' in data:
@@ -218,35 +263,116 @@ class DataBridge:
                 if len(parts) >= 3:
                     timeframe = parts[2]
 
-            # Map Polygon aggregate to CandleData
-            candle_data = CandleData(
-                symbol=data.get('pair', data.get('symbol', '')),
-                timeframe=timeframe,
-                timestamp=data.get('s', data.get('timestamp', 0)),
-                timestamp_ms=data.get('s', data.get('timestamp_ms', 0)),
-                open=data.get('o', data.get('open', 0)),
-                high=data.get('h', data.get('high', 0)),
-                low=data.get('l', data.get('low', 0)),
-                close=data.get('c', data.get('close', 0)),
-                volume=data.get('v', data.get('volume')),
-                vwap=data.get('vw', data.get('vwap')),
-                num_trades=data.get('n', data.get('num_trades')),
-                source=data.get('_source', 'unknown'),
-                event_type=data.get('ev', 'ohlcv')
-            )
+            # ROUTING DECISION based on source
+            # ALL aggregates (live_aggregated + historical) → ClickHouse
+            if source in ['historical', 'polygon_historical', 'live_aggregated']:
+                # Aggregated data → ClickHouse (from Aggregator Service or Historical Downloader)
+                await self._save_to_clickhouse(data, timeframe)
+                self.candles_saved_clickhouse += 1
 
-            # Save via Database Manager
-            # → Auto-routes to TimescaleDB + DragonflyDB cache
-            await self.db_router.save_candle(candle_data)
+                if self.candles_saved_clickhouse % 100 == 0:
+                    logger.debug(f"Saved {self.candles_saved_clickhouse} aggregates to ClickHouse (source: {source})")
 
-            self.candles_saved += 1
-
-            if self.candles_saved % 100 == 0:
-                logger.debug(f"Saved {self.candles_saved} candles")
+            else:
+                # Legacy: OLD flow if any live 1s bars still come through
+                # This should NOT happen after disabling aggregate_client
+                logger.warning(f"⚠️  Unexpected aggregate data with source '{source}' - should be tick data!")
+                candle_data = CandleData(
+                    symbol=data.get('pair', data.get('symbol', '')),
+                    timeframe=timeframe,
+                    timestamp=data.get('s', data.get('timestamp', 0)),
+                    timestamp_ms=data.get('s', data.get('timestamp_ms', 0)),
+                    open=data.get('o', data.get('open', 0)),
+                    high=data.get('h', data.get('high', 0)),
+                    low=data.get('l', data.get('low', 0)),
+                    close=data.get('c', data.get('close', 0)),
+                    volume=data.get('v', data.get('volume')),
+                    vwap=data.get('vw', data.get('vwap')),
+                    num_trades=data.get('n', data.get('num_trades')),
+                    source=source,
+                    event_type=data.get('ev', 'ohlcv')
+                )
+                await self.db_router.save_candle(candle_data)
+                self.candles_saved_timescale += 1
 
         except Exception as e:
             logger.error(f"Error saving candle: {e}")
             logger.debug(f"Candle data: {data}")
+            raise
+
+    async def _save_to_clickhouse(self, data: dict, timeframe: str):
+        """
+        Save historical data to ClickHouse
+
+        Args:
+            data: Historical aggregate data from Polygon
+            timeframe: Timeframe (5m, 15m, 30m, 1h, 4h, 1d, 1w)
+        """
+        if not self.clickhouse_writer:
+            logger.warning("⚠️  ClickHouse Writer not initialized, skipping historical data")
+            return
+
+        try:
+            # Prepare data for ClickHouse
+            aggregate_data = {
+                'symbol': data.get('pair', data.get('symbol', '')),
+                'timeframe': timeframe,
+                'timestamp_ms': data.get('s', data.get('timestamp_ms', data.get('timestamp', 0))),
+                'open': data.get('o', data.get('open', 0)),
+                'high': data.get('h', data.get('high', 0)),
+                'low': data.get('l', data.get('low', 0)),
+                'close': data.get('c', data.get('close', 0)),
+                'volume': data.get('v', data.get('volume', 0)),
+                'vwap': data.get('vw', data.get('vwap', 0)),
+                'range_pips': data.get('range_pips', 0),
+                'body_pips': data.get('body_pips', 0),
+                'start_time': data.get('start_time', ''),
+                'end_time': data.get('end_time', ''),
+                'source': data.get('source', 'polygon_historical'),
+                'event_type': data.get('ev', data.get('event_type', 'ohlcv'))
+            }
+
+            # Add to ClickHouse batch buffer
+            await self.clickhouse_writer.add_aggregate(aggregate_data)
+
+        except Exception as e:
+            logger.error(f"Error preparing data for ClickHouse: {e}")
+            logger.debug(f"Data: {data}")
+            raise
+
+    async def _save_external_data(self, data: dict):
+        """
+        Save external data to ClickHouse
+
+        External data types:
+        - economic_calendar
+        - fred_economic
+        - crypto_sentiment
+        - fear_greed_index
+        - commodity_prices
+        - market_sessions
+
+        Args:
+            data: External data message from NATS/Kafka
+        """
+        if not self.external_data_writer:
+            logger.warning("⚠️  External Data Writer not initialized, skipping external data")
+            return
+
+        try:
+            external_type = data.get('_external_type', 'unknown')
+
+            # Save to ClickHouse
+            await self.external_data_writer.write_external_data(data)
+
+            self.external_data_saved += 1
+
+            if self.external_data_saved % 10 == 0:
+                logger.debug(f"Saved {self.external_data_saved} external data records (type: {external_type})")
+
+        except Exception as e:
+            logger.error(f"Error saving external data: {e}")
+            logger.debug(f"External data: {data}")
             raise
 
     async def _status_reporter(self):
@@ -263,6 +389,7 @@ class DataBridge:
                 nats_stats = self.nats_subscriber.get_stats() if self.nats_subscriber else {}
                 kafka_stats = self.kafka_subscriber.get_stats() if self.kafka_subscriber else {}
                 dedup_stats = self.deduplicator.get_stats() if self.deduplicator else {}
+                clickhouse_stats = self.clickhouse_writer.get_stats() if self.clickhouse_writer else {}
 
                 # Log status
                 logger.info("=" * 80)
@@ -276,8 +403,20 @@ class DataBridge:
                 logger.info(f"Deduplication: {dedup_stats.get('total_duplicates', 0)} duplicates | "
                            f"Rate: {dedup_stats.get('duplicate_rate', 0):.2%} | "
                            f"Cache size: {dedup_stats.get('cache_size', 0)}")
-                logger.info(f"Database: {self.ticks_saved} ticks saved | "
-                           f"{self.candles_saved} candles saved")
+                logger.info(f"TimescaleDB: {self.ticks_saved} ticks | {self.candles_saved_timescale} live candles")
+                logger.info(f"ClickHouse: {self.candles_saved_clickhouse} historical candles | "
+                           f"Buffer: {clickhouse_stats.get('buffer_size', 0)} | "
+                           f"Errors: {clickhouse_stats.get('total_insert_errors', 0)}")
+
+                # External data stats
+                if self.external_data_writer:
+                    external_stats = self.external_data_writer.get_stats()
+                    logger.info(f"External Data: {external_stats.get('total', 0)} total | "
+                               f"Calendar: {external_stats.get('economic_calendar', 0)} | "
+                               f"FRED: {external_stats.get('fred_economic', 0)} | "
+                               f"Crypto: {external_stats.get('crypto_sentiment', 0)} | "
+                               f"Errors: {external_stats.get('errors', 0)}")
+
                 logger.info("=" * 80)
 
             except asyncio.CancelledError:
@@ -296,6 +435,10 @@ class DataBridge:
 
         if self.kafka_subscriber:
             await self.kafka_subscriber.close()
+
+        # Flush and close ClickHouse writer
+        if self.clickhouse_writer:
+            await self.clickhouse_writer.close()
 
         logger.info("✅ Data Bridge stopped")
 

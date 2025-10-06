@@ -33,6 +33,7 @@ class NATSSubscriber:
         self.tick_messages = 0
         self.aggregate_messages = 0
         self.confirmation_messages = 0
+        self.external_messages = 0
 
         logger.info("NATS subscriber initialized")
 
@@ -72,6 +73,11 @@ class NATSSubscriber:
         conf_subject = subjects.get('confirmation', 'confirmation.>')
         await self.nc.subscribe(conf_subject, cb=self._handle_tick_message)
         logger.info(f"📊 Subscribed to {conf_subject}")
+
+        # Subscribe to external data (economic calendar, sentiment, etc.)
+        external_subject = subjects.get('external', 'market.external.>')
+        await self.nc.subscribe(external_subject, cb=self._handle_external_message)
+        logger.info(f"📊 Subscribed to {external_subject}")
 
         self.is_running = True
 
@@ -126,6 +132,40 @@ class NATSSubscriber:
             logger.error(f"Error handling NATS aggregate message: {e}")
             logger.debug(f"Message data: {msg.data[:200]}")
 
+    async def _handle_external_message(self, msg):
+        """Handle external data message from NATS (economic calendar, sentiment, etc.)"""
+        try:
+            # Parse JSON
+            data = orjson.loads(msg.data)
+
+            # Add source metadata
+            data['_source'] = 'nats'
+            data['_subject'] = msg.subject
+
+            # Extract data type from subject (market.external.economic_calendar → economic_calendar)
+            subject_parts = msg.subject.split('.')
+            if len(subject_parts) >= 3:
+                data_type = subject_parts[2]  # economic_calendar, fred_economic, etc.
+            else:
+                data_type = 'unknown'
+
+            data['_external_type'] = data_type
+
+            # Send to message handler
+            await self.message_handler(data, data_type='external')
+
+            # Update statistics
+            self.total_messages += 1
+            self.external_messages += 1
+
+            if self.external_messages % 100 == 0:
+                logger.info(f"📊 NATS received {self.external_messages} external data messages")
+
+        except Exception as e:
+            logger.error(f"Error handling NATS external message: {e}")
+            logger.debug(f"Message subject: {msg.subject}")
+            logger.debug(f"Message data: {msg.data[:200]}")
+
     async def close(self):
         """Close NATS connection"""
         logger.info("Closing NATS connection...")
@@ -142,5 +182,6 @@ class NATSSubscriber:
             'total_messages': self.total_messages,
             'tick_messages': self.tick_messages,
             'aggregate_messages': self.aggregate_messages,
-            'confirmation_messages': self.confirmation_messages
+            'confirmation_messages': self.confirmation_messages,
+            'external_messages': self.external_messages
         }
