@@ -146,7 +146,8 @@ class TickAggregatorService:
             day_of_week=day_of_week,
             id=f"aggregate_{timeframe}",
             name=f"Aggregate {timeframe}",
-            replace_existing=True
+            replace_existing=True,
+            misfire_grace_time=60  # Allow 60s grace time for startup/timing issues
         )
 
         logger.info(f"✅ Scheduled {timeframe} aggregation: {cron}")

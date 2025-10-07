@@ -119,6 +119,18 @@ class KafkaSubscriber:
             # Determine data type from topic
             if 'market.external' in record.topic:
                 data_type = 'external'
+
+                # Extract external type from topic name
+                # Topic format: market.external.{data_type}
+                # Examples: market.external.fear_greed_index, market.external.crypto_sentiment
+                topic_parts = record.topic.split('.')
+                if len(topic_parts) >= 3:
+                    external_type = topic_parts[2]  # fear_greed_index, crypto_sentiment, etc.
+                    data['_external_type'] = external_type
+                else:
+                    logger.warning(f"⚠️ Cannot extract external type from topic: {record.topic}")
+                    data['_external_type'] = 'unknown'
+
             elif 'aggregate' in record.topic:
                 data_type = 'aggregate'
                 self.aggregate_messages += 1

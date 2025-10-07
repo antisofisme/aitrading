@@ -292,8 +292,12 @@ class ExternalDataCollector:
 
         logger.info(f"🔄 Starting scraping loop for {scraper_name} (interval: {interval}s)")
 
+        iteration = 0
         while self.is_running:
+            iteration += 1
             try:
+                logger.debug(f"🔄 {scraper_name} iteration {iteration} starting...")
+
                 # MQL5 scraper uses update_recent_actuals
                 if scraper_name == 'mql5_economic_calendar':
                     await scraper.update_recent_actuals(days_back=7)
@@ -311,14 +315,26 @@ class ExternalDataCollector:
                 scraper_data['last_run'] = datetime.now()
                 self.metrics['last_scrape'] = datetime.now().isoformat()
 
-                logger.info(f"✅ {scraper_name} completed")
+                logger.info(f"✅ {scraper_name} completed (iteration {iteration})")
+
+            except asyncio.CancelledError:
+                logger.info(f"🛑 {scraper_name} loop cancelled")
+                break
 
             except Exception as e:
-                logger.error(f"❌ Scraping error for {scraper_name}: {e}", exc_info=True)
+                logger.error(f"❌ Scraping error for {scraper_name} (iteration {iteration}): {e}", exc_info=True)
                 self.metrics['errors'] += 1
+                # Continue loop even on error
 
             # Wait for next scrape
-            await asyncio.sleep(interval)
+            try:
+                logger.debug(f"⏳ {scraper_name} sleeping for {interval}s...")
+                await asyncio.sleep(interval)
+            except asyncio.CancelledError:
+                logger.info(f"🛑 {scraper_name} sleep cancelled")
+                break
+
+        logger.info(f"🛑 {scraper_name} scraping loop stopped after {iteration} iterations")
 
     async def _heartbeat_loop(self):
         """Send periodic heartbeat to Central Hub (REQUIRED for service coordination)"""

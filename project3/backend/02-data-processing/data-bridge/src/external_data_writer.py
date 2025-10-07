@@ -95,13 +95,19 @@ class ExternalDataWriter:
             # Extract data type
             external_type = data.get('_external_type', 'unknown')
 
+            logger.debug(f"📥 Received external data | Type: {external_type} | Source: {data.get('_source')} | Topic: {data.get('_topic')}")
+
             if external_type not in self.buffers:
-                logger.warning(f"⚠️  Unknown external data type: {external_type}")
+                logger.warning(f"⚠️  Unknown external data type: {external_type} | Available types: {list(self.buffers.keys())}")
                 return
 
             # Extract actual data and metadata
             message_data = data.get('data', {})
             metadata = data.get('metadata', {})
+
+            if not message_data:
+                logger.warning(f"⚠️  Empty data for type {external_type} | Full message: {data}")
+                return
 
             # Parse collected_at timestamp (string → datetime)
             collected_at_str = metadata.get('timestamp', datetime.utcnow().isoformat())
@@ -121,11 +127,17 @@ class ExternalDataWriter:
                 'collected_at': collected_at  # datetime object, not string
             })
 
+            buffer_size = len(self.buffers[external_type])
+            logger.debug(f"✅ Added to buffer | Type: {external_type} | Buffer size: {buffer_size}/{self.batch_size}")
+
             # Check if should flush
-            should_flush_size = len(self.buffers[external_type]) >= self.batch_size
-            should_flush_time = (datetime.utcnow() - self.last_flush[external_type]).total_seconds() >= self.batch_timeout
+            should_flush_size = buffer_size >= self.batch_size
+            time_since_flush = (datetime.utcnow() - self.last_flush[external_type]).total_seconds()
+            should_flush_time = time_since_flush >= self.batch_timeout
 
             if should_flush_size or should_flush_time:
+                flush_reason = "size" if should_flush_size else f"timeout ({time_since_flush:.1f}s)"
+                logger.info(f"💾 Flushing buffer | Type: {external_type} | Reason: {flush_reason} | Size: {buffer_size}")
                 await self._flush_buffer(external_type)
 
         except Exception as e:

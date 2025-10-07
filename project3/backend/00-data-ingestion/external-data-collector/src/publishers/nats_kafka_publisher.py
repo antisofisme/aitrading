@@ -141,7 +141,20 @@ class ExternalDataPublisher:
             kafka_success = False
             if self.kafka:
                 try:
-                    self.kafka.send(kafka_topic, value=message)
+                    # Send message (async batching)
+                    future = self.kafka.send(kafka_topic, value=message)
+
+                    # Flush in executor (sync → async)
+                    loop = asyncio.get_event_loop()
+                    await loop.run_in_executor(None, self.kafka.flush)
+
+                    # Wait for send confirmation
+                    try:
+                        record_metadata = future.get(timeout=10)
+                        logger.debug(f"✅ Kafka sent to {record_metadata.topic} partition {record_metadata.partition}")
+                    except Exception as send_err:
+                        logger.error(f"❌ Kafka send confirmation failed: {send_err}")
+
                     self.kafka_publish_count += 1
                     kafka_success = True
                 except Exception as e:

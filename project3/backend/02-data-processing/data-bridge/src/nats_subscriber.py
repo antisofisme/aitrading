@@ -87,8 +87,9 @@ class NATSSubscriber:
             # Parse JSON
             data = orjson.loads(msg.data)
 
-            # Add source metadata
-            data['_source'] = 'nats'
+            # Add source metadata (preserve existing _source if present, e.g., from Tick Aggregator)
+            if '_source' not in data:
+                data['_source'] = 'nats'
             data['_subject'] = msg.subject
 
             # Send to message handler
@@ -114,8 +115,9 @@ class NATSSubscriber:
             # Parse JSON
             data = orjson.loads(msg.data)
 
-            # Add source metadata
-            data['_source'] = 'nats'
+            # Add source metadata (preserve existing _source if present, e.g., from Tick Aggregator)
+            if '_source' not in data:
+                data['_source'] = 'nats'
             data['_subject'] = msg.subject
 
             # Send to message handler
@@ -138,8 +140,9 @@ class NATSSubscriber:
             # Parse JSON
             data = orjson.loads(msg.data)
 
-            # Add source metadata
-            data['_source'] = 'nats'
+            # Add source metadata (preserve existing _source if present)
+            if '_source' not in data:
+                data['_source'] = 'nats'
             data['_subject'] = msg.subject
 
             # Extract data type from subject (market.external.economic_calendar → economic_calendar)

@@ -55,8 +55,15 @@ CREATE TABLE IF NOT EXISTS aggregates (
     -- ===========================================
     -- SOURCE & METADATA
     -- ===========================================
-    source String,                        -- "polygon_historical", "polygon_aggregate"
+    source String,                        -- "polygon_historical", "live_aggregated"
     event_type String DEFAULT 'ohlcv',    -- "ohlcv"
+
+    -- ===========================================
+    -- TECHNICAL INDICATORS (JSON)
+    -- ===========================================
+    -- 26 indicator values: SMA (5), EMA (5), RSI, MACD (3), Stochastic (2),
+    -- Bollinger (4), ATR, MFI, OBV, ADL, CCI, VWAP
+    indicators String DEFAULT '',         -- Technical indicators as JSON
 
     ingested_at DateTime64(3, 'UTC') DEFAULT now64(3)
 )
