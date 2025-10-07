@@ -344,7 +344,7 @@ services:
       dockerfile: 00-data-ingestion/polygon-historical-downloader/Dockerfile
     container_name: suho-historical-downloader
     hostname: suho-historical-downloader
-    restart: "no"  # Run once on startup, then stop
+    restart: on-failure:3  # Restart up to 3 times on failure (OOM, crashes)
     environment:
       - INSTANCE_ID=polygon-historical-downloader-1
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
@@ -355,6 +355,12 @@ services:
     volumes:
       # Use named volumes instead of bind mounts (WSL Docker Desktop fix)
       - polygon_historical_logs:/var/log/polygon-historical-downloader
+    deploy:
+      resources:
+        limits:
+          memory: 2G  # Prevent OOM kills
+        reservations:
+          memory: 512M
     networks:
       - suho-trading-network
     depends_on:
