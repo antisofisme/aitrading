@@ -53,7 +53,7 @@ class PolygonHistoricalService:
             metadata={
                 "source": "polygon.io",
                 "mode": "historical",
-                "run_type": "once",
+                "run_type": "continuous",
                 "data_types": ["aggregates", "bars"],
                 "transport": ["nats", "kafka"]
             }
@@ -66,9 +66,6 @@ class PolygonHistoricalService:
     async def run_initial_download(self):
         """Download historical data for all pairs and publish to NATS/Kafka"""
         logger.info("📥 Starting initial historical download...")
-
-        # Register with Central Hub
-        await self.central_hub.register()
 
         # Get messaging configs from Central Hub
         try:
@@ -180,25 +177,165 @@ class PolygonHistoricalService:
         finally:
             await self.publisher.disconnect()
 
-            # Deregister from Central Hub
-            await self.central_hub.deregister()
-
         logger.info("✅ Initial download complete")
 
+    async def check_and_fill_gaps(self):
+        """Check for gaps and download missing data"""
+        try:
+            logger.info("🔍 Checking for data gaps...")
+
+            # Get ClickHouse config from Central Hub
+            try:
+                clickhouse_config = await self.central_hub.get_database_config('clickhouse')
+                ch_connection = clickhouse_config['connection']
+                gap_config = {
+                    'host': ch_connection['host'],
+                    'port': ch_connection.get('native_port', 9000),
+                    'user': ch_connection['user'],
+                    'password': ch_connection['password'],
+                    'database': ch_connection['database'],
+                    'table': 'aggregates'
+                }
+            except Exception as e:
+                logger.warning(f"⚠️  Failed to get ClickHouse config from Central Hub: {e}")
+                # Skip gap detection if can't get config
+                return
+
+            # Initialize gap detector
+            from gap_detector import GapDetector
+            gap_detector = GapDetector(gap_config)
+
+            # Get messaging configs
+            nats_config = await self.central_hub.get_messaging_config('nats')
+            kafka_config = await self.central_hub.get_messaging_config('kafka')
+            nats_url = f"nats://{nats_config['connection']['host']}:{nats_config['connection']['port']}"
+            kafka_brokers = ','.join(kafka_config['connection']['bootstrap_servers'])
+
+            # Reinitialize publisher
+            self.publisher = MessagePublisher(
+                nats_url=nats_url,
+                kafka_brokers=kafka_brokers
+            )
+            await self.publisher.connect()
+
+            # Check gaps for all pairs
+            pairs = self.config.pairs
+            total_gaps_filled = 0
+
+            for pair in pairs:
+                symbol = pair.symbol
+                logger.info(f"🔍 Checking gaps for {symbol}...")
+
+                # Detect gaps in last 30 days
+                gaps = gap_detector.detect_gaps(symbol, days=30, max_gap_minutes=60)
+
+                if gaps:
+                    logger.info(f"📥 Found {len(gaps)} gaps for {symbol}, downloading...")
+
+                    for gap_start, gap_end in gaps:
+                        try:
+                            # Download data for this gap
+                            timeframe, multiplier = self.config.get_timeframe_for_pair(pair)
+                            bars = await self.downloader.download_range(
+                                symbol=symbol,
+                                from_date=gap_start.strftime('%Y-%m-%d'),
+                                to_date=gap_end.strftime('%Y-%m-%d'),
+                                timeframe=timeframe,
+                                multiplier=multiplier
+                            )
+
+                            if bars:
+                                # Convert and publish
+                                timeframe_str = f"{multiplier}{timeframe[0]}"
+                                aggregates = []
+                                for bar in bars:
+                                    aggregate = {
+                                        'symbol': bar['symbol'],
+                                        'timeframe': timeframe_str,
+                                        'timestamp_ms': bar['timestamp_ms'],
+                                        'open': bar['open'],
+                                        'high': bar['high'],
+                                        'low': bar['low'],
+                                        'close': bar['close'],
+                                        'volume': bar['volume'],
+                                        'vwap': bar.get('vwap', 0),
+                                        'range_pips': (bar['high'] - bar['low']) * 10000,
+                                        'start_time': bar['timestamp'],
+                                        'end_time': bar['timestamp'],
+                                        'source': 'polygon_gap_fill',
+                                        'event_type': 'ohlcv'
+                                    }
+                                    aggregates.append(aggregate)
+
+                                # Publish in batches
+                                batch_size = 100
+                                for i in range(0, len(aggregates), batch_size):
+                                    batch = aggregates[i:i+batch_size]
+                                    await self.publisher.publish_batch(batch)
+                                    total_gaps_filled += len(batch)
+
+                                logger.info(f"✅ Filled gap for {symbol}: {gap_start} -> {gap_end} ({len(bars)} bars)")
+
+                        except Exception as e:
+                            logger.error(f"❌ Error filling gap for {symbol}: {e}")
+
+                else:
+                    logger.info(f"✅ No gaps found for {symbol}")
+
+            await self.publisher.disconnect()
+
+            if total_gaps_filled > 0:
+                logger.info(f"✅ Gap filling complete: {total_gaps_filled} bars published")
+                if self.central_hub.registered:
+                    await self.central_hub.send_heartbeat(metrics={
+                        "status": "gap_fill_complete",
+                        "gaps_filled": total_gaps_filled
+                    })
+            else:
+                logger.info("✅ No gaps to fill")
+
+        except Exception as e:
+            logger.error(f"❌ Error in gap checking: {e}", exc_info=True)
+
     async def start(self):
-        """Start the historical downloader"""
+        """Start the historical downloader in continuous mode"""
         try:
             schedules = self.config.schedules
+            gap_check_interval = schedules.get('gap_check', {}).get('interval_hours', 1)
+
+            logger.info("🚀 Starting CONTINUOUS historical downloader...")
+            logger.info(f"⏰ Gap check interval: {gap_check_interval} hour(s)")
+
+            # Register with Central Hub once at startup
+            await self.central_hub.register()
 
             # Initial download on startup
             if schedules.get('initial_download', {}).get('on_startup', True):
                 await self.run_initial_download()
 
-            logger.info("✅ Historical downloader service complete")
+            # Continuous gap checking loop
+            while True:
+                try:
+                    logger.info(f"⏰ Waiting {gap_check_interval} hour(s) until next gap check...")
+                    await asyncio.sleep(gap_check_interval * 3600)
 
+                    # Check and fill gaps
+                    await self.check_and_fill_gaps()
+
+                except Exception as e:
+                    logger.error(f"❌ Error in gap check cycle: {e}", exc_info=True)
+                    # Continue running even if one cycle fails
+                    await asyncio.sleep(60)  # Wait 1 minute before retrying
+
+        except KeyboardInterrupt:
+            logger.info("🛑 Received shutdown signal")
         except Exception as e:
-            logger.error(f"❌ Error: {e}", exc_info=True)
-            sys.exit(1)
+            logger.error(f"❌ Fatal error: {e}", exc_info=True)
+        finally:
+            # Deregister from Central Hub on shutdown
+            if self.central_hub.registered:
+                await self.central_hub.deregister()
+            logger.info("✅ Historical downloader stopped")
 
 async def main():
     service = PolygonHistoricalService()

@@ -100,21 +100,36 @@ Rules:
                 ) as response:
                     if response.status == 200:
                         result = await response.json()
+
+                        # DEBUG: Log full result structure
+                        print(f"🔍 Z.ai result keys: {result.keys()}")
+                        print(f"🔍 Z.ai choices: {result.get('choices', [])}")
+
                         content = result['choices'][0]['message']['content']
+
+                        # DEBUG: Log Z.ai response
+                        print(f"🔍 Z.ai response length: {len(content)}")
+                        print(f"🔍 Z.ai response (first 1000 chars): {content[:1000]}")
+                        print(f"🔍 Z.ai response (full): {content}")
 
                         # Extract JSON from response
                         events = self._extract_json_from_response(content)
+                        print(f"🔍 Extracted {len(events)} events from JSON")
 
                         # Validate and clean
                         validated = self._validate_events(events, target_date)
+                        print(f"🔍 Validated {len(validated)} events after filtering")
 
                         return validated
                     else:
-                        print(f"❌ Z.ai API error: {response.status}")
+                        error_text = await response.text()
+                        print(f"❌ Z.ai API error: {response.status} - {error_text[:200]}")
                         return []
 
         except Exception as e:
+            import traceback
             print(f"❌ Z.ai parsing error: {e}")
+            print(f"Traceback: {traceback.format_exc()}")
             return []
 
     def _extract_json_from_response(self, content: str) -> List[Dict]:
@@ -220,6 +235,8 @@ class MQL5HistoricalScraper:
         if target_date:
             url += f"?date={target_date.strftime('%Y.%m.%d')}"
 
+        print(f"   📡 Fetching: {url}")
+
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.get(
@@ -229,6 +246,8 @@ class MQL5HistoricalScraper:
                 ) as response:
                     if response.status == 200:
                         html = await response.text()
+                        print(f"   ✅ Received {len(html)} bytes of HTML")
+                        print(f"   🔍 HTML preview (first 200 chars): {html[:200]}")
                         return html
                     else:
                         print(f"❌ HTTP {response.status} for {url}")
@@ -445,8 +464,22 @@ class MQL5HistoricalScraper:
         print("=" * 80)
         print()
 
-        # Get dates needing update
+        # Get dates needing update from tracker
         dates_needing_update = await self.tracker.get_dates_needing_update(days_back)
+
+        # If no dates in tracker yet (fresh system), scrape today + past 7 days
+        if not dates_needing_update:
+            print(f"⚠️  No dates in tracker - initializing with today + past {days_back} days")
+            end_date = datetime.now().date()
+            start_date = end_date - timedelta(days=days_back)
+
+            dates_needing_update = []
+            current = start_date
+            while current <= end_date:
+                # Skip weekends
+                if current.weekday() < 5:  # Monday=0, Friday=4
+                    dates_needing_update.append(current)
+                current += timedelta(days=1)
 
         print(f"Found {len(dates_needing_update)} dates needing update")
         print()
@@ -467,3 +500,47 @@ class MQL5HistoricalScraper:
             await asyncio.sleep(2)  # Rate limiting
 
         print("✅ Recent actuals updated")
+
+    async def scrape_upcoming(self, days_forward: int = 14):
+        """
+        Scrape upcoming events (future dates)
+
+        Args:
+            days_forward: How many days to scrape forward
+        """
+        print("=" * 80)
+        print("📆 SCRAPING UPCOMING EVENTS")
+        print("=" * 80)
+        print()
+
+        start_date = datetime.now().date()
+        end_date = start_date + timedelta(days=days_forward)
+
+        print(f"Scraping upcoming events from {start_date} to {end_date}")
+        print()
+
+        current = start_date
+        total_events = 0
+
+        while current <= end_date:
+            # Skip weekends
+            if current.weekday() < 5:  # Monday=0, Friday=4
+                events = await self.scrape_date(current)
+                total_events += len(events)
+
+                # Track upcoming events (forecast only, no actual yet)
+                has_forecast = any(e.get('forecast') for e in events)
+                await self.tracker.mark_date_scraped(
+                    current,
+                    len(events),
+                    has_forecast,
+                    False  # has_actual = False for upcoming
+                )
+
+                await asyncio.sleep(2)  # Rate limiting
+
+            current += timedelta(days=1)
+
+        print()
+        print(f"✅ Scraped {total_events} upcoming events")
+        print()

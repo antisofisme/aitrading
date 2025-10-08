@@ -3,6 +3,7 @@
 
 scrapers:
   # MQL5 Economic Calendar
+  # Testing with regex parser (Z.ai disabled temporarily)
   mql5_economic_calendar:
     enabled: true
     source: mql5.com
@@ -104,7 +105,7 @@ messaging:
   # NATS configuration (real-time distribution)
   nats:
     enabled: true  # ✅ ENABLED for real-time data
-    host: suho-nats
+    host: suho-nats-server
     port: 4222
     topics:
       base: market.external  # Base subject pattern
@@ -135,9 +136,9 @@ messaging:
 
 # Historical backfill configuration
 backfill:
-  enabled: false  # Set to true to run backfill on first start
-  months_back: 12  # How many months to backfill
-  batch_days: 30   # Days per batch
+  enabled: true  # Set to true to run backfill on first start
+  months_back: ${ECONOMIC_CALENDAR_HISTORY_MONTHS:-1}  # How many months to backfill (default: 1)
+  batch_days: 7   # Days per batch (smaller batches for better progress tracking)
   rate_limit_seconds: 2
 
 # Monitoring configuration

@@ -14,16 +14,69 @@ service:
 
 # Database Configuration (will be overridden by Central Hub)
 database:
-  host: "suho-timescaledb"
-  port: 5432
-  database: "suho_trading"
-  user: "suho_service"
+  host: "${TIMESCALEDB_HOST}"
+  port: ${TIMESCALEDB_PORT}
+  database: "${TIMESCALEDB_DB}"
+  user: "${TIMESCALEDB_USER}"
   password: "${TIMESCALEDB_PASSWORD}"
   pool_size: 5
   tenant_id: "system"  # Application-level tenant
 
 # Aggregation Configuration
 aggregation:
+  # Technical Indicators Configuration
+  technical_indicators:
+    indicators:
+      sma:
+        enabled: true
+        periods: [7, 14, 21, 50, 200]
+
+      ema:
+        enabled: true
+        periods: [7, 14, 21, 50, 200]
+
+      rsi:
+        enabled: true
+        period: 14
+
+      macd:
+        enabled: true
+        fast_period: 12
+        slow_period: 26
+        signal_period: 9
+
+      bollinger:
+        enabled: true
+        period: 20
+        std_dev: 2.0
+
+      atr:
+        enabled: true
+        period: 14
+
+      stochastic:
+        enabled: true
+        k_period: 14
+        d_period: 3
+        smooth_k: 3
+
+      cci:
+        enabled: true
+        period: 20
+
+      mfi:
+        enabled: true
+        period: 14
+
+      obv:
+        enabled: true
+
+      adl:
+        enabled: true
+
+      vwap:
+        enabled: true
+
   # Timeframes to aggregate (maps to schedule)
   timeframes:
     - name: "5m"

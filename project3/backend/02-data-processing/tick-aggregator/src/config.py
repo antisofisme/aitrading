@@ -23,13 +23,27 @@ class Config:
         self._central_hub_config: Dict[str, Any] = {}
 
     def _load_config(self) -> Dict:
-        """Load YAML configuration"""
+        """Load YAML configuration with environment variable expansion"""
         config_file = Path(self.config_path)
         if not config_file.exists():
             raise FileNotFoundError(f"Config file not found: {self.config_path}")
 
         with open(config_file, 'r') as f:
-            return yaml.safe_load(f)
+            content = f.read()
+            # Expand environment variables in YAML
+            content = self._expand_env_vars(content)
+            return yaml.safe_load(content)
+
+    def _expand_env_vars(self, content: str) -> str:
+        """Expand ${VAR} environment variables in config"""
+        import re
+        pattern = r'\$\{([^}]+)\}'
+
+        def replacer(match):
+            var_name = match.group(1)
+            return os.getenv(var_name, match.group(0))
+
+        return re.sub(pattern, replacer, content)
 
     async def initialize_central_hub(self):
         """Initialize Central Hub client and fetch configs"""
@@ -45,6 +59,11 @@ class Config:
                 version='1.0.0',
                 capabilities=['tick-aggregation', 'ohlcv-generation', 'timescaledb-query', 'nats-publishing']
             )
+
+            # Register with Central Hub service registry
+            logger.info("📝 Registering with Central Hub...")
+            await self.central_hub.register()
+            logger.info("✅ Registered with Central Hub")
 
             # Fetch configs from Central Hub
             logger.info("⚙️  Fetching configs from Central Hub...")
@@ -78,7 +97,7 @@ class Config:
                 'host': hub_db['host'],
                 'port': hub_db['port'],
                 'database': hub_db['database'],
-                'user': hub_db['username'],
+                'user': hub_db['user'],
                 'password': hub_db['password'],
                 'pool_size': yaml_db.get('pool_size', 5),
                 'tenant_id': yaml_db.get('tenant_id', 'system')

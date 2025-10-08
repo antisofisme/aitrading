@@ -298,9 +298,13 @@ class ExternalDataCollector:
             try:
                 logger.debug(f"🔄 {scraper_name} iteration {iteration} starting...")
 
-                # MQL5 scraper uses update_recent_actuals
+                # MQL5 scraper uses update_recent_actuals + scrape_upcoming
                 if scraper_name == 'mql5_economic_calendar':
+                    # Update zone: 7 days back (catch actual values)
                     await scraper.update_recent_actuals(days_back=7)
+
+                    # Upcoming zone: 14 days forward (get forecasts)
+                    await scraper.scrape_upcoming(days_forward=14)
 
                     # Get coverage stats
                     stats = await scraper.tracker.get_coverage_stats()

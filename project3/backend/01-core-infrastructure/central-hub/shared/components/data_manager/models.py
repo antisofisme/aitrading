@@ -2,7 +2,7 @@
 Data Models for Database Manager
 Pydantic models for type safety and validation
 """
-from typing import Optional, List
+from typing import Optional, List, Union
 from pydantic import BaseModel, Field, validator
 from datetime import datetime
 
@@ -13,8 +13,22 @@ class TickData(BaseModel):
     Real-time bid/ask prices for forex pairs
     """
     symbol: str = Field(..., description="Trading pair symbol (e.g., 'EUR/USD', 'XAU/USD')")
-    timestamp: int = Field(..., description="Unix timestamp in milliseconds")
+    timestamp: Union[int, str] = Field(..., description="Unix timestamp in milliseconds or ISO string")
     timestamp_ms: int = Field(..., description="Unix timestamp in milliseconds (alias)")
+
+    @validator('timestamp', pre=True)
+    def parse_timestamp(cls, v):
+        """Convert ISO string to Unix timestamp if needed"""
+        if isinstance(v, str):
+            # Parse ISO string to Unix timestamp milliseconds
+            try:
+                dt = datetime.fromisoformat(v.replace('Z', '+00:00'))
+                return int(dt.timestamp() * 1000)
+            except:
+                # Try parsing without timezone
+                dt = datetime.fromisoformat(v)
+                return int(dt.timestamp() * 1000)
+        return v
 
     # Price data
     bid: float = Field(..., description="Bid price")

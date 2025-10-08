@@ -39,8 +39,27 @@ class Deduplicator:
         """
         Generate unique message ID from data
 
-        Format: "{symbol}:{timestamp_ms}:{event_type}"
+        Format for tick/aggregate: "{symbol}:{timestamp_ms}:{event_type}"
+        Format for external: "{external_type}:{collected_at}:{data_hash}"
         """
+        # Check if this is external data
+        if '_external_type' in data:
+            external_type = data.get('_external_type', 'unknown')
+
+            # Get timestamp from data or metadata
+            message_data = data.get('data', {})
+            metadata = data.get('metadata', {})
+            collected_at = data.get('collected_at') or metadata.get('collected_at', 0)
+
+            # Create hash from message data to ensure uniqueness
+            import hashlib
+            import json
+            data_str = json.dumps(message_data, sort_keys=True)
+            data_hash = hashlib.md5(data_str.encode()).hexdigest()[:8]
+
+            return f"external:{external_type}:{collected_at}:{data_hash}"
+
+        # Tick/aggregate data (original logic)
         symbol = data.get('symbol', '').replace('/', '')  # EUR/USD → EURUSD
         timestamp_ms = data.get('timestamp_ms', 0)
         event_type = data.get('event_type', 'unknown')

@@ -185,16 +185,28 @@ class ExternalDataWriter:
             data = item['data']
             metadata = item['metadata']
 
+            # Parse date string (YYYY-MM-DD) to datetime.date object
+            event_date_str = data.get('date', '')
+            if event_date_str:
+                try:
+                    from datetime import datetime as dt
+                    event_date = dt.strptime(event_date_str, '%Y-%m-%d').date()
+                except:
+                    event_date = datetime.utcnow().date()
+            else:
+                event_date = datetime.utcnow().date()
+
+            # Handle NULL values with defaults (convert None to '')
             rows.append([
-                data.get('date'),
-                data.get('time'),
-                data.get('currency'),
-                data.get('event'),
-                data.get('forecast'),
-                data.get('previous'),
-                data.get('actual'),
-                data.get('impact'),
-                metadata.get('source', 'mql5'),
+                event_date,  # datetime.date object, not string
+                data.get('time') or '',
+                data.get('currency') or '',
+                data.get('event') or '',
+                data.get('forecast') or '',
+                data.get('previous') or '',
+                data.get('actual') or '',
+                data.get('impact') or '',  # Fixed: None → ''
+                metadata.get('source') or 'mql5',
                 item['collected_at']  # datetime object
             ])
 
@@ -209,10 +221,24 @@ class ExternalDataWriter:
             data = item['data']
             metadata = item['metadata']
 
+            # Parse observation date (YYYY-MM-DD string → datetime.date)
+            observation_date_str = data.get('date', '')
+            if observation_date_str:
+                try:
+                    # Parse date string to datetime.date object
+                    from datetime import datetime
+                    observation_date = datetime.strptime(observation_date_str, '%Y-%m-%d').date()
+                except:
+                    observation_date = datetime.utcnow().date()
+            else:
+                from datetime import datetime
+                observation_date = datetime.utcnow().date()
+
+            # Handle NULL values with defaults
             rows.append([
-                data.get('series_id'),
-                data.get('value'),
-                data.get('date'),
+                data.get('series_id', ''),
+                float(data.get('value') or 0),
+                observation_date,  # datetime.date object, not string
                 metadata.get('source', 'fred'),
                 item['collected_at']  # datetime object
             ])
@@ -227,17 +253,18 @@ class ExternalDataWriter:
             data = item['data']
             metadata = item['metadata']
 
+            # Handle NULL values with defaults
             rows.append([
-                data.get('coin_id'),
-                data.get('name'),
-                data.get('symbol'),
-                data.get('price_usd'),
-                data.get('price_change_24h'),
-                data.get('market_cap_rank'),
-                data.get('sentiment_votes_up_percentage'),
-                data.get('community_score'),
-                data.get('twitter_followers'),
-                data.get('reddit_subscribers'),
+                data.get('coin_id', ''),
+                data.get('name', ''),
+                data.get('symbol', ''),
+                float(data.get('price_usd') or 0),
+                float(data.get('price_change_24h') or 0),
+                int(data.get('market_cap_rank') or 0),
+                float(data.get('sentiment_votes_up_percentage') or 0),
+                float(data.get('community_score') or 0),
+                int(data.get('twitter_followers') or 0),
+                int(data.get('reddit_subscribers') or 0),
                 metadata.get('source', 'coingecko'),
                 item['collected_at']  # datetime object
             ])
@@ -254,11 +281,25 @@ class ExternalDataWriter:
             data = item['data']
             metadata = item['metadata']
 
+            # Parse timestamp (Unix timestamp string from API)
+            timestamp_value = data.get('timestamp', '')
+            if timestamp_value:
+                try:
+                    # Convert Unix timestamp (seconds) to datetime
+                    from datetime import datetime
+                    index_timestamp = datetime.utcfromtimestamp(int(timestamp_value))
+                except:
+                    index_timestamp = datetime.utcnow()
+            else:
+                from datetime import datetime
+                index_timestamp = datetime.utcnow()
+
+            # Handle NULL values with defaults
             rows.append([
-                data.get('value'),
-                data.get('classification'),
-                data.get('sentiment_score'),
-                data.get('timestamp'),
+                int(data.get('value') or 0),
+                data.get('classification', ''),
+                float(data.get('sentiment_score') or 0),
+                index_timestamp,  # datetime object, not string
                 metadata.get('source', 'alternative.me'),
                 item['collected_at']  # datetime object
             ])
@@ -274,15 +315,16 @@ class ExternalDataWriter:
             data = item['data']
             metadata = item['metadata']
 
+            # Handle NULL values with defaults
             rows.append([
-                data.get('symbol'),
-                data.get('name'),
-                data.get('currency'),
-                data.get('price'),
-                data.get('previous_close'),
-                data.get('change'),
-                data.get('change_percent'),
-                data.get('volume'),
+                data.get('symbol', ''),
+                data.get('name', ''),
+                data.get('currency', 'USD'),
+                float(data.get('price') or 0),
+                float(data.get('previous_close') or 0),
+                float(data.get('change') or 0),
+                float(data.get('change_percent') or 0),
+                int(data.get('volume') or 0),
                 metadata.get('source', 'yahoo'),
                 item['collected_at']  # datetime object
             ])

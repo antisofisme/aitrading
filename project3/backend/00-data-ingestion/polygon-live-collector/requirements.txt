@@ -1,5 +1,5 @@
-# Polygon.io Official Client
-polygon-api-client==1.14.1
+# Polygon.io Official Client (Updated to latest)
+polygon-api-client>=1.14.1
 
 # Async Support
 asyncio-nats-client==0.11.5

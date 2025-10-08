@@ -3,6 +3,7 @@ Configuration loader for External Data Collector (Economic Calendar)
 Integrated with Central Hub pattern
 """
 import os
+import re
 import yaml
 from pathlib import Path
 from typing import Dict, List, Any
@@ -17,6 +18,23 @@ class ScraperConfig:
     priority: int
     scrape_interval: int  # seconds
     metadata: Dict[str, Any] = None
+    api_key: str = ""  # Optional API key
+
+    def __post_init__(self):
+        # Initialize optional fields with empty defaults if None
+        if self.indicators is None:
+            self.indicators = []
+        if self.coins is None:
+            self.coins = []
+        if self.symbols is None:
+            self.symbols = []
+        if self.sessions is None:
+            self.sessions = {}
+
+    indicators: List[str] = None  # For FRED
+    coins: List[str] = None  # For CoinGecko
+    symbols: List[str] = None  # For Yahoo Finance
+    sessions: Dict[str, Any] = None  # For Market Sessions
 
 
 class Config:
@@ -31,14 +49,30 @@ class Config:
         self.log_level = os.getenv("LOG_LEVEL", "INFO")
 
         # API Keys from environment
-        self.zai_api_key = os.getenv("ZAI_API_KEY", "")
+        # Temporary disable Z.ai to test regex parser
+        self.zai_api_key = ""  # os.getenv("ZAI_API_KEY", "")
 
         # Central Hub
         self.central_hub_url = os.getenv("CENTRAL_HUB_URL", "http://suho-central-hub:7000")
         self.heartbeat_interval = int(os.getenv("HEARTBEAT_INTERVAL", "30"))
 
+    def _substitute_env_vars(self, content: str) -> str:
+        """
+        Substitute environment variables in content
+        Supports both ${VAR} and ${VAR:-default} patterns
+        """
+        # Pattern: ${VAR_NAME:-default_value} or ${VAR_NAME}
+        pattern = r'\$\{([^}:]+)(?::-([^}]*))?\}'
+
+        def replacer(match):
+            var_name = match.group(1)
+            default_value = match.group(2) if match.group(2) is not None else ''
+            return os.getenv(var_name, default_value)
+
+        return re.sub(pattern, replacer, content)
+
     def _load_config(self) -> Dict:
-        """Load YAML configuration"""
+        """Load YAML configuration with environment variable substitution"""
         config_file = Path(self.config_path)
 
         # If config doesn't exist, return default
@@ -46,7 +80,11 @@ class Config:
             return self._default_config()
 
         with open(config_file, 'r') as f:
-            return yaml.safe_load(f)
+            # Read YAML and substitute environment variables
+            yaml_content = f.read()
+            # Substitute ${VAR_NAME:-default} patterns with env var values
+            yaml_content = self._substitute_env_vars(yaml_content)
+            return yaml.safe_load(yaml_content)
 
     def _default_config(self) -> Dict:
         """Default configuration if YAML not found"""
@@ -107,7 +145,12 @@ class Config:
                     enabled=True,
                     priority=config.get('priority', 5),
                     scrape_interval=config.get('scrape_interval', 3600),
-                    metadata=config.get('metadata', {})
+                    metadata=config.get('metadata', {}),
+                    api_key=config.get('api_key', ''),
+                    indicators=config.get('indicators', []),
+                    coins=config.get('coins', []),
+                    symbols=config.get('symbols', []),
+                    sessions=config.get('sessions', {})
                 ))
         return sorted(scrapers, key=lambda x: x.priority)
 

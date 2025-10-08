@@ -66,14 +66,13 @@ class DataRouter:
             conn = await self.pool_manager.get_timescale_connection()
             try:
                 await conn.execute("""
-                    INSERT INTO ticks (
-                        symbol, timestamp, timestamp_ms, bid, ask, mid, spread,
-                        volume, source, exchange, event_type, use_case
-                    ) VALUES ($1, to_timestamp($2/1000.0), $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-                """, tick_data.symbol, tick_data.timestamp, tick_data.timestamp_ms,
+                    INSERT INTO market_ticks (
+                        symbol, timestamp, bid, ask, mid, spread,
+                        volume, source
+                    ) VALUES ($1, to_timestamp($2/1000.0), $3, $4, $5, $6, $7, $8)
+                """, tick_data.symbol, tick_data.timestamp,
                     tick_data.bid, tick_data.ask, tick_data.mid, tick_data.spread,
-                    tick_data.volume, tick_data.source, tick_data.exchange,
-                    tick_data.event_type, tick_data.use_case)
+                    tick_data.volume, tick_data.source)
             finally:
                 await self.pool_manager.release_timescale_connection(conn)
 

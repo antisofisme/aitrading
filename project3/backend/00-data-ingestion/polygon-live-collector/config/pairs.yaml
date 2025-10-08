@@ -9,37 +9,37 @@
 # =======================================================================
 websocket_trading_pairs:
   - symbol: "XAU/USD"
-    polygon_symbol: "C:XAUUSD"
+    polygon_symbol: "XAU/USD"
     description: "Gold - Primary safe haven asset"
     volatility: "HIGH"
     priority: 1
 
   - symbol: "GBP/USD"
-    polygon_symbol: "C:GBPUSD"
+    polygon_symbol: "GBP/USD"
     description: "Cable - Highest volatility major"
     volatility: "VERY_HIGH"
     priority: 1
 
   - symbol: "EUR/USD"
-    polygon_symbol: "C:EURUSD"
+    polygon_symbol: "EUR/USD"
     description: "Fiber - Most liquid pair"
     volatility: "MEDIUM"
     priority: 1
 
   - symbol: "AUD/USD"
-    polygon_symbol: "C:AUDUSD"
+    polygon_symbol: "AUD/USD"
     description: "Aussie - Commodity currency"
     volatility: "MEDIUM_HIGH"
     priority: 2
 
   - symbol: "USD/JPY"
-    polygon_symbol: "C:USDJPY"
+    polygon_symbol: "USD/JPY"
     description: "Gopher - Safe haven pair"
     volatility: "MEDIUM"
     priority: 2
 
   - symbol: "USD/CAD"
-    polygon_symbol: "C:USDCAD"
+    polygon_symbol: "USD/CAD"
     description: "Loonie - Oil correlation"
     volatility: "MEDIUM"
     priority: 3
@@ -49,25 +49,25 @@ websocket_trading_pairs:
 # =======================================================================
 websocket_analysis_pairs:
   - symbol: "AUD/JPY"
-    polygon_symbol: "C:AUDJPY"
+    polygon_symbol: "AUD/JPY"
     description: "Primary risk-on/risk-off indicator"
     use_case: "RISK_INDICATOR"
     priority: 1
 
   - symbol: "EUR/GBP"
-    polygon_symbol: "C:EURGBP"
+    polygon_symbol: "EUR/GBP"
     description: "Currency strength indicator"
     use_case: "STRENGTH_INDICATOR"
     priority: 2
 
   - symbol: "GBP/JPY"
-    polygon_symbol: "C:GBPJPY"
+    polygon_symbol: "GBP/JPY"
     description: "Extreme volatility indicator"
     use_case: "VOLATILITY_INDICATOR"
     priority: 2
 
   - symbol: "EUR/JPY"
-    polygon_symbol: "C:EURJPY"
+    polygon_symbol: "EUR/JPY"
     description: "EUR strength + risk confirmation"
     use_case: "CONFIRMATION"
     priority: 3
@@ -78,25 +78,25 @@ websocket_analysis_pairs:
 # 3-minute polling interval (sufficient for correlation check)
 rest_confirmation_pairs:
   - symbol: "NZD/USD"
-    polygon_symbol: "C:NZDUSD"
+    polygon_symbol: "NZD/USD"
     description: "Commodity correlation validator"
     use_case: "AUD_USD_CONFIRMATION"
     poll_interval: 180  # seconds
 
   - symbol: "USD/CHF"
-    polygon_symbol: "C:USDCHF"
+    polygon_symbol: "USD/CHF"
     description: "EUR/USD inverse confirmation"
     use_case: "EUR_USD_INVERSE"
     poll_interval: 180
 
   - symbol: "NZD/JPY"
-    polygon_symbol: "C:NZDJPY"
+    polygon_symbol: "NZD/JPY"
     description: "Risk sentiment double-check"
     use_case: "RISK_CONFIRMATION"
     poll_interval: 180
 
   - symbol: "CHF/JPY"
-    polygon_symbol: "C:CHFJPY"
+    polygon_symbol: "CHF/JPY"
     description: "Safe haven flow comparison"
     use_case: "SAFE_HAVEN"
     poll_interval: 180
@@ -111,15 +111,16 @@ websocket_config:
   heartbeat_interval: 30  # seconds
   message_queue_size: 10000
 
-  # Subscription format: CA.{symbol} for quotes
-  subscription_prefix: "CA"
+  # Subscription format: C.{symbol} for quotes
+  subscription_prefix: "C"
 
   # Data streams available:
-  # - CA.*  : Quotes (best bid/ask)
+  # - C.*   : Quotes (best bid/ask) ← CORRECT FOR QUOTES
   # - CAS.* : Aggregates per second (OHLCV)
   # - XA.*  : Aggregates per minute (OHLCV)
+  # - CA.*  : Currency Aggregates (per minute)
   # - FMV.* : Fair Market Value (Business plan only)
-  stream_type: "CA"  # Quotes
+  stream_type: "C"  # Quotes (real-time bid/ask)
 
 # =======================================================================
 # AGGREGATE CONFIGURATION (OHLCV + Tick Volume like MT5)
@@ -139,17 +140,18 @@ aggregate_config:
 
     # Pairs to collect aggregates for (OHLCV + tick volume)
     # Using all 10 WebSocket pairs for maximum trading insight
+    # Note: This is DISABLED - kept for reference only
     pairs:
-      - "C:XAUUSD"   # Gold
-      - "C:GBPUSD"   # Cable
-      - "C:EURUSD"   # Fiber
-      - "C:AUDUSD"   # Aussie
-      - "C:USDJPY"   # Gopher
-      - "C:USDCAD"   # Loonie
-      - "C:AUDJPY"   # Risk indicator
-      - "C:EURGBP"   # Strength
-      - "C:GBPJPY"   # Volatility
-      - "C:EURJPY"   # Confirmation
+      - "XAU/USD"    # Gold
+      - "GBP/USD"    # Cable
+      - "EUR/USD"    # Fiber
+      - "AUD/USD"    # Aussie
+      - "USD/JPY"    # Gopher
+      - "USD/CAD"    # Loonie
+      - "AUD/JPY"    # Risk indicator
+      - "EUR/GBP"    # Strength
+      - "GBP/JPY"    # Volatility
+      - "EUR/JPY"    # Confirmation
 
   # Timeframe settings
   timeframe: "1s"  # 1-second bars (real-time like MT5)

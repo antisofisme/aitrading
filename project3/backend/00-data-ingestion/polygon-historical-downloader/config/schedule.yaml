@@ -143,6 +143,10 @@ schedules:
     enabled: true
     on_startup: true
 
+  # Continuous gap checking (every N hours)
+  gap_check:
+    interval_hours: 1  # Check for gaps every 1 hour
+
   # Daily gap check and backfill
   daily_backfill:
     enabled: true

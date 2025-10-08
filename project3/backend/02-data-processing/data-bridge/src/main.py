@@ -136,6 +136,9 @@ class DataBridge:
                     data: Message data
                     data_type: "tick" or "aggregate"
                 """
+                # DEBUG: Log every call
+                logger.info(f"🔍 handle_message called | data_type={data_type} | source={data.get('_source', 'unknown')}")
+
                 source = data.get('_source', 'unknown')
 
                 # Generate message ID for deduplication
@@ -196,9 +199,10 @@ class DataBridge:
             logger.info("💾 Historical (polygon_historical) → ClickHouse.aggregates")
             logger.info("=" * 80)
 
-            # Run Kafka poller and status reporter concurrently
+            # Run Kafka poller, heartbeat, and status reporter concurrently
             await asyncio.gather(
                 self.kafka_subscriber.poll_messages(),
+                self._heartbeat_loop(),
                 self._status_reporter()
             )
 
@@ -329,7 +333,8 @@ class DataBridge:
                 'start_time': data.get('start_time', ''),
                 'end_time': data.get('end_time', ''),
                 'source': data.get('source', 'polygon_historical'),
-                'event_type': data.get('ev', data.get('event_type', 'ohlcv'))
+                'event_type': data.get('ev', data.get('event_type', 'ohlcv')),
+                'indicators': data.get('indicators', {})  # Technical indicators (from Tick Aggregator)
             }
 
             # Add to ClickHouse batch buffer
@@ -355,15 +360,21 @@ class DataBridge:
         Args:
             data: External data message from NATS/Kafka
         """
+        # EXPLICIT DEBUG: Entry point
+        logger.info(f"🔍 _save_external_data CALLED | _source={data.get('_source')} | _external_type={data.get('_external_type', 'MISSING!')}")
+
         if not self.external_data_writer:
             logger.warning("⚠️  External Data Writer not initialized, skipping external data")
             return
 
         try:
             external_type = data.get('_external_type', 'unknown')
+            logger.info(f"🔍 About to call write_external_data | type={external_type}")
 
             # Save to ClickHouse
             await self.external_data_writer.write_external_data(data)
+
+            logger.info(f"🔍 write_external_data RETURNED | type={external_type}")
 
             self.external_data_saved += 1
 
@@ -374,6 +385,35 @@ class DataBridge:
             logger.error(f"Error saving external data: {e}")
             logger.debug(f"External data: {data}")
             raise
+
+    async def _heartbeat_loop(self):
+        """Send periodic heartbeat to Central Hub"""
+        heartbeat_interval = 30  # 30 seconds
+
+        while self.is_running:
+            try:
+                await asyncio.sleep(heartbeat_interval)
+
+                # Send heartbeat with metrics if Central Hub is available
+                if hasattr(self.config, 'central_hub') and self.config.central_hub:
+                    metrics = {
+                        'ticks_saved': self.ticks_saved,
+                        'candles_saved_timescale': self.candles_saved_timescale,
+                        'candles_saved_clickhouse': self.candles_saved_clickhouse,
+                        'external_data_saved': self.external_data_saved,
+                        'uptime_seconds': (datetime.utcnow() - self.start_time).total_seconds()
+                    }
+
+                    try:
+                        await self.config.central_hub.send_heartbeat(metrics=metrics)
+                        logger.debug("💓 Heartbeat sent to Central Hub")
+                    except Exception as hb_err:
+                        logger.warning(f"⚠️  Failed to send heartbeat: {hb_err}")
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"Error in heartbeat loop: {e}")
 
     async def _status_reporter(self):
         """Report status periodically"""

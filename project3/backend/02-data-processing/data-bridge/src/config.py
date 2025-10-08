@@ -37,13 +37,27 @@ class Config:
         # No need for separate ClickHouse credentials here
 
     def _load_config(self) -> Dict:
-        """Load YAML configuration"""
+        """Load YAML configuration with environment variable expansion"""
         config_file = Path(self.config_path)
         if not config_file.exists():
             raise FileNotFoundError(f"Config file not found: {self.config_path}")
 
         with open(config_file, 'r') as f:
-            return yaml.safe_load(f)
+            content = f.read()
+            # Expand environment variables in YAML
+            content = self._expand_env_vars(content)
+            return yaml.safe_load(content)
+
+    def _expand_env_vars(self, content: str) -> str:
+        """Expand ${VAR} environment variables in config"""
+        import re
+        pattern = r'\$\{([^}]+)\}'
+
+        def replacer(match):
+            var_name = match.group(1)
+            return os.getenv(var_name, match.group(0))
+
+        return re.sub(pattern, replacer, content)
 
     async def initialize_central_hub(self):
         """Initialize Central Hub client and fetch configs"""
@@ -61,6 +75,11 @@ class Config:
                 version='1.0.0',
                 capabilities=['nats-consumer', 'kafka-consumer', 'database-writer']
             )
+
+            # Register with Central Hub service registry
+            logger.info("📝 Registering with Central Hub...")
+            await self.central_hub.register()
+            logger.info("✅ Registered with Central Hub")
 
             # Fetch messaging configs from Central Hub
             logger.info("⚙️  Fetching messaging configs from Central Hub...")

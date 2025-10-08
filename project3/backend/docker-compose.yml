@@ -232,6 +232,9 @@ services:
   # ================================
 
   # Central Hub - Configuration and Component Management
+      # Economic Calendar Historical Data
+      - ECONOMIC_CALENDAR_HISTORY_MONTHS=${ECONOMIC_CALENDAR_HISTORY_MONTHS:-1}
+
   central-hub:
     build:
       context: ./01-core-infrastructure/central-hub
@@ -322,7 +325,6 @@ services:
       - HEARTBEAT_INTERVAL=30
     volumes:
       - ./00-data-ingestion/polygon-live-collector/config:/app/config:ro
-      - ./00-data-ingestion/shared:/app/shared:ro
       - polygon_live_logs:/var/log/polygon-live-collector
     networks:
       - suho-trading-network
@@ -388,6 +390,9 @@ services:
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
 
       # Central Hub
+      # Economic Calendar Historical Data
+      - ECONOMIC_CALENDAR_HISTORY_MONTHS=${ECONOMIC_CALENDAR_HISTORY_MONTHS:-1}
+
       - CENTRAL_HUB_URL=http://suho-central-hub:7000
       - HEARTBEAT_INTERVAL=30
 
@@ -442,6 +447,9 @@ services:
       - INSTANCE_ID=data-bridge-1
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       # Central Hub URL (for config distribution)
+      # Economic Calendar Historical Data
+      - ECONOMIC_CALENDAR_HISTORY_MONTHS=${ECONOMIC_CALENDAR_HISTORY_MONTHS:-1}
+
       - CENTRAL_HUB_URL=http://suho-central-hub:7000
       # Database credentials (used by Database Manager)
       - POSTGRES_HOST=suho-postgresql

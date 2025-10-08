@@ -1,6 +1,6 @@
 """
-Tick Aggregator - Query TimescaleDB and Aggregate to OHLCV
-Batch processing with multi-timeframe support
+Tick Aggregator - Query TimescaleDB and Aggregate to OHLCV + Technical Indicators
+Batch processing with multi-timeframe support + 12 core technical indicators
 """
 import asyncio
 import asyncpg
@@ -8,6 +8,7 @@ import logging
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
 import pandas as pd
+from technical_indicators import TechnicalIndicators
 
 logger = logging.getLogger(__name__)
 
@@ -27,11 +28,16 @@ class TickAggregator:
         self.aggregation_config = aggregation_config
         self.pool: Optional[asyncpg.Pool] = None
 
+        # Initialize technical indicators calculator
+        indicator_config = aggregation_config.get('technical_indicators', None)
+        self.indicators_calculator = TechnicalIndicators(indicator_config)
+
         # Statistics
         self.total_ticks_processed = 0
         self.total_candles_generated = 0
+        self.total_indicators_calculated = 0
 
-        logger.info("TickAggregator initialized")
+        logger.info("TickAggregator initialized with technical indicators support")
 
     async def connect(self):
         """Create database connection pool"""
@@ -80,18 +86,17 @@ class TickAggregator:
         query = """
             SELECT
                 symbol,
-                time,
+                timestamp,
                 bid,
                 ask,
                 mid,
                 spread,
-                timestamp_ms
+                EXTRACT(EPOCH FROM timestamp)::BIGINT * 1000 as timestamp_ms
             FROM market_ticks
-            WHERE tenant_id = $1
-              AND symbol = ANY($2)
-              AND time >= $3
-              AND time < $4
-            ORDER BY symbol, time ASC
+            WHERE symbol = ANY($1)
+              AND timestamp >= $2
+              AND timestamp < $3
+            ORDER BY symbol, timestamp ASC
         """
 
         candles = []
@@ -100,7 +105,6 @@ class TickAggregator:
             async with self.pool.acquire() as conn:
                 rows = await conn.fetch(
                     query,
-                    self.db_config['tenant_id'],
                     symbols,
                     start_time,
                     end_time
@@ -114,12 +118,12 @@ class TickAggregator:
             logger.info(f"📈 Fetched {len(rows)} ticks from TimescaleDB for {timeframe}")
 
             # Convert to pandas for efficient aggregation
-            df = pd.DataFrame(rows, columns=['symbol', 'time', 'bid', 'ask', 'mid', 'spread', 'timestamp_ms'])
+            df = pd.DataFrame(rows, columns=['symbol', 'timestamp', 'bid', 'ask', 'mid', 'spread', 'timestamp_ms'])
 
             # Group by symbol and aggregate
             for symbol, group in df.groupby('symbol'):
                 # Resample to timeframe intervals
-                group = group.set_index('time')
+                group = group.set_index('timestamp')
 
                 # Determine resample rule
                 resample_rule = self._get_resample_rule(timeframe)
@@ -133,8 +137,23 @@ class TickAggregator:
                     'timestamp_ms': 'first'
                 }).dropna()
 
-                # Generate candles
-                for timestamp, row in resampled.iterrows():
+                # Prepare OHLCV DataFrame for indicator calculation
+                ohlcv_df = pd.DataFrame({
+                    'open': resampled[('mid', 'first')],
+                    'high': resampled[('mid', 'max')],
+                    'low': resampled[('mid', 'min')],
+                    'close': resampled[('mid', 'last')],
+                    'volume': resampled[('mid', 'count')]
+                })
+
+                # Calculate technical indicators on OHLCV data
+                if not ohlcv_df.empty and len(ohlcv_df) > 1:
+                    ohlcv_with_indicators = self.indicators_calculator.calculate_all(ohlcv_df)
+                else:
+                    ohlcv_with_indicators = ohlcv_df
+
+                # Generate candles with indicators
+                for i, (timestamp, row) in enumerate(resampled.iterrows()):
                     open_price = row[('mid', 'first')]
                     high_price = row[('mid', 'max')]
                     low_price = row[('mid', 'min')]
@@ -169,6 +188,23 @@ class TickAggregator:
                         'source': 'live_aggregated',
                         'event_type': 'ohlcv'
                     }
+
+                    # Add technical indicators for this candle
+                    if i < len(ohlcv_with_indicators):
+                        indicator_row = ohlcv_with_indicators.iloc[i]
+                        indicators = {}
+
+                        # Extract all indicator columns (exclude OHLCV)
+                        exclude_cols = ['open', 'high', 'low', 'close', 'volume']
+                        for col in ohlcv_with_indicators.columns:
+                            if col not in exclude_cols:
+                                value = indicator_row[col]
+                                if pd.notna(value):
+                                    indicators[col] = float(value)
+
+                        if indicators:
+                            candle['indicators'] = indicators
+                            self.total_indicators_calculated += 1
 
                     candles.append(candle)
                     self.total_candles_generated += 1
@@ -211,5 +247,6 @@ class TickAggregator:
         """Get aggregator statistics"""
         return {
             'total_ticks_processed': self.total_ticks_processed,
-            'total_candles_generated': self.total_candles_generated
+            'total_candles_generated': self.total_candles_generated,
+            'total_indicators_calculated': self.total_indicators_calculated
         }

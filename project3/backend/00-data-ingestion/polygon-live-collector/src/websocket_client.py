@@ -60,7 +60,14 @@ class PolygonWebSocketClient:
         def handle_messages(msgs: List[WebSocketMessage]):
             """Process incoming messages"""
             try:
+                # DEBUG: Log that callback was called
+                if msgs:
+                    logger.info(f"🎯 CALLBACK RECEIVED: {len(msgs)} messages")
+
                 for msg in msgs:
+                    # DEBUG: Log raw message
+                    logger.info(f"📨 RAW MESSAGE: {msg}")
+
                     # Parse message
                     tick_data = self._parse_message(msg)
                     if tick_data:
@@ -70,9 +77,11 @@ class PolygonWebSocketClient:
 
                         if self.message_count % 1000 == 0:
                             logger.info(f"📈 Processed {self.message_count} messages")
+                    else:
+                        logger.warning(f"⚠️  Failed to parse message: {msg}")
 
             except Exception as e:
-                logger.error(f"Error handling message: {e}")
+                logger.error(f"Error handling message: {e}", exc_info=True)
 
         try:
             # Run WebSocket client in executor (blocking call from polygon client)

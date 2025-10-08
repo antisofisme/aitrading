@@ -1,8 +1,9 @@
 """
-ClickHouse Writer with Batch Insertion for Historical Data
+ClickHouse Writer with Batch Insertion for Historical Data + Technical Indicators
 """
 import logging
 import asyncio
+import json
 from typing import List, Dict, Any
 from datetime import datetime
 import clickhouse_connect
@@ -54,6 +55,10 @@ class ClickHouseWriter:
         try:
             connection_config = self.config.get('connection', {})
 
+            # Debug: Print full config
+            logger.info(f"🔍 DEBUG: Full ClickHouse config: {self.config}")
+            logger.info(f"🔍 DEBUG: Connection config: {connection_config}")
+
             # Get host and port from config
             host = connection_config.get('host', 'localhost')
             # Try http_port first (8123), fallback to port (9000 for native)
@@ -61,6 +66,8 @@ class ClickHouseWriter:
             database = connection_config.get('database', 'suho_analytics')
             username = connection_config.get('username', connection_config.get('user', 'default'))
             password = connection_config.get('password', '')
+
+            logger.info(f"🔍 DEBUG: Connecting with - host={host}, port={port}, db={database}, user={username}")
 
             self.client = clickhouse_connect.get_client(
                 host=host,
@@ -71,6 +78,8 @@ class ClickHouseWriter:
                 connect_timeout=30,
                 send_receive_timeout=300
             )
+
+            logger.info(f"🔍 DEBUG: Client created, URL: {self.client.url if hasattr(self.client, 'url') else 'N/A'}")
 
             # Test connection
             result = self.client.command('SELECT 1')
@@ -98,8 +107,9 @@ class ClickHouseWriter:
                 - body_pips: |close - open| in pips
                 - start_time: ISO string or datetime
                 - end_time: ISO string or datetime
-                - source: 'polygon_historical'
+                - source: 'polygon_historical' or 'live_aggregated'
                 - event_type: 'ohlcv'
+                - indicators: Dict of technical indicators (optional)
         """
         self.aggregate_buffer.append(aggregate_data)
 
@@ -135,6 +145,15 @@ class ClickHouseWriter:
                 elif isinstance(end_time, (int, float)):
                     end_time = datetime.fromtimestamp(end_time / 1000.0)
 
+                # Serialize indicators to JSON string (if present)
+                indicators_json = ''
+                if 'indicators' in agg and agg['indicators']:
+                    try:
+                        indicators_json = json.dumps(agg['indicators'])
+                    except Exception as e:
+                        logger.warning(f"Failed to serialize indicators: {e}")
+                        indicators_json = '{}'
+
                 row = [
                     agg['symbol'],
                     agg['timeframe'],
@@ -151,7 +170,8 @@ class ClickHouseWriter:
                     start_time,
                     end_time,
                     agg.get('source', 'polygon_historical'),
-                    agg.get('event_type', 'ohlcv')
+                    agg.get('event_type', 'ohlcv'),
+                    indicators_json  # Technical indicators as JSON string
                 ]
                 data.append(row)
 
@@ -163,7 +183,7 @@ class ClickHouseWriter:
                     'symbol', 'timeframe', 'timestamp', 'timestamp_ms',
                     'open', 'high', 'low', 'close', 'volume',
                     'vwap', 'range_pips', 'body_pips', 'start_time', 'end_time',
-                    'source', 'event_type'
+                    'source', 'event_type', 'indicators'
                 ]
             )
 

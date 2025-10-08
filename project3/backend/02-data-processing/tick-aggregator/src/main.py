@@ -45,6 +45,7 @@ class TickAggregatorService:
         self.publisher: AggregatePublisher = None
         self.scheduler: AsyncIOScheduler = None
         self.status_task: Optional[asyncio.Task] = None
+        self.heartbeat_task: Optional[asyncio.Task] = None
 
         self.start_time = datetime.utcnow()
         self.is_running = False
@@ -105,8 +106,9 @@ class TickAggregatorService:
                 logger.info(f"   - {tf['name']}: {tf['cron']}")
             logger.info("=" * 80)
 
-            # Run status reporter as background task (not blocking!)
+            # Run status reporter and heartbeat as background tasks (not blocking!)
             self.status_task = asyncio.create_task(self._status_reporter())
+            self.heartbeat_task = asyncio.create_task(self._heartbeat_loop())
 
             # Keep service running
             while self.is_running:
@@ -179,6 +181,40 @@ class TickAggregatorService:
         except Exception as e:
             logger.error(f"❌ Error in {timeframe} aggregation: {e}", exc_info=True)
 
+    async def _heartbeat_loop(self):
+        """Send periodic heartbeat to Central Hub"""
+        heartbeat_interval = 30  # 30 seconds
+
+        while self.is_running:
+            try:
+                await asyncio.sleep(heartbeat_interval)
+
+                # Send heartbeat with metrics if Central Hub is available
+                if hasattr(self.config, 'central_hub') and self.config.central_hub:
+                    # Get aggregator and publisher stats
+                    aggregator_stats = self.aggregator.get_stats() if self.aggregator else {}
+                    publisher_stats = self.publisher.get_stats() if self.publisher else {}
+
+                    metrics = {
+                        'ticks_processed': aggregator_stats.get('total_ticks_processed', 0),
+                        'candles_generated': aggregator_stats.get('total_candles_generated', 0),
+                        'nats_published': publisher_stats.get('nats_publish_count', 0),
+                        'kafka_published': publisher_stats.get('kafka_publish_count', 0),
+                        'scheduled_jobs': len(self.scheduler.get_jobs()) if self.scheduler else 0,
+                        'uptime_seconds': (datetime.utcnow() - self.start_time).total_seconds()
+                    }
+
+                    try:
+                        await self.config.central_hub.send_heartbeat(metrics=metrics)
+                        logger.debug("💓 Heartbeat sent to Central Hub")
+                    except Exception as hb_err:
+                        logger.warning(f"⚠️  Failed to send heartbeat: {hb_err}")
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"Error in heartbeat loop: {e}")
+
     async def _status_reporter(self):
         """Report status periodically"""
         interval = self.config.monitoring_config.get('report_interval_seconds', 300)
@@ -217,6 +253,14 @@ class TickAggregatorService:
             self.status_task.cancel()
             try:
                 await self.status_task
+            except asyncio.CancelledError:
+                pass
+
+        # Cancel heartbeat task
+        if self.heartbeat_task and not self.heartbeat_task.done():
+            self.heartbeat_task.cancel()
+            try:
+                await self.heartbeat_task
             except asyncio.CancelledError:
                 pass
 
