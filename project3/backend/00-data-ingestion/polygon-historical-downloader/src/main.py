@@ -103,59 +103,138 @@ class PolygonHistoricalService:
         download_cfg = self.config.download_config
         pairs = self.config.pairs
 
-        # Connect publisher
+        # Connect publisher ONCE at start
         await self.publisher.connect()
 
         try:
-            results = await self.downloader.download_all_pairs(
-                pairs=pairs,
-                start_date=download_cfg['start_date'],
-                end_date=download_cfg['end_date'],
-                get_timeframe_func=self.config.get_timeframe_for_pair
-            )
-
-            # Publish to NATS/Kafka
+            # Download and publish EACH PAIR immediately (don't wait for all!)
             total_published = 0
-            for symbol, bars in results.items():
-                if bars:
-                    logger.info(f"📤 Publishing {len(bars)} bars for {symbol} to NATS/Kafka...")
 
-                    # Convert to aggregate format
-                    aggregates = []
-                    for bar in bars:
-                        # Determine timeframe from config
-                        pair = next(p for p in pairs if p.symbol == symbol)
-                        timeframe, multiplier = self.config.get_timeframe_for_pair(pair)
-                        timeframe_str = f"{multiplier}{timeframe[0]}"  # "1m", "5m", etc
+            for pair in pairs:
+                try:
+                    logger.info(f"📊 Starting download for {pair.symbol} (Priority {pair.priority})")
 
-                        aggregate = {
-                            'symbol': bar['symbol'],
-                            'timeframe': timeframe_str,
-                            'timestamp_ms': bar['timestamp_ms'],
-                            'open': bar['open'],
-                            'high': bar['high'],
-                            'low': bar['low'],
-                            'close': bar['close'],
-                            'volume': bar['volume'],
-                            'vwap': bar.get('vwap', 0),
-                            'range_pips': (bar['high'] - bar['low']) * 10000,  # Pips
-                            'start_time': bar['timestamp'],
-                            'end_time': bar['timestamp'],  # Historical data is already aggregated
-                            'source': 'polygon_historical',
-                            'event_type': 'ohlcv'
-                        }
-                        aggregates.append(aggregate)
+                    # Determine timeframe from config
+                    timeframe, multiplier = self.config.get_timeframe_for_pair(pair)
+                    timeframe_str = f"{multiplier}{timeframe[0]}"  # "1m", "5m", etc
 
-                    # Publish in batches
-                    batch_size = 100
-                    for i in range(0, len(aggregates), batch_size):
-                        batch = aggregates[i:i+batch_size]
-                        await self.publisher.publish_batch(batch)
-                        total_published += len(batch)
+                    # Download SINGLE pair using download_all_pairs with single pair list
+                    results = await self.downloader.download_all_pairs(
+                        pairs=[pair],  # Single pair only!
+                        start_date=download_cfg['start_date'],
+                        end_date=download_cfg['end_date'],
+                        get_timeframe_func=self.config.get_timeframe_for_pair
+                    )
 
-                    logger.info(f"✅ Published {len(aggregates)} bars for {symbol}")
+                    # Get bars for this pair
+                    bars = results.get(pair.symbol, [])
+                    logger.info(f"✅ Downloaded {len(bars)} bars for {pair.symbol}")
 
-            # Show stats
+                    if bars:
+                        logger.info(f"📤 Publishing {len(bars)} bars for {pair.symbol} to NATS/Kafka...")
+
+                        # Convert to aggregate format
+                        aggregates = []
+                        for bar in bars:
+                            aggregate = {
+                                'symbol': bar['symbol'],
+                                'timeframe': timeframe_str,
+                                'timestamp_ms': bar['timestamp_ms'],
+                                'open': bar['open'],
+                                'high': bar['high'],
+                                'low': bar['low'],
+                                'close': bar['close'],
+                                'volume': bar['volume'],
+                                'vwap': bar.get('vwap', 0),
+                                'range_pips': (bar['high'] - bar['low']) * 10000,  # Pips
+                                'start_time': bar['timestamp'],
+                                'end_time': bar['timestamp'],  # Historical data is already aggregated
+                                'source': 'polygon_historical',
+                                'event_type': 'ohlcv'
+                            }
+                            aggregates.append(aggregate)
+
+                        # Publish in batches
+                        batch_size = 100
+                        for i in range(0, len(aggregates), batch_size):
+                            batch = aggregates[i:i+batch_size]
+                            await self.publisher.publish_batch(batch)
+                            total_published += len(batch)
+
+                        logger.info(f"✅ Published {len(aggregates)} bars for {pair.symbol}")
+
+                        # ✅ CRITICAL: VERIFY data reached ClickHouse before continuing!
+                        logger.info(f"🔍 Verifying {pair.symbol} data in ClickHouse...")
+                        await asyncio.sleep(5)  # Wait for data-bridge to process
+
+                        try:
+                            # Get ClickHouse config from Central Hub
+                            clickhouse_config = await self.central_hub.get_database_config('clickhouse')
+                            ch_connection = clickhouse_config['connection']
+
+                            from clickhouse_driver import Client
+                            ch_client = Client(
+                                host=ch_connection['host'],
+                                port=ch_connection.get('native_port', 9000),
+                                user=ch_connection['user'],
+                                password=ch_connection['password'],
+                                database=ch_connection['database']
+                            )
+
+                            # Count bars in ClickHouse for this pair
+                            query = """
+                                SELECT COUNT(*) as count
+                                FROM aggregates
+                                WHERE symbol = %(symbol)s
+                                  AND timeframe = %(timeframe)s
+                                  AND timestamp >= %(start_date)s
+                            """
+                            result = ch_client.execute(query, {
+                                'symbol': pair.symbol,
+                                'timeframe': timeframe_str,
+                                'start_date': download_cfg['start_date']
+                            })
+
+                            bars_in_clickhouse = result[0][0] if result else 0
+                            verification_ratio = bars_in_clickhouse / len(bars) if len(bars) > 0 else 0
+
+                            logger.info(f"📊 Verification: {bars_in_clickhouse}/{len(bars)} bars in ClickHouse ({verification_ratio*100:.1f}%)")
+
+                            if verification_ratio < 0.95:  # Less than 95% received
+                                logger.error(f"⚠️  VERIFICATION FAILED: Only {verification_ratio*100:.1f}% of data reached ClickHouse!")
+                                logger.error(f"⚠️  Expected: {len(bars)}, Got: {bars_in_clickhouse}")
+                                logger.error(f"⚠️  Data-bridge might have crashed during publish. Re-publishing...")
+
+                                # Re-publish missing data
+                                await asyncio.sleep(10)  # Wait longer
+                                for i in range(0, len(aggregates), batch_size):
+                                    batch = aggregates[i:i+batch_size]
+                                    await self.publisher.publish_batch(batch)
+
+                                logger.info(f"♻️  Re-published {len(aggregates)} bars for {pair.symbol}")
+                            else:
+                                logger.info(f"✅ Verification PASSED: {pair.symbol} data complete in ClickHouse")
+
+                        except Exception as verify_error:
+                            logger.warning(f"⚠️  Could not verify ClickHouse data: {verify_error}")
+                            logger.warning(f"⚠️  Continuing anyway, gap detection will handle missing data")
+
+                        # Report progress to Central Hub after each pair
+                        if self.central_hub.registered:
+                            await self.central_hub.send_heartbeat(metrics={
+                                "status": "downloading",
+                                "current_pair": pair.symbol,
+                                "total_published": total_published,
+                                "bars_verified": bars_in_clickhouse if 'bars_in_clickhouse' in locals() else 0,
+                                "message": f"Completed {pair.symbol}"
+                            })
+
+                except Exception as pair_error:
+                    logger.error(f"❌ Error downloading/publishing {pair.symbol}: {pair_error}", exc_info=True)
+                    # Continue with next pair even if one fails
+                    continue
+
+            # Show final stats
             stats = self.publisher.get_stats()
             logger.info(f"📊 Publishing Stats:")
             logger.info(f"   NATS: {stats['published_nats']} messages")
@@ -299,6 +378,8 @@ class PolygonHistoricalService:
 
     async def start(self):
         """Start the historical downloader in continuous mode"""
+        heartbeat_task = None  # Initialize at method level for finally block
+
         try:
             schedules = self.config.schedules
             gap_check_interval = schedules.get('gap_check', {}).get('interval_hours', 1)
@@ -309,15 +390,50 @@ class PolygonHistoricalService:
             # Register with Central Hub once at startup
             await self.central_hub.register()
 
+            # Start continuous heartbeat loop in background (BEFORE initial download)
+            if self.central_hub.registered:
+                heartbeat_task = asyncio.create_task(self.central_hub.start_heartbeat_loop())
+                logger.info("💓 Continuous heartbeat loop started")
+
             # Initial download on startup
             if schedules.get('initial_download', {}).get('on_startup', True):
                 await self.run_initial_download()
 
-            # Continuous gap checking loop
+            # Continuous gap checking + buffer flushing loop
+            buffer_flush_interval = 300  # Flush buffer every 5 minutes
+            last_buffer_flush = asyncio.get_event_loop().time()
+
             while True:
                 try:
+                    current_time = asyncio.get_event_loop().time()
+
+                    # Check if time to flush buffer (every 5 minutes)
+                    if current_time - last_buffer_flush >= buffer_flush_interval:
+                        logger.info("♻️ Flushing disk buffer...")
+
+                        # Initialize publisher if needed
+                        if not self.publisher:
+                            nats_config = await self.central_hub.get_messaging_config('nats')
+                            kafka_config = await self.central_hub.get_messaging_config('kafka')
+                            nats_url = f"nats://{nats_config['connection']['host']}:{nats_config['connection']['port']}"
+                            kafka_brokers = ','.join(kafka_config['connection']['bootstrap_servers'])
+
+                            self.publisher = MessagePublisher(nats_url, kafka_brokers)
+                            await self.publisher.connect()
+
+                        flushed = await self.publisher.flush_buffer()
+
+                        if flushed > 0:
+                            logger.info(f"♻️ Flushed {flushed} buffered messages")
+
+                        await self.publisher.disconnect()
+                        self.publisher = None
+
+                        last_buffer_flush = current_time
+
+                    # Wait and then check gaps (hourly)
                     logger.info(f"⏰ Waiting {gap_check_interval} hour(s) until next gap check...")
-                    await asyncio.sleep(gap_check_interval * 3600)
+                    await asyncio.sleep(min(gap_check_interval * 3600, buffer_flush_interval))
 
                     # Check and fill gaps
                     await self.check_and_fill_gaps()
@@ -332,6 +448,14 @@ class PolygonHistoricalService:
         except Exception as e:
             logger.error(f"❌ Fatal error: {e}", exc_info=True)
         finally:
+            # Cancel heartbeat task if running
+            if heartbeat_task and not heartbeat_task.done():
+                heartbeat_task.cancel()
+                try:
+                    await heartbeat_task
+                except asyncio.CancelledError:
+                    pass
+
             # Deregister from Central Hub on shutdown
             if self.central_hub.registered:
                 await self.central_hub.deregister()

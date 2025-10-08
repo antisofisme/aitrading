@@ -1,5 +1,11 @@
 """
 ClickHouse Writer with Batch Insertion for Historical Data + Technical Indicators
+
+RESILIENCE FEATURES:
+- Circuit breaker prevents cascading failures
+- Batch insertion optimization
+- Auto-reconnection on failure
+- Comprehensive error handling
 """
 import logging
 import asyncio
@@ -7,6 +13,9 @@ import json
 from typing import List, Dict, Any
 from datetime import datetime
 import clickhouse_connect
+
+# Circuit breaker for ClickHouse availability
+from circuit_breaker import CircuitBreaker, CircuitBreakerOpen
 
 logger = logging.getLogger(__name__)
 
@@ -43,10 +52,18 @@ class ClickHouseWriter:
         self.aggregate_buffer: List[Dict] = []
         self.last_flush = datetime.utcnow()
 
+        # Circuit breaker (CRITICAL: Prevents cascading failures)
+        self.circuit_breaker = CircuitBreaker(
+            failure_threshold=5,
+            timeout_seconds=60,
+            name="ClickHouse"
+        )
+
         # Statistics
         self.total_aggregates_inserted = 0
         self.total_batch_inserts = 0
         self.total_insert_errors = 0
+        self.circuit_breaker_trips = 0
 
         logger.info(f"ClickHouse Writer initialized (batch_size={batch_size}, timeout={batch_timeout}s)")
 
@@ -121,71 +138,81 @@ class ClickHouseWriter:
             await self.flush_aggregates()
 
     async def flush_aggregates(self):
-        """Flush aggregate buffer to ClickHouse"""
+        """
+        Flush aggregate buffer to ClickHouse with circuit breaker protection
+
+        Raises:
+            CircuitBreakerOpen: If ClickHouse unavailable (will NOT clear buffer)
+        """
         if not self.aggregate_buffer:
             return
 
         try:
-            # Prepare data for insertion
-            data = []
-            for agg in self.aggregate_buffer:
-                # Convert timestamps
-                timestamp_dt = datetime.fromtimestamp(agg['timestamp_ms'] / 1000.0)
+            # Circuit breaker protection (CRITICAL!)
+            def do_insert():
+                # Prepare data for insertion
+                data = []
+                for agg in self.aggregate_buffer:
+                    # Convert timestamps
+                    timestamp_dt = datetime.fromtimestamp(agg['timestamp_ms'] / 1000.0)
 
-                # Handle start_time and end_time (could be ISO strings or already datetime)
-                start_time = agg.get('start_time')
-                if isinstance(start_time, str):
-                    start_time = datetime.fromisoformat(start_time.replace('Z', '+00:00'))
-                elif isinstance(start_time, (int, float)):
-                    start_time = datetime.fromtimestamp(start_time / 1000.0)
+                    # Handle start_time and end_time (could be ISO strings or already datetime)
+                    start_time = agg.get('start_time')
+                    if isinstance(start_time, str):
+                        start_time = datetime.fromisoformat(start_time.replace('Z', '+00:00'))
+                    elif isinstance(start_time, (int, float)):
+                        start_time = datetime.fromtimestamp(start_time / 1000.0)
 
-                end_time = agg.get('end_time')
-                if isinstance(end_time, str):
-                    end_time = datetime.fromisoformat(end_time.replace('Z', '+00:00'))
-                elif isinstance(end_time, (int, float)):
-                    end_time = datetime.fromtimestamp(end_time / 1000.0)
+                    end_time = agg.get('end_time')
+                    if isinstance(end_time, str):
+                        end_time = datetime.fromisoformat(end_time.replace('Z', '+00:00'))
+                    elif isinstance(end_time, (int, float)):
+                        end_time = datetime.fromtimestamp(end_time / 1000.0)
 
-                # Serialize indicators to JSON string (if present)
-                indicators_json = ''
-                if 'indicators' in agg and agg['indicators']:
-                    try:
-                        indicators_json = json.dumps(agg['indicators'])
-                    except Exception as e:
-                        logger.warning(f"Failed to serialize indicators: {e}")
-                        indicators_json = '{}'
+                    # Serialize indicators to JSON string (if present)
+                    indicators_json = ''
+                    if 'indicators' in agg and agg['indicators']:
+                        try:
+                            indicators_json = json.dumps(agg['indicators'])
+                        except Exception as e:
+                            logger.warning(f"Failed to serialize indicators: {e}")
+                            indicators_json = '{}'
 
-                row = [
-                    agg['symbol'],
-                    agg['timeframe'],
-                    timestamp_dt,
-                    agg['timestamp_ms'],
-                    float(agg['open']),
-                    float(agg['high']),
-                    float(agg['low']),
-                    float(agg['close']),
-                    int(agg.get('volume', 0)),
-                    float(agg.get('vwap', 0)),
-                    float(agg.get('range_pips', 0)),
-                    float(agg.get('body_pips', 0)),
-                    start_time,
-                    end_time,
-                    agg.get('source', 'polygon_historical'),
-                    agg.get('event_type', 'ohlcv'),
-                    indicators_json  # Technical indicators as JSON string
-                ]
-                data.append(row)
+                    row = [
+                        agg['symbol'],
+                        agg['timeframe'],
+                        timestamp_dt,
+                        agg['timestamp_ms'],
+                        float(agg['open']),
+                        float(agg['high']),
+                        float(agg['low']),
+                        float(agg['close']),
+                        int(agg.get('volume', 0)),
+                        float(agg.get('vwap', 0)),
+                        float(agg.get('range_pips', 0)),
+                        float(agg.get('body_pips', 0)),
+                        start_time,
+                        end_time,
+                        agg.get('source', 'polygon_historical'),
+                        agg.get('event_type', 'ohlcv'),
+                        indicators_json  # Technical indicators as JSON string
+                    ]
+                    data.append(row)
 
-            # Insert batch to ClickHouse aggregates table
-            self.client.insert(
-                'aggregates',
-                data,
-                column_names=[
-                    'symbol', 'timeframe', 'timestamp', 'timestamp_ms',
-                    'open', 'high', 'low', 'close', 'volume',
-                    'vwap', 'range_pips', 'body_pips', 'start_time', 'end_time',
-                    'source', 'event_type', 'indicators'
-                ]
-            )
+                # Insert batch to ClickHouse aggregates table
+                self.client.insert(
+                    'aggregates',
+                    data,
+                    column_names=[
+                        'symbol', 'timeframe', 'timestamp', 'timestamp_ms',
+                        'open', 'high', 'low', 'close', 'volume',
+                        'vwap', 'range_pips', 'body_pips', 'start_time', 'end_time',
+                        'source', 'event_type', 'indicators'
+                    ]
+                )
+
+            # Execute with circuit breaker protection
+            self.circuit_breaker.call(do_insert)
 
             count = len(self.aggregate_buffer)
             self.total_aggregates_inserted += count
@@ -193,9 +220,17 @@ class ClickHouseWriter:
 
             logger.info(f"✅ Inserted {count} historical aggregates to ClickHouse (total: {self.total_aggregates_inserted})")
 
-            # Clear buffer
+            # Clear buffer ONLY on success
             self.aggregate_buffer.clear()
             self.last_flush = datetime.utcnow()
+
+        except CircuitBreakerOpen as e:
+            # Circuit breaker is OPEN - ClickHouse unavailable
+            self.circuit_breaker_trips += 1
+            logger.error(f"🔴 Circuit breaker OPEN: {e}")
+            logger.error(f"⚠️ Keeping {len(self.aggregate_buffer)} aggregates in buffer (will retry)")
+            # DO NOT clear buffer - will retry on next flush
+            raise  # Re-raise so Kafka offset NOT committed
 
         except Exception as e:
             self.total_insert_errors += 1
@@ -206,8 +241,15 @@ class ClickHouseWriter:
             if self.aggregate_buffer:
                 logger.error(f"Sample data: {self.aggregate_buffer[0]}")
 
-            # Clear buffer to prevent memory leak (data lost but logged)
-            self.aggregate_buffer.clear()
+            # On error, DO NOT clear buffer immediately
+            # Let circuit breaker handle retry logic
+            # Only clear if buffer too large (prevent OOM)
+            if len(self.aggregate_buffer) > self.batch_size * 10:
+                logger.critical(f"⚠️ Buffer overflow ({len(self.aggregate_buffer)} items) - clearing to prevent OOM")
+                self.aggregate_buffer.clear()
+            else:
+                logger.warning(f"⚠️ Keeping buffer for retry (size: {len(self.aggregate_buffer)})")
+                raise  # Re-raise so Kafka offset NOT committed
 
     async def flush_all(self):
         """Flush all pending data"""

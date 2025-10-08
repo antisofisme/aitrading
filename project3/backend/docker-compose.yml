@@ -212,7 +212,7 @@ services:
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
       KAFKA_NUM_PARTITIONS: 6
       KAFKA_DEFAULT_REPLICATION_FACTOR: 1
-      KAFKA_LOG_RETENTION_MS: 259200000  # 3 days
+      KAFKA_LOG_RETENTION_MS: 604800000  # 7 days (CRITICAL: Extended for ClickHouse recovery)
       KAFKA_LOG_SEGMENT_BYTES: 104857600  # 100MB
     volumes:
       - kafka_data:/var/lib/kafka/data
@@ -501,6 +501,12 @@ services:
       - TIMESCALEDB_DB=${TIMESCALEDB_DB}
       - TIMESCALEDB_USER=${TIMESCALEDB_USER}
       - TIMESCALEDB_PASSWORD=${TIMESCALEDB_PASSWORD}
+      # ClickHouse for gap detection (native client needs port 9000, not HTTP 8123)
+      - CLICKHOUSE_HOST=${CLICKHOUSE_HOST:-suho-clickhouse}
+      - CLICKHOUSE_PORT=9000  # Native protocol port (NOT HTTP 8123)
+      - CLICKHOUSE_DATABASE=${CLICKHOUSE_DATABASE:-suho_analytics}
+      - CLICKHOUSE_USER=${CLICKHOUSE_USER:-suho_analytics}
+      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD}
       # NATS for publishing aggregates
       - NATS_URL=nats://suho-nats-server:4222
     volumes:
