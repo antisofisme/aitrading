@@ -20,7 +20,7 @@ kafka:
     - "suho-kafka:9092"
 
   group_id: "data-bridge"
-  auto_offset_reset: "latest"  # Start from latest to avoid duplicates on startup
+  auto_offset_reset: "earliest"  # Consume ALL messages from beginning (for historical data recovery)
   enable_auto_commit: true
   auto_commit_interval_ms: 5000
 

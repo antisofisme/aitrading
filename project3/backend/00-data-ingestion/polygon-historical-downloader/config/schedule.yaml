@@ -85,7 +85,7 @@ download:
 
     confirmation_pairs: # Priority 4 (4 pairs)
       timeframe: "minute"
-      multiplier: 5      # 5-minute bars (sufficient for correlation)
+      multiplier: 1      # 1-minute bars (same as other pairs for ML training)
 
   # Batch settings
   batch_size: 50000      # Records per API call
@@ -141,7 +141,7 @@ schedules:
   # Initial historical download (run once at startup)
   initial_download:
     enabled: true
-    on_startup: true
+    on_startup: true  # TEMPORARY: Re-download 4 REST pairs as 1m
 
   # Continuous gap checking (every N hours)
   gap_check:

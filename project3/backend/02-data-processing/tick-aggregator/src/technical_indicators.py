@@ -116,6 +116,13 @@ class TechnicalIndicators:
         # Make a copy to avoid modifying original
         result_df = df.copy()
 
+        # CRITICAL: Enforce float types for ALL numeric columns
+        # Prevents Decimal from ClickHouse causing TypeError in arithmetic operations
+        numeric_cols = ['open', 'high', 'low', 'close', 'volume']
+        for col in numeric_cols:
+            if col in result_df.columns:
+                result_df[col] = pd.to_numeric(result_df[col], errors='coerce').astype(float)
+
         # Calculate each enabled indicator
         config = self.config['indicators']
 
@@ -224,11 +231,12 @@ class TechnicalIndicators:
         %K = (Close - Lowest Low) / (Highest High - Lowest Low) * 100
         %D = SMA of %K
         """
-        low_min = df['low'].rolling(window=k_period).min()
-        high_max = df['high'].rolling(window=k_period).max()
+        # Ensure float types for rolling operations
+        low_min = df['low'].astype(float).rolling(window=k_period).min()
+        high_max = df['high'].astype(float).rolling(window=k_period).max()
 
-        # Fast %K
-        fast_k = 100 * (df['close'] - low_min) / (high_max - low_min)
+        # Fast %K (all operands guaranteed float)
+        fast_k = 100 * (df['close'].astype(float) - low_min) / (high_max - low_min)
 
         # Slow %K (smoothed)
         df['stoch_k'] = fast_k.rolling(window=smooth_k).mean()

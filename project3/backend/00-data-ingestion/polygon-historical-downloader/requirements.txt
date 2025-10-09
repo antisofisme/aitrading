@@ -9,6 +9,10 @@ aiokafka==0.10.0
 pandas==2.2.0
 numpy==1.26.3
 
+# ClickHouse (for gap detection)
+clickhouse-driver==0.2.9
+clickhouse-connect==0.6.8
+
 # Async Support
 aiohttp==3.9.3
 asyncio==3.4.3

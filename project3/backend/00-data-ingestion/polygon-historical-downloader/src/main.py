@@ -112,11 +112,48 @@ class PolygonHistoricalService:
 
             for pair in pairs:
                 try:
-                    logger.info(f"📊 Starting download for {pair.symbol} (Priority {pair.priority})")
-
                     # Determine timeframe from config
                     timeframe, multiplier = self.config.get_timeframe_for_pair(pair)
                     timeframe_str = f"{multiplier}{timeframe[0]}"  # "1m", "5m", etc
+
+                    # ✅ CHECK IF DATA ALREADY EXISTS BEFORE DOWNLOADING
+                    try:
+                        clickhouse_config = await self.central_hub.get_database_config('clickhouse')
+                        ch_connection = clickhouse_config['connection']
+
+                        from clickhouse_driver import Client
+                        ch_client = Client(
+                            host=ch_connection['host'],
+                            port=ch_connection.get('native_port', 9000),
+                            user=ch_connection['user'],
+                            password=ch_connection['password'],
+                            database=ch_connection['database']
+                        )
+
+                        # Count existing historical data for this pair
+                        query = """
+                            SELECT COUNT(*) as count
+                            FROM aggregates
+                            WHERE symbol = %(symbol)s
+                              AND timeframe = %(timeframe)s
+                              AND source = 'polygon_historical'
+                        """
+                        result = ch_client.execute(query, {
+                            'symbol': pair.symbol,
+                            'timeframe': timeframe_str
+                        })
+                        existing_count = result[0][0] if result else 0
+
+                        # SKIP if pair already has data
+                        if existing_count > 0:
+                            logger.info(f"⏭️  {pair.symbol} already has {existing_count:,} bars - SKIPPING download")
+                            continue
+                        else:
+                            logger.info(f"📥 {pair.symbol} is EMPTY - starting download (Priority {pair.priority})")
+
+                    except Exception as check_error:
+                        logger.warning(f"⚠️  Could not check existing data for {pair.symbol}: {check_error}")
+                        logger.info(f"📊 Proceeding with download for {pair.symbol} (Priority {pair.priority})")
 
                     # Download SINGLE pair using download_all_pairs with single pair list
                     results = await self.downloader.download_all_pairs(

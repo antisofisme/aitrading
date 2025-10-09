@@ -136,39 +136,45 @@ class DataBridge:
                     data: Message data
                     data_type: "tick" or "aggregate"
                 """
-                # DEBUG: Log every call
-                logger.info(f"🔍 handle_message called | data_type={data_type} | source={data.get('_source', 'unknown')}")
-
                 source = data.get('_source', 'unknown')
 
                 # Generate message ID for deduplication
                 message_id = self.deduplicator.generate_message_id(data)
 
+                # DEBUG: Log flow for first 10 messages
+                if self.ticks_saved < 10 or self.ticks_saved % 100 == 0:
+                    logger.info(f"🔍 handle_message | type={data_type} | source={source} | msg_id={message_id[:30]}")
+
                 # Check for duplicates
                 if self.deduplicator.is_duplicate(message_id, source):
                     # Skip duplicate (already processed from other source)
-                    logger.debug(f"Skipped duplicate {data_type} from {source}: {message_id}")
+                    logger.debug(f"⏭️  Skipped duplicate {data_type} from {source}")
                     return
 
                 # Process message based on type
                 try:
+                    logger.info(f"💾 Processing {data_type} from {source}...")
+
                     if data_type == 'tick':
                         # Tick data → TimescaleDB.market_ticks
                         await self._save_tick(data)
+                        logger.info(f"✅ Tick saved successfully")
                     elif data_type == 'aggregate':
                         # Aggregate data → ClickHouse.aggregates (live_aggregated or historical)
                         await self._save_candle(data)
+                        logger.info(f"✅ Candle saved successfully")
                     elif data_type == 'external':
                         # External data → ClickHouse.external_* tables
                         await self._save_external_data(data)
+                        logger.info(f"✅ External data saved successfully")
                     else:
-                        logger.warning(f"Unknown data type: {data_type}")
+                        logger.warning(f"⚠️  Unknown data type: {data_type}")
 
                     # Mark as processed
                     self.deduplicator.mark_processed(data, source)
 
                 except Exception as e:
-                    logger.error(f"Error processing {data_type}: {e}")
+                    logger.error(f"❌ Error processing {data_type} from {source}: {e}", exc_info=True)
                     # Don't mark as processed if save failed
                     # Will be retried from Kafka backup
 
@@ -217,6 +223,8 @@ class DataBridge:
         Maps Polygon data → TickData model
         """
         try:
+            logger.info(f"🔧 _save_tick called | symbol={data.get('pair', data.get('symbol'))}")
+
             # Map Polygon data to TickData
             tick_data = TickData(
                 symbol=data.get('pair', data.get('symbol', '')),
@@ -230,17 +238,21 @@ class DataBridge:
                 event_type=data.get('ev', 'quote')
             )
 
+            logger.info(f"📦 TickData created: {tick_data.symbol} at {tick_data.timestamp}")
+
             # Save via Database Manager → TimescaleDB + DragonflyDB cache
+            logger.info(f"💾 Calling db_router.save_tick()...")
             await self.db_router.save_tick(tick_data)
+            logger.info(f"✅ db_router.save_tick() completed")
 
             self.ticks_saved += 1
 
             if self.ticks_saved % 100 == 0:
-                logger.debug(f"Saved {self.ticks_saved} ticks to TimescaleDB")
+                logger.info(f"📊 Progress: Saved {self.ticks_saved} ticks to TimescaleDB")
 
         except Exception as e:
-            logger.error(f"Error saving tick: {e}")
-            logger.debug(f"Tick data: {data}")
+            logger.error(f"❌ Error in _save_tick: {e}", exc_info=True)
+            logger.error(f"📋 Raw data: {data}")
             raise
 
     async def _save_candle(self, data: dict):

@@ -161,3 +161,28 @@ class Config:
     def state_config(self) -> Dict[str, Any]:
         """Get state management configuration"""
         return self._config.get('state', {})
+
+    @property
+    def clickhouse_config(self) -> Dict[str, Any]:
+        """Get ClickHouse configuration for gap detection"""
+        yaml_clickhouse = self._config.get('clickhouse', {})
+
+        # If Central Hub config available, use it
+        if self._central_hub_config.get('clickhouse'):
+            hub_ch = self._central_hub_config['clickhouse']['connection']
+            return {
+                'host': hub_ch['host'],
+                'port': hub_ch.get('port', 9000),
+                'database': hub_ch.get('database', 'suho_analytics'),
+                'user': hub_ch.get('user', 'suho_analytics'),
+                'password': hub_ch.get('password', '')
+            }
+
+        # Fallback to YAML or environment variables
+        return {
+            'host': yaml_clickhouse.get('host', os.getenv('CLICKHOUSE_HOST', 'clickhouse')),
+            'port': yaml_clickhouse.get('port', int(os.getenv('CLICKHOUSE_PORT', '9000'))),
+            'database': yaml_clickhouse.get('database', os.getenv('CLICKHOUSE_DATABASE', 'suho_analytics')),
+            'user': yaml_clickhouse.get('user', os.getenv('CLICKHOUSE_USER', 'suho_analytics')),
+            'password': yaml_clickhouse.get('password', os.getenv('CLICKHOUSE_PASSWORD', ''))
+        }

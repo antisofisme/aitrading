@@ -20,6 +20,7 @@ class NATSPublisher:
 
         self.nats_publish_count = 0
         self.kafka_publish_count = 0
+        self._kafka_unavailable_logged = False  # Flag to log warning only once
 
     async def connect(self):
         """
@@ -131,8 +132,10 @@ class NATSPublisher:
                 logger.error(f"❌ Kafka publish failed: {e}")
         else:
             kafka_result = "not_connected"
-            if self.kafka_publish_count == 0:
-                logger.warning(f"⚠️ Kafka unavailable - no backup storage!")
+            # Log warning only ONCE per session
+            if not self._kafka_unavailable_logged:
+                logger.warning(f"⚠️ Kafka unavailable - running without backup storage (this will only be logged once)")
+                self._kafka_unavailable_logged = True
 
         # COMPLEMENTARY PATTERN: Success if NATS succeeded (Kafka is backup)
         # If NATS failed but Kafka succeeded, consumers will still get message from Kafka
@@ -194,6 +197,10 @@ class NATSPublisher:
                 logger.error(f"❌ Kafka aggregate publish failed: {e}")
         else:
             kafka_result = "not_connected"
+            # Use same flag - already logged once in publish()
+            if not self._kafka_unavailable_logged:
+                logger.warning(f"⚠️ Kafka unavailable - running without backup storage (this will only be logged once)")
+                self._kafka_unavailable_logged = True
 
         # Log status
         if nats_result == "success":

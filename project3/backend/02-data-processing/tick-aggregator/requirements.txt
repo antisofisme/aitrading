@@ -1,5 +1,7 @@
 # Database
 asyncpg==0.29.0  # PostgreSQL/TimescaleDB async driver
+clickhouse-driver==0.2.9  # ClickHouse client for gap detection
+clickhouse-connect==0.6.8  # ClickHouse client for historical aggregation
 
 # Message Queue
 nats-py==2.8.0  # NATS async client

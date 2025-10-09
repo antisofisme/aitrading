@@ -203,6 +203,56 @@ class PolygonHistoricalDownloader:
 
         return results
 
+    async def download_range(
+        self,
+        symbol: str,
+        from_date: str,
+        to_date: str,
+        timeframe: str = "minute",
+        multiplier: int = 1
+    ) -> List[Dict]:
+        """
+        Download data for a specific symbol and date range (for gap filling)
+
+        Args:
+            symbol: Symbol name (e.g., 'EUR/USD')
+            from_date: Start date (YYYY-MM-DD)
+            to_date: End date (YYYY-MM-DD)
+            timeframe: minute/hour/day/week
+            multiplier: Interval multiplier (1, 5, 15, etc.)
+
+        Returns:
+            List of parsed bars
+        """
+        try:
+            # Create a temporary PairConfig for this symbol
+            # Convert symbol format: EUR/USD → C:EURUSD for Polygon API
+            polygon_symbol = f"C:{symbol.replace('/', '')}"
+
+            pair = PairConfig(
+                symbol=symbol,
+                polygon_symbol=polygon_symbol,
+                priority=1  # Not used for gap filling
+            )
+
+            logger.info(f"📥 Gap filling: Downloading {symbol} from {from_date} to {to_date}")
+
+            # Use existing download_pair_history method
+            bars = await self.download_pair_history(
+                pair=pair,
+                start_date=from_date,
+                end_date=to_date,
+                timeframe=timeframe,
+                multiplier=multiplier
+            )
+
+            return bars
+
+        except Exception as e:
+            logger.error(f"❌ Error in download_range for {symbol}: {e}")
+            self.error_count += 1
+            return []
+
     def get_stats(self) -> dict:
         """Get downloader statistics"""
         return {
