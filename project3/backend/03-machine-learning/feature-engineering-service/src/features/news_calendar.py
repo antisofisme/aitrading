@@ -1,240 +1,400 @@
 """
-News/Economic Calendar Features (8 features - 20% importance)
+News/Economic Calendar Features (8 features, ~18% expected importance)
+
+Based on TRADING_STRATEGY_AND_ML_DESIGN.md v2.3
+Fundamental analysis as primary support for trading decisions
 
 Features:
-1. upcoming_high_impact_events_4h
-2. time_to_next_event_minutes
-3. event_impact_score
-4. is_pre_news_zone
-5. is_post_news_zone
-6. event_type_category
-7. actual_vs_forecast_deviation
-8. historical_event_volatility
+1. upcoming_high_impact_events_4h - COUNT of high-impact events in next 4 hours
+2. time_to_next_event_minutes - Minutes until next economic event
+3. event_impact_score - 1=low, 2=medium, 3=high impact
+4. is_pre_news_zone - Boolean, within 15 min before high-impact event
+5. is_post_news_zone - Boolean, within 60 min after high-impact event
+6. event_type_category - Categorical integer (NFP=10, CPI=9, GDP=8, etc.)
+7. actual_vs_forecast_deviation - % deviation from forecast
+8. historical_event_volatility - ATR multiplier (NFP=2.5x, High=2.0x, Medium=1.5x)
 """
 
 import logging
 import pandas as pd
 import numpy as np
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
 
 
 class NewsCalendarFeatures:
-    """Calculate news/economic calendar features"""
+    """
+    Calculate news/economic calendar features
+
+    Reads from external_economic_calendar table with columns:
+    - event_date, event_time, currency, event_name
+    - impact (low/medium/high), actual, forecast, previous
+    """
 
     def __init__(self, config: Dict[str, Any]):
-        self.config = config['feature_groups']['news_calendar']
+        self.config = config.get('feature_groups', {}).get('news_calendar', {})
         self.lookback_hours = self.config.get('lookback_hours', 4)
-        self.blackout_minutes = self.config.get('news_blackout_minutes', 15)
+        self.news_blackout_minutes = self.config.get('news_blackout_minutes', 15)
 
-    def calculate(self, timestamp: pd.Timestamp, external_data: Dict[str, pd.DataFrame]) -> Dict[str, Any]:
-        """Calculate all news/calendar features"""
-        features = {}
+        # High-impact event categories (NFP = highest volatility)
+        self.high_impact_categories = {
+            'NFP': 10, 'NON-FARM': 10, 'PAYROLLS': 10,  # Non-Farm Payrolls (highest)
+            'CPI': 9, 'CONSUMER PRICE': 9,              # Consumer Price Index
+            'FOMC': 9, 'FED': 9, 'INTEREST RATE': 9,   # Federal Open Market Committee
+            'GDP': 8, 'GROSS DOMESTIC': 8,              # Gross Domestic Product
+            'RETAIL SALES': 7,
+            'UNEMPLOYMENT': 7, 'JOBLESS': 7,
+            'PMI': 6, 'MANUFACTURING': 6,
+            'PPI': 6, 'PRODUCER PRICE': 6,
+            'TRADE BALANCE': 5
+        }
 
-        calendar_data = external_data.get('economic_calendar', pd.DataFrame())
+        logger.info("📰 NewsCalendarFeatures initialized")
 
-        # 1. Upcoming high-impact events in next 4 hours
-        features['upcoming_high_impact_events_4h'] = self._count_upcoming_events(
-            timestamp, calendar_data, hours=4, impact='high'
-        )
-
-        # 2. Time to next event (minutes)
-        features['time_to_next_event_minutes'] = self._time_to_next_event(
-            timestamp, calendar_data
-        )
-
-        # 3. Event impact score (1=low, 2=medium, 3=high)
-        features['event_impact_score'] = self._get_next_event_impact(
-            timestamp, calendar_data
-        )
-
-        # 4. Is pre-news zone (1-2 hours before high-impact)
-        features['is_pre_news_zone'] = self._is_pre_news_zone(
-            timestamp, calendar_data
-        )
-
-        # 5. Is post-news zone (30-60 min after release)
-        features['is_post_news_zone'] = self._is_post_news_zone(
-            timestamp, calendar_data
-        )
-
-        # 6. Event type category (NFP, CPI, Fed, etc)
-        features['event_type_category'] = self._get_event_type(
-            timestamp, calendar_data
-        )
-
-        # 7. Actual vs forecast deviation (%)
-        features['actual_vs_forecast_deviation'] = self._calc_deviation(
-            calendar_data
-        )
-
-        # 8. Historical event volatility (avg pips moved)
-        features['historical_event_volatility'] = self._get_historical_volatility(
-            calendar_data
-        )
-
-        return features
-
-    def _count_upcoming_events(
+    def calculate(
         self,
         timestamp: pd.Timestamp,
-        calendar_data: pd.DataFrame,
-        hours: int = 4,
-        impact: str = 'high'
+        external_data: Dict[str, pd.DataFrame]
+    ) -> Dict[str, Any]:
+        """
+        Calculate all 8 news/calendar features
+
+        Args:
+            timestamp: Current candle timestamp
+            external_data: Dict with 'economic_calendar' DataFrame
+
+        Returns:
+            Dict with 8 news features
+        """
+        try:
+            calendar_df = external_data.get('economic_calendar', pd.DataFrame())
+
+            if calendar_df.empty:
+                logger.debug("⚠️ No economic calendar data available")
+                return self._default_features()
+
+            # Parse and filter events
+            upcoming_events = self._filter_upcoming_events(calendar_df, timestamp)
+            past_events = self._filter_past_events(calendar_df, timestamp)
+
+            features = {}
+
+            # 1. Count high-impact events in next 4 hours
+            features['upcoming_high_impact_events_4h'] = self._count_high_impact_events(
+                upcoming_events, hours=self.lookback_hours
+            )
+
+            # 2. Time to next event (any impact)
+            features['time_to_next_event_minutes'] = self._time_to_next_event(
+                upcoming_events, timestamp
+            )
+
+            # 3. Next event impact score (1-3)
+            next_event = self._get_next_event(upcoming_events)
+            features['event_impact_score'] = self._get_impact_score(next_event)
+
+            # 4. Is in pre-news blackout zone? (15 min before high-impact)
+            features['is_pre_news_zone'] = self._is_pre_news_zone(
+                upcoming_events, timestamp, minutes=self.news_blackout_minutes
+            )
+
+            # 5. Is in post-news window? (60 min after high-impact)
+            features['is_post_news_zone'] = self._is_post_news_zone(
+                past_events, timestamp, minutes=60
+            )
+
+            # 6. Event type category (encoded as integer)
+            features['event_type_category'] = self._get_event_category(next_event)
+
+            # 7. Actual vs Forecast deviation (%)
+            features['actual_vs_forecast_deviation'] = self._calculate_deviation(
+                past_events, timestamp
+            )
+
+            # 8. Historical event volatility (ATR multiplier)
+            features['historical_event_volatility'] = self._get_historical_volatility(
+                next_event
+            )
+
+            return features
+
+        except Exception as e:
+            logger.error(f"❌ News calendar calculation failed: {e}")
+            return self._default_features()
+
+    def _filter_upcoming_events(
+        self,
+        calendar_df: pd.DataFrame,
+        timestamp: pd.Timestamp
+    ) -> pd.DataFrame:
+        """Filter events that are upcoming (future events within 24h)"""
+        try:
+            # Combine event_date and event_time to full timestamp
+            if 'event_timestamp' not in calendar_df.columns:
+                calendar_df['event_timestamp'] = pd.to_datetime(
+                    calendar_df['event_date'].astype(str) + ' ' +
+                    calendar_df['event_time'].astype(str),
+                    errors='coerce'
+                )
+
+            # Filter future events within next 24 hours
+            future_events = calendar_df[
+                (calendar_df['event_timestamp'] > timestamp) &
+                (calendar_df['event_timestamp'] <= timestamp + timedelta(hours=24))
+            ].copy()
+
+            return future_events.sort_values('event_timestamp')
+
+        except Exception as e:
+            logger.warning(f"⚠️ Failed to filter upcoming events: {e}")
+            return pd.DataFrame()
+
+    def _filter_past_events(
+        self,
+        calendar_df: pd.DataFrame,
+        timestamp: pd.Timestamp
+    ) -> pd.DataFrame:
+        """Filter events that happened recently (past 2 hours)"""
+        try:
+            if 'event_timestamp' not in calendar_df.columns:
+                calendar_df['event_timestamp'] = pd.to_datetime(
+                    calendar_df['event_date'].astype(str) + ' ' +
+                    calendar_df['event_time'].astype(str),
+                    errors='coerce'
+                )
+
+            # Filter past events within last 2 hours
+            past_events = calendar_df[
+                (calendar_df['event_timestamp'] <= timestamp) &
+                (calendar_df['event_timestamp'] >= timestamp - timedelta(hours=2))
+            ].copy()
+
+            return past_events.sort_values('event_timestamp', ascending=False)
+
+        except Exception:
+            return pd.DataFrame()
+
+    def _count_high_impact_events(
+        self,
+        events_df: pd.DataFrame,
+        hours: int = 4
     ) -> int:
-        """Count upcoming high-impact events"""
-        if calendar_data.empty:
+        """Count high-impact events in next N hours"""
+        if events_df.empty:
             return 0
 
         try:
-            future_window = timestamp + timedelta(hours=hours)
-
-            # Filter events in time window
-            upcoming = calendar_data[
-                (calendar_data['date'] >= timestamp) &
-                (calendar_data['date'] <= future_window) &
-                (calendar_data['impact'] == impact)
+            high_impact = events_df[
+                events_df['impact'].str.lower() == 'high'
             ]
-
-            return len(upcoming)
-        except:
+            return len(high_impact)
+        except Exception:
             return 0
 
-    def _time_to_next_event(self, timestamp: pd.Timestamp, calendar_data: pd.DataFrame) -> int:
-        """Minutes until next economic event"""
-        if calendar_data.empty:
-            return 9999  # No events
+    def _time_to_next_event(
+        self,
+        events_df: pd.DataFrame,
+        timestamp: pd.Timestamp
+    ) -> int:
+        """Minutes until next event (any impact level)"""
+        if events_df.empty:
+            return 9999  # No upcoming events
 
         try:
-            future_events = calendar_data[calendar_data['date'] > timestamp].sort_values('date')
+            next_event = events_df.iloc[0]
+            next_time = next_event['event_timestamp']
+            delta = (next_time - timestamp).total_seconds() / 60
+            return int(delta)
+        except Exception:
+            return 9999
 
-            if not future_events.empty:
-                next_event = future_events.iloc[0]
-                time_diff = (next_event['date'] - timestamp).total_seconds() / 60
-                return int(time_diff)
-        except:
-            pass
+    def _get_next_event(
+        self,
+        events_df: pd.DataFrame
+    ) -> Optional[pd.Series]:
+        """Get next upcoming event"""
+        if events_df.empty:
+            return None
+        return events_df.iloc[0]
 
-        return 9999
-
-    def _get_next_event_impact(self, timestamp: pd.Timestamp, calendar_data: pd.DataFrame) -> int:
-        """Get impact score of next event (1-3)"""
-        if calendar_data.empty:
-            return 0
-
-        try:
-            future_events = calendar_data[calendar_data['date'] > timestamp].sort_values('date')
-
-            if not future_events.empty:
-                impact = future_events.iloc[0]['impact']
-                if impact == 'high':
-                    return 3
-                elif impact == 'medium':
-                    return 2
-                else:
-                    return 1
-        except:
-            pass
-
-        return 0
-
-    def _is_pre_news_zone(self, timestamp: pd.Timestamp, calendar_data: pd.DataFrame) -> int:
-        """Check if in pre-news zone (1-2h before high-impact)"""
-        if calendar_data.empty:
+    def _get_impact_score(self, event: Optional[pd.Series]) -> int:
+        """Convert impact string to score: 1=low, 2=medium, 3=high"""
+        if event is None:
             return 0
 
         try:
-            # Look for high-impact events in next 1-2 hours
-            window_start = timestamp + timedelta(hours=1)
-            window_end = timestamp + timedelta(hours=2)
-
-            pre_news = calendar_data[
-                (calendar_data['date'] >= window_start) &
-                (calendar_data['date'] <= window_end) &
-                (calendar_data['impact'] == 'high')
-            ]
-
-            return 1 if not pre_news.empty else 0
-        except:
+            impact = str(event['impact']).lower()
+            if impact == 'high':
+                return 3
+            elif impact == 'medium':
+                return 2
+            elif impact == 'low':
+                return 1
+            else:
+                return 0
+        except Exception:
             return 0
 
-    def _is_post_news_zone(self, timestamp: pd.Timestamp, calendar_data: pd.DataFrame) -> int:
-        """Check if in post-news zone (30-60 min after release)"""
-        if calendar_data.empty:
+    def _is_pre_news_zone(
+        self,
+        events_df: pd.DataFrame,
+        timestamp: pd.Timestamp,
+        minutes: int = 15
+    ) -> int:
+        """Check if within blackout period before high-impact event (1=yes, 0=no)"""
+        if events_df.empty:
             return 0
 
         try:
-            # Look for events that happened 30-60 min ago
-            window_start = timestamp - timedelta(minutes=60)
-            window_end = timestamp - timedelta(minutes=30)
+            high_impact = events_df[events_df['impact'].str.lower() == 'high']
 
-            post_news = calendar_data[
-                (calendar_data['date'] >= window_start) &
-                (calendar_data['date'] <= window_end) &
-                (calendar_data['impact'] == 'high')
-            ]
+            if high_impact.empty:
+                return 0
 
-            return 1 if not post_news.empty else 0
-        except:
+            next_high_impact = high_impact.iloc[0]
+            next_time = next_high_impact['event_timestamp']
+            delta_minutes = (next_time - timestamp).total_seconds() / 60
+
+            # Within blackout window?
+            if 0 < delta_minutes <= minutes:
+                return 1
+
+            return 0
+        except Exception:
             return 0
 
-    def _get_event_type(self, timestamp: pd.Timestamp, calendar_data: pd.DataFrame) -> str:
-        """Get event type category of nearest event"""
-        if calendar_data.empty:
-            return 'none'
+    def _is_post_news_zone(
+        self,
+        events_df: pd.DataFrame,
+        timestamp: pd.Timestamp,
+        minutes: int = 60
+    ) -> int:
+        """Check if within window after high-impact event (1=yes, 0=no)"""
+        if events_df.empty:
+            return 0
 
         try:
-            future_events = calendar_data[calendar_data['date'] > timestamp].sort_values('date')
+            high_impact = events_df[events_df['impact'].str.lower() == 'high']
 
-            if not future_events.empty:
-                event_name = str(future_events.iloc[0].get('event', '')).lower()
+            if high_impact.empty:
+                return 0
 
-                # Categorize by keywords
-                if 'nfp' in event_name or 'employment' in event_name:
-                    return 'nfp'
-                elif 'cpi' in event_name or 'inflation' in event_name:
-                    return 'cpi'
-                elif 'fed' in event_name or 'fomc' in event_name:
-                    return 'fed'
-                elif 'gdp' in event_name:
-                    return 'gdp'
-                elif 'ecb' in event_name:
-                    return 'ecb'
-                else:
-                    return 'other'
-        except:
-            pass
+            last_high_impact = high_impact.iloc[0]
+            last_time = last_high_impact['event_timestamp']
+            delta_minutes = (timestamp - last_time).total_seconds() / 60
 
-        return 'none'
+            # Within post-news window?
+            if 0 <= delta_minutes <= minutes:
+                return 1
 
-    def _calc_deviation(self, calendar_data: pd.DataFrame) -> float:
-        """Calculate actual vs forecast deviation for latest event"""
-        if calendar_data.empty:
+            return 0
+        except Exception:
+            return 0
+
+    def _get_event_category(self, event: Optional[pd.Series]) -> int:
+        """
+        Get event category as integer (for ML encoding)
+
+        Returns category importance score (0-10)
+        NFP=10 (highest), CPI/FOMC=9, GDP=8, etc.
+        """
+        if event is None:
+            return 0
+
+        try:
+            event_name = str(event['event_name']).upper()
+
+            # Match against high-impact categories
+            for category, score in self.high_impact_categories.items():
+                if category in event_name:
+                    return score
+
+            # Default: unknown category
+            return 1
+
+        except Exception:
+            return 0
+
+    def _calculate_deviation(
+        self,
+        past_events_df: pd.DataFrame,
+        timestamp: pd.Timestamp
+    ) -> float:
+        """
+        Calculate % deviation between actual vs forecast for most recent event
+
+        Returns: (actual - forecast) / forecast * 100
+        """
+        if past_events_df.empty:
             return 0.0
 
         try:
-            # Get most recent event with actual data
-            recent = calendar_data[
-                (calendar_data['actual'].notna()) &
-                (calendar_data['forecast'].notna())
-            ].tail(1)
+            # Get most recent event with actual & forecast data
+            recent = past_events_df[
+                (past_events_df['actual'].notna()) &
+                (past_events_df['forecast'].notna())
+            ]
 
-            if not recent.empty:
-                actual = float(recent.iloc[0]['actual'])
-                forecast = float(recent.iloc[0]['forecast'])
+            if recent.empty:
+                return 0.0
 
-                if forecast != 0:
-                    deviation = (actual - forecast) / abs(forecast)
-                    return round(deviation, 3)
-        except:
-            pass
+            last_event = recent.iloc[0]
+            actual = float(last_event['actual'])
+            forecast = float(last_event['forecast'])
 
-        return 0.0
+            if forecast == 0:
+                return 0.0
 
-    def _get_historical_volatility(self, calendar_data: pd.DataFrame) -> float:
-        """Get average volatility for this event type"""
-        # Simplified: Return fixed value based on event type
-        # In production, this would query historical price moves
-        return 150.0  # Average 150 pips for major events
+            deviation = ((actual - forecast) / abs(forecast)) * 100
+
+            return round(deviation, 2)
+
+        except Exception:
+            return 0.0
+
+    def _get_historical_volatility(self, event: Optional[pd.Series]) -> float:
+        """
+        Get historical volatility multiplier for event type
+
+        Based on typical ATR expansion after event
+        Returns ATR multiplier (1.0 = normal, 2.5 = high volatility)
+        """
+        if event is None:
+            return 1.0
+
+        try:
+            event_name = str(event['event_name']).upper()
+            impact = str(event['impact']).lower()
+
+            # High-volatility events (NFP, FOMC, CPI)
+            for key in ['NFP', 'NON-FARM', 'FOMC', 'CPI', 'FED']:
+                if key in event_name:
+                    return 2.5
+
+            # Medium-volatility by impact level
+            if impact == 'high':
+                return 2.0
+            elif impact == 'medium':
+                return 1.5
+            elif impact == 'low':
+                return 1.2
+
+            return 1.0
+
+        except Exception:
+            return 1.0
+
+    def _default_features(self) -> Dict[str, Any]:
+        """Return default feature values when calculation fails"""
+        return {
+            'upcoming_high_impact_events_4h': 0,
+            'time_to_next_event_minutes': 9999,
+            'event_impact_score': 0,
+            'is_pre_news_zone': 0,
+            'is_post_news_zone': 0,
+            'event_type_category': 0,
+            'actual_vs_forecast_deviation': 0.0,
+            'historical_event_volatility': 1.0
+        }
