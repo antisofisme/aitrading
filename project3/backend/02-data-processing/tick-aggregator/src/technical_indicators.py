@@ -17,19 +17,20 @@ class TechnicalIndicators:
     """
     Technical indicators calculator using pandas and numpy
 
-    Implements 12 core indicators:
+    Implements 13 core indicators:
     1. SMA (Simple Moving Average)
     2. EMA (Exponential Moving Average)
     3. RSI (Relative Strength Index)
     4. MACD (Moving Average Convergence Divergence)
     5. Bollinger Bands
     6. ATR (Average True Range)
-    7. Stochastic Oscillator
-    8. CCI (Commodity Channel Index)
-    9. MFI (Money Flow Index)
-    10. OBV (On-Balance Volume)
-    11. ADL (Accumulation/Distribution Line)
-    12. VWAP (Volume Weighted Average Price)
+    7. ADX (Average Directional Index) + DI
+    8. Stochastic Oscillator
+    9. CCI (Commodity Channel Index)
+    10. MFI (Money Flow Index)
+    11. OBV (On-Balance Volume)
+    12. ADL (Accumulation/Distribution Line)
+    13. VWAP (Volume Weighted Average Price)
     """
 
     def __init__(self, config: Optional[Dict] = None):
@@ -70,6 +71,10 @@ class TechnicalIndicators:
                     'std_dev': 2.0
                 },
                 'atr': {
+                    'enabled': True,
+                    'period': 14
+                },
+                'adx': {
                     'enabled': True,
                     'period': 14
                 },
@@ -152,6 +157,9 @@ class TechnicalIndicators:
 
         if config['atr']['enabled']:
             result_df = self._calculate_atr(result_df, config['atr']['period'])
+
+        if config['adx']['enabled']:
+            result_df = self._calculate_adx(result_df, config['adx']['period'])
 
         if config['stochastic']['enabled']:
             result_df = self._calculate_stochastic(
@@ -306,6 +314,58 @@ class TechnicalIndicators:
 
         true_range = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
         df['atr'] = true_range.ewm(span=period, adjust=False).mean()
+
+        return df
+
+    def _calculate_adx(self, df: pd.DataFrame, period: int = 14) -> pd.DataFrame:
+        """
+        Calculate Average Directional Index (ADX) + Directional Indicators
+
+        ADX measures trend strength (0-100):
+        - ADX > 25 = trending market (strong trend)
+        - ADX < 20 = ranging market (weak/no trend)
+        - ADX 20-25 = transitioning
+
+        Components:
+        - +DI (Plus Directional Indicator) = upward pressure
+        - -DI (Minus Directional Indicator) = downward pressure
+        - DX (Directional Movement Index) = |(+DI) - (-DI)| / |(+DI) + (-DI)| * 100
+        - ADX = Smoothed average of DX
+
+        Usage in strategy:
+        - Fibonacci: Only use in trending markets (ADX > 25)
+        - Regime detection: trending vs ranging classification
+        """
+        # Calculate True Range (reuse if already calculated)
+        high_low = df['high'] - df['low']
+        high_close = np.abs(df['high'] - df['close'].shift())
+        low_close = np.abs(df['low'] - df['close'].shift())
+        tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
+
+        # Calculate Directional Movement
+        high_diff = df['high'] - df['high'].shift()
+        low_diff = df['low'].shift() - df['low']
+
+        # +DM and -DM
+        plus_dm = np.where((high_diff > low_diff) & (high_diff > 0), high_diff, 0)
+        minus_dm = np.where((low_diff > high_diff) & (low_diff > 0), low_diff, 0)
+
+        # Smooth TR, +DM, -DM using Wilder's smoothing (EMA with alpha=1/period)
+        atr_smooth = pd.Series(tr).ewm(alpha=1/period, adjust=False).mean()
+        plus_dm_smooth = pd.Series(plus_dm).ewm(alpha=1/period, adjust=False).mean()
+        minus_dm_smooth = pd.Series(minus_dm).ewm(alpha=1/period, adjust=False).mean()
+
+        # Calculate +DI and -DI (Directional Indicators)
+        df['plus_di'] = 100 * (plus_dm_smooth / atr_smooth)
+        df['minus_di'] = 100 * (minus_dm_smooth / atr_smooth)
+
+        # Calculate DX (Directional Movement Index)
+        di_sum = df['plus_di'] + df['minus_di']
+        di_diff = np.abs(df['plus_di'] - df['minus_di'])
+        dx = 100 * (di_diff / di_sum)
+
+        # Calculate ADX (Average Directional Index) - smoothed DX
+        df['adx'] = dx.ewm(alpha=1/period, adjust=False).mean()
 
         return df
 

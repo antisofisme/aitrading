@@ -54,6 +54,10 @@ aggregation:
         enabled: true
         period: 14
 
+      adx:
+        enabled: true
+        period: 14
+
       stochastic:
         enabled: true
         k_period: 14
