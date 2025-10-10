@@ -12,6 +12,7 @@ import pandas as pd
 import clickhouse_connect
 from typing import Dict, Any, Optional
 import json
+from decimal import Decimal
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +44,9 @@ class ClickHouseClient:
                 username=username,
                 password=password,
                 connect_timeout=30,
-                send_receive_timeout=300
+                send_receive_timeout=300,
+                # Force numeric types to float instead of Decimal
+                settings={'output_format_decimal_trailing_zeros': 0}
             )
 
             # Test connection
@@ -63,18 +66,33 @@ class ClickHouseClient:
             sql: SQL query string
 
         Returns:
-            pd.DataFrame with query results
+            pd.DataFrame with query results (Decimal converted to float)
         """
         try:
-            result = self.client.query(sql)
+            # Use column_oriented format and convert to numeric immediately
+            result = self.client.query(sql, column_oriented=True)
 
-            # Convert to DataFrame
-            if result.result_rows:
-                df = pd.DataFrame(result.result_rows, columns=result.column_names)
+            # Convert to DataFrame from column-oriented data
+            if result.result_columns:
+                data_dict = {}
+                for col_name, col_data in zip(result.column_names, result.result_columns):
+                    # Convert each column, handling Decimal explicitly
+                    if col_data:
+                        converted = []
+                        for val in col_data:
+                            if isinstance(val, Decimal):
+                                converted.append(float(val))
+                            else:
+                                converted.append(val)
+                        data_dict[col_name] = converted
+                    else:
+                        data_dict[col_name] = col_data
+
+                df = pd.DataFrame(data_dict)
                 logger.debug(f"✅ Query returned {len(df)} rows")
                 return df
             else:
-                logger.warning("⚠️ Query returned 0 rows")
+                logger.debug("⚠️ Query returned 0 rows")
                 return pd.DataFrame()
 
         except Exception as e:
@@ -104,8 +122,14 @@ class ClickHouseClient:
         query = f"""
         SELECT
             symbol, timeframe, timestamp, timestamp_ms,
-            open, high, low, close, volume,
-            vwap, range_pips, body_pips,
+            toFloat64(open) AS open,
+            toFloat64(high) AS high,
+            toFloat64(low) AS low,
+            toFloat64(close) AS close,
+            toFloat64(volume) AS volume,
+            toFloat64(vwap) AS vwap,
+            toFloat64(range_pips) AS range_pips,
+            toFloat64(body_pips) AS body_pips,
             start_time, end_time, source,
             indicators
         FROM aggregates

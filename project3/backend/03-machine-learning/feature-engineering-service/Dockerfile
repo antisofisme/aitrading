@@ -5,6 +5,10 @@ WORKDIR /app
 
 # No system dependencies needed - using pandas/numpy only
 
+# Copy and install Central Hub SDK first (for ProgressLogger)
+COPY 01-core-infrastructure/central-hub/sdk/python/ /tmp/central-hub-sdk/
+RUN pip install --no-cache-dir /tmp/central-hub-sdk/ && rm -rf /tmp/central-hub-sdk/
+
 # Copy requirements
 COPY 03-machine-learning/feature-engineering-service/requirements.txt .
 

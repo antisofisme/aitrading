@@ -218,7 +218,9 @@ class ClickHouseWriter:
             self.total_aggregates_inserted += count
             self.total_batch_inserts += 1
 
-            logger.info(f"✅ Inserted {count} historical aggregates to ClickHouse (total: {self.total_aggregates_inserted})")
+            # Log every 10,000 aggregates instead of every batch to reduce spam during catchup
+            if self.total_aggregates_inserted % 10000 == 0:
+                logger.info(f"✅ Inserted {count} historical aggregates to ClickHouse (total: {self.total_aggregates_inserted})")
 
             # Clear buffer ONLY on success
             self.aggregate_buffer.clear()

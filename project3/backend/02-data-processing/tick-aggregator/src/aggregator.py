@@ -76,7 +76,7 @@ class TickAggregator:
         lookback_minutes = timeframe_config['lookback_minutes']
         interval_minutes = timeframe_config['interval_minutes']
 
-        logger.info(f"📊 Aggregating {timeframe} for {len(symbols)} symbols...")
+        logger.debug(f"📊 Aggregating {timeframe} for {len(symbols)} symbols...")
 
         # Calculate time window
         end_time = datetime.utcnow()
@@ -115,7 +115,7 @@ class TickAggregator:
                 return []
 
             self.total_ticks_processed += len(rows)
-            logger.info(f"📈 Fetched {len(rows)} ticks from TimescaleDB for {timeframe}")
+            logger.debug(f"📈 Fetched {len(rows)} ticks from TimescaleDB for {timeframe}")
 
             # Convert to pandas for efficient aggregation
             df = pd.DataFrame(rows, columns=['symbol', 'timestamp', 'bid', 'ask', 'mid', 'spread', 'timestamp_ms'])
@@ -209,7 +209,7 @@ class TickAggregator:
                     candles.append(candle)
                     self.total_candles_generated += 1
 
-            logger.info(f"✅ Generated {len(candles)} candles for {timeframe}")
+            logger.debug(f"✅ Generated {len(candles)} candles for {timeframe}")
             return candles
 
         except Exception as e:

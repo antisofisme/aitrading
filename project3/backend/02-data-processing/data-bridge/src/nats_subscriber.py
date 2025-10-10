@@ -102,7 +102,7 @@ class NATSSubscriber:
             else:
                 self.tick_messages += 1
 
-            if self.total_messages % 1000 == 0:
+            if self.total_messages % 10000 == 0:
                 logger.info(f"📈 NATS received {self.total_messages} messages")
 
         except Exception as e:
@@ -127,7 +127,7 @@ class NATSSubscriber:
             self.total_messages += 1
             self.aggregate_messages += 1
 
-            if self.total_messages % 1000 == 0:
+            if self.total_messages % 10000 == 0:
                 logger.info(f"📈 NATS received {self.total_messages} messages")
 
         except Exception as e:

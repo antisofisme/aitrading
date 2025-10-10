@@ -147,8 +147,8 @@ class DataBridge:
                 # Generate message ID for deduplication
                 message_id = self.deduplicator.generate_message_id(data)
 
-                # DEBUG: Log flow for first 10 messages
-                if self.ticks_saved < 10 or self.ticks_saved % 100 == 0:
+                # DEBUG: Log flow for first 10 messages only
+                if self.ticks_saved < 10:
                     logger.info(f"🔍 handle_message | type={data_type} | source={source} | msg_id={message_id[:30]}")
 
                 # Check for duplicates

@@ -147,7 +147,7 @@ class KafkaSubscriber:
             # Update statistics
             self.total_messages += 1
 
-            if self.total_messages % 1000 == 0:
+            if self.total_messages % 10000 == 0:
                 logger.info(f"📈 Kafka received {self.total_messages} messages")
 
         except Exception as e:
