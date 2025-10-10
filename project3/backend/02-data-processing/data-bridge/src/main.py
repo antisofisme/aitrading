@@ -159,20 +159,20 @@ class DataBridge:
 
                 # Process message based on type
                 try:
-                    logger.info(f"💾 Processing {data_type} from {source}...")
+                    logger.debug(f"💾 Processing {data_type} from {source}...")
 
                     if data_type == 'tick':
                         # Tick data → TimescaleDB.market_ticks
                         await self._save_tick(data)
-                        logger.info(f"✅ Tick saved successfully")
+                        logger.debug(f"✅ Tick saved successfully")
                     elif data_type == 'aggregate':
                         # Aggregate data → ClickHouse.aggregates (live_aggregated or historical)
                         await self._save_candle(data)
-                        logger.info(f"✅ Candle saved successfully")
+                        logger.debug(f"✅ Candle saved successfully")
                     elif data_type == 'external':
                         # External data → ClickHouse.external_* tables
                         await self._save_external_data(data)
-                        logger.info(f"✅ External data saved successfully")
+                        logger.debug(f"✅ External data saved successfully")
                     else:
                         logger.warning(f"⚠️  Unknown data type: {data_type}")
 
@@ -236,7 +236,7 @@ class DataBridge:
         Maps Polygon data → TickData model
         """
         try:
-            logger.info(f"🔧 _save_tick called | symbol={data.get('pair', data.get('symbol'))}")
+            logger.debug(f"🔧 _save_tick called | symbol={data.get('pair', data.get('symbol'))}")
 
             # Map Polygon data to TickData
             tick_data = TickData(
@@ -251,12 +251,12 @@ class DataBridge:
                 event_type=data.get('ev', 'quote')
             )
 
-            logger.info(f"📦 TickData created: {tick_data.symbol} at {tick_data.timestamp}")
+            logger.debug(f"📦 TickData created: {tick_data.symbol} at {tick_data.timestamp}")
 
             # Save via Database Manager → TimescaleDB + DragonflyDB cache
-            logger.info(f"💾 Calling db_router.save_tick()...")
+            logger.debug(f"💾 Calling db_router.save_tick()...")
             await self.db_router.save_tick(tick_data)
-            logger.info(f"✅ db_router.save_tick() completed")
+            logger.debug(f"✅ db_router.save_tick() completed")
 
             self.ticks_saved += 1
 
@@ -293,8 +293,8 @@ class DataBridge:
                     timeframe = parts[2]
 
             # ROUTING DECISION based on source
-            # ALL aggregates (live_aggregated + historical) → ClickHouse
-            if source in ['historical', 'polygon_historical', 'live_aggregated']:
+            # ALL aggregates (live_aggregated + historical + kafka/nats transport) → ClickHouse
+            if source in ['historical', 'polygon_historical', 'live_aggregated', 'kafka', 'nats']:
                 # Aggregated data → ClickHouse (from Aggregator Service or Historical Downloader)
                 await self._save_to_clickhouse(data, timeframe)
                 self.candles_saved_clickhouse += 1
@@ -305,7 +305,7 @@ class DataBridge:
             else:
                 # Legacy: OLD flow if any live 1s bars still come through
                 # This should NOT happen after disabling aggregate_client
-                logger.warning(f"⚠️  Unexpected aggregate data with source '{source}' - should be tick data!")
+                logger.debug(f"⚠️  Unexpected aggregate data with source '{source}' - should be tick data!")
                 candle_data = CandleData(
                     symbol=data.get('pair', data.get('symbol', '')),
                     timeframe=timeframe,
@@ -386,7 +386,7 @@ class DataBridge:
             data: External data message from NATS/Kafka
         """
         # EXPLICIT DEBUG: Entry point
-        logger.info(f"🔍 _save_external_data CALLED | _source={data.get('_source')} | _external_type={data.get('_external_type', 'MISSING!')}")
+        logger.debug(f"🔍 _save_external_data CALLED | _source={data.get('_source')} | _external_type={data.get('_external_type', 'MISSING!')}")
 
         if not self.external_data_writer:
             logger.warning("⚠️  External Data Writer not initialized, skipping external data")
@@ -394,12 +394,12 @@ class DataBridge:
 
         try:
             external_type = data.get('_external_type', 'unknown')
-            logger.info(f"🔍 About to call write_external_data | type={external_type}")
+            logger.debug(f"🔍 About to call write_external_data | type={external_type}")
 
             # Save to ClickHouse
             await self.external_data_writer.write_external_data(data)
 
-            logger.info(f"🔍 write_external_data RETURNED | type={external_type}")
+            logger.debug(f"🔍 write_external_data RETURNED | type={external_type}")
 
             self.external_data_saved += 1
 

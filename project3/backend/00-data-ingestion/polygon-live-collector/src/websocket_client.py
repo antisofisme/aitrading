@@ -60,13 +60,13 @@ class PolygonWebSocketClient:
         def handle_messages(msgs: List[WebSocketMessage]):
             """Process incoming messages"""
             try:
-                # DEBUG: Log that callback was called
+                # DEBUG: Log that callback was called (only in debug mode)
                 if msgs:
-                    logger.info(f"🎯 CALLBACK RECEIVED: {len(msgs)} messages")
+                    logger.debug(f"🎯 CALLBACK RECEIVED: {len(msgs)} messages")
 
                 for msg in msgs:
-                    # DEBUG: Log raw message
-                    logger.info(f"📨 RAW MESSAGE: {msg}")
+                    # DEBUG: Log raw message (only in debug mode)
+                    logger.debug(f"📨 RAW MESSAGE: {msg}")
 
                     # Parse message
                     tick_data = self._parse_message(msg)
