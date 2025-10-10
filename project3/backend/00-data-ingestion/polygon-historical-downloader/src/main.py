@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from config import Config
 from downloader import PolygonHistoricalDownloader
 from publisher import MessagePublisher
+from period_tracker import PeriodTracker
 
 # Central Hub SDK (installed via pip)
 from central_hub_sdk import CentralHubClient, ProgressLogger
@@ -37,6 +38,11 @@ class PolygonHistoricalService:
 
         # Publisher will be initialized after getting config from Central Hub
         self.publisher = None
+
+        # Period tracker to prevent duplicate downloads
+        self.period_tracker = PeriodTracker(
+            tracker_file="/data/downloaded_periods.json"
+        )
 
         # Central Hub integration
         self.central_hub = CentralHubClient(
@@ -116,7 +122,19 @@ class PolygonHistoricalService:
                     timeframe, multiplier = self.config.get_timeframe_for_pair(pair)
                     timeframe_str = f"{multiplier}{timeframe[0]}"  # "1m", "5m", etc
 
-                    # ✅ CHECK IF DATA ALREADY EXISTS AND COVERS REQUESTED DATE RANGE
+                    # ✅ LAYER 1: CHECK PERIOD TRACKER (Primary defense against re-downloads)
+                    is_downloaded, tracker_reason = self.period_tracker.is_period_downloaded(
+                        symbol=pair.symbol,
+                        timeframe=timeframe_str,
+                        start_date=download_cfg['start_date'],
+                        end_date=download_cfg['end_date']
+                    )
+
+                    if is_downloaded:
+                        logger.info(f"⏭️  {pair.symbol} already downloaded - SKIPPING (Reason: {tracker_reason})")
+                        continue
+
+                    # ✅ LAYER 2: CHECK IF DATA ALREADY EXISTS IN CLICKHOUSE (Backup check)
                     should_download = True
                     try:
                         clickhouse_config = await self.central_hub.get_database_config('clickhouse')
@@ -293,6 +311,18 @@ class PolygonHistoricalService:
                         bars = all_bars
                         progress.complete(summary={"total_bars": len(bars), "gaps_filled": len(pair.gap_ranges)})
 
+                        # ✅ MARK EACH GAP RANGE AS DOWNLOADED
+                        for gap_start, gap_end, gap_type in pair.gap_ranges:
+                            self.period_tracker.mark_downloaded(
+                                symbol=pair.symbol,
+                                timeframe=timeframe_str,
+                                start_date=gap_start.strftime('%Y-%m-%d'),
+                                end_date=gap_end.strftime('%Y-%m-%d'),
+                                bars_count=len(bars) // len(pair.gap_ranges),  # Approximate bars per gap
+                                source='polygon_gap_fill',
+                                verified=False  # Will be verified later
+                            )
+
                     else:
                         # FRESH DOWNLOAD MODE: Download full range in chunks (ONLY for EMPTY database)
                         logger.info(f"📥 Fresh download: {download_cfg['start_date']} to {download_cfg['end_date']}")
@@ -405,6 +435,17 @@ class PolygonHistoricalService:
 
                         logger.info(f"✅ Published {len(aggregates)} bars for {pair.symbol}")
 
+                        # ✅ MARK PERIOD AS DOWNLOADED (before verification)
+                        self.period_tracker.mark_downloaded(
+                            symbol=pair.symbol,
+                            timeframe=timeframe_str,
+                            start_date=download_cfg['start_date'],
+                            end_date=download_cfg['end_date'],
+                            bars_count=len(bars),
+                            source='polygon_historical',
+                            verified=False  # Will be updated after verification
+                        )
+
                         # ✅ CRITICAL: VERIFY data reached ClickHouse before continuing!
                         logger.info(f"🔍 Verifying {pair.symbol} data in ClickHouse...")
                         await asyncio.sleep(5)  # Wait for data-bridge to process
@@ -456,6 +497,17 @@ class PolygonHistoricalService:
                                 logger.info(f"♻️  Re-published {len(aggregates)} bars for {pair.symbol}")
                             else:
                                 logger.info(f"✅ Verification PASSED: {pair.symbol} data complete in ClickHouse")
+
+                                # ✅ UPDATE PERIOD TRACKER: Mark as verified
+                                self.period_tracker.mark_downloaded(
+                                    symbol=pair.symbol,
+                                    timeframe=timeframe_str,
+                                    start_date=download_cfg['start_date'],
+                                    end_date=download_cfg['end_date'],
+                                    bars_count=bars_in_clickhouse,
+                                    source='polygon_historical',
+                                    verified=True  # Verification passed!
+                                )
 
                         except Exception as verify_error:
                             logger.warning(f"⚠️  Could not verify ClickHouse data: {verify_error}")
@@ -596,6 +648,17 @@ class PolygonHistoricalService:
                                     total_gaps_filled += len(batch)
 
                                 logger.info(f"✅ Filled gap for {symbol}: {gap_start} -> {gap_end} ({len(bars)} bars)")
+
+                                # ✅ MARK GAP AS FILLED
+                                self.period_tracker.mark_downloaded(
+                                    symbol=symbol,
+                                    timeframe=timeframe_str,
+                                    start_date=gap_start.strftime('%Y-%m-%d'),
+                                    end_date=gap_end.strftime('%Y-%m-%d'),
+                                    bars_count=len(bars),
+                                    source='polygon_gap_fill',
+                                    verified=False  # Gap fills are not verified
+                                )
 
                         except Exception as e:
                             logger.error(f"❌ Error filling gap for {symbol}: {e}")

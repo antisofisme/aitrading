@@ -75,7 +75,7 @@ class PolygonWebSocketClient:
                         asyncio.create_task(self.message_handler(tick_data))
                         self.message_count += 1
 
-                        if self.message_count % 1000 == 0:
+                        if self.message_count % 10000 == 0:
                             logger.info(f"📈 Processed {self.message_count} messages")
                     else:
                         logger.warning(f"⚠️  Failed to parse message: {msg}")

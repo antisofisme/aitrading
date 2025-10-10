@@ -141,7 +141,7 @@ class NATSPublisher:
         # If NATS failed but Kafka succeeded, consumers will still get message from Kafka
         if nats_result == "success":
             # Log dual-write status
-            if self.nats_publish_count % 1000 == 0:
+            if self.nats_publish_count % 10000 == 0:
                 status = "✅ Both" if kafka_result == "success" else "⚠️ NATS only"
                 logger.info(f"📤 {status} | NATS: {self.nats_publish_count} | Kafka: {self.kafka_publish_count}")
         else:
@@ -204,7 +204,7 @@ class NATSPublisher:
 
         # Log status
         if nats_result == "success":
-            if self.nats_publish_count % 1000 == 0:
+            if self.nats_publish_count % 10000 == 0:
                 status = "✅ Both" if kafka_result == "success" else "⚠️ NATS only"
                 logger.info(f"📊 {status} | Aggregates NATS: {self.nats_publish_count} | Kafka: {self.kafka_publish_count}")
         else:

@@ -52,8 +52,13 @@ class DataRouter:
 
     async def save_tick(self, tick_data: TickData):
         """
-        Save tick data
+        Save tick data with deduplication
         Route: TimescaleDB (primary) + DragonflyDB (cache latest)
+
+        Deduplication Strategy:
+        - Check if (symbol, timestamp) already exists before insert
+        - Skip insert if duplicate found
+        - Prevents 23.7% duplication issue
         """
         await self._ensure_initialized()
 
@@ -62,9 +67,23 @@ class DataRouter:
             if not isinstance(tick_data, TickData):
                 raise ValidationError("TickData", ["Invalid data type"])
 
-            # Save to TimescaleDB
+            # ✅ LAYER 2 DEDUPLICATION: Check existence before insert
             conn = await self.pool_manager.get_timescale_connection()
             try:
+                # Check if tick already exists
+                existing = await conn.fetchval("""
+                    SELECT 1 FROM market_ticks
+                    WHERE symbol = $1
+                      AND timestamp = to_timestamp($2/1000.0)
+                    LIMIT 1
+                """, tick_data.symbol, tick_data.timestamp)
+
+                if existing:
+                    # Skip duplicate insert
+                    # logger.debug(f"⏭️  Skip duplicate tick: {tick_data.symbol} @ {tick_data.timestamp}")
+                    return  # Exit early
+
+                # Insert only if not duplicate
                 await conn.execute("""
                     INSERT INTO market_ticks (
                         symbol, timestamp, bid, ask, mid, spread,

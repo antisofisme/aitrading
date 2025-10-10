@@ -148,11 +148,72 @@ class ClickHouseWriter:
             return
 
         try:
+            # ✅ LAYER 2 DEDUPLICATION: Check for existing records before insert
+            # Build list of (symbol, timeframe, timestamp) tuples to check
+            records_to_check = [
+                (agg['symbol'], agg['timeframe'], agg['timestamp_ms'])
+                for agg in self.aggregate_buffer
+            ]
+
+            # Query ClickHouse for existing records (batch query for performance)
+            existing_records = set()
+            if records_to_check:
+                try:
+                    # Build WHERE clause for batch check
+                    # Format: (symbol='EUR/USD' AND timeframe='1m' AND timestamp_ms=123) OR (...)
+                    conditions = []
+                    for symbol, timeframe, ts_ms in records_to_check:
+                        conditions.append(
+                            f"(symbol = '{symbol}' AND timeframe = '{timeframe}' AND timestamp_ms = {ts_ms})"
+                        )
+
+                    # Limit to first 1000 conditions to avoid query size limits
+                    where_clause = " OR ".join(conditions[:1000])
+
+                    check_query = f"""
+                        SELECT symbol, timeframe, timestamp_ms
+                        FROM aggregates
+                        WHERE {where_clause}
+                    """
+
+                    result = self.client.query(check_query)
+                    existing_records = {(row[0], row[1], row[2]) for row in result.result_rows}
+
+                    if existing_records:
+                        logger.info(f"🔍 Found {len(existing_records)} existing records, will skip duplicates")
+
+                except Exception as check_error:
+                    logger.warning(f"⚠️  Error checking for existing records: {check_error}")
+                    logger.warning(f"⚠️  Proceeding with insert (ReplacingMergeTree will handle duplicates)")
+                    # On error, proceed with insert - ReplacingMergeTree will deduplicate
+
+            # Filter out duplicates from buffer
+            filtered_buffer = []
+            skipped_duplicates = 0
+
+            for agg in self.aggregate_buffer:
+                record_key = (agg['symbol'], agg['timeframe'], agg['timestamp_ms'])
+                if record_key in existing_records:
+                    skipped_duplicates += 1
+                    logger.debug(f"⏭️  Skip duplicate: {agg['symbol']} {agg['timeframe']} @ {agg['timestamp_ms']}")
+                else:
+                    filtered_buffer.append(agg)
+
+            if skipped_duplicates > 0:
+                logger.info(f"⏭️  Skipped {skipped_duplicates} duplicates (already in ClickHouse)")
+
+            # If all records are duplicates, skip insert
+            if not filtered_buffer:
+                logger.info(f"✅ All {len(self.aggregate_buffer)} records already exist - skipping insert")
+                self.aggregate_buffer.clear()
+                self.last_flush = datetime.utcnow()
+                return
+
             # Circuit breaker protection (CRITICAL!)
             def do_insert():
-                # Prepare data for insertion
+                # Prepare data for insertion (using filtered buffer)
                 data = []
-                for agg in self.aggregate_buffer:
+                for agg in filtered_buffer:
                     # Convert timestamps
                     timestamp_dt = datetime.fromtimestamp(agg['timestamp_ms'] / 1000.0)
 
@@ -214,13 +275,13 @@ class ClickHouseWriter:
             # Execute with circuit breaker protection
             self.circuit_breaker.call(do_insert)
 
-            count = len(self.aggregate_buffer)
+            count = len(filtered_buffer)  # Use filtered buffer size
             self.total_aggregates_inserted += count
             self.total_batch_inserts += 1
 
             # Log every 10,000 aggregates instead of every batch to reduce spam during catchup
             if self.total_aggregates_inserted % 10000 == 0:
-                logger.info(f"✅ Inserted {count} historical aggregates to ClickHouse (total: {self.total_aggregates_inserted})")
+                logger.info(f"✅ Inserted {count} aggregates to ClickHouse (total: {self.total_aggregates_inserted}, skipped: {skipped_duplicates})")
 
             # Clear buffer ONLY on success
             self.aggregate_buffer.clear()
