@@ -18,7 +18,7 @@ from downloader import PolygonHistoricalDownloader
 from publisher import MessagePublisher
 
 # Central Hub SDK (installed via pip)
-from central_hub_sdk import CentralHubClient
+from central_hub_sdk import CentralHubClient, ProgressLogger
 
 logging.basicConfig(
     level=logging.INFO,
@@ -116,7 +116,8 @@ class PolygonHistoricalService:
                     timeframe, multiplier = self.config.get_timeframe_for_pair(pair)
                     timeframe_str = f"{multiplier}{timeframe[0]}"  # "1m", "5m", etc
 
-                    # ✅ CHECK IF DATA ALREADY EXISTS BEFORE DOWNLOADING
+                    # ✅ CHECK IF DATA ALREADY EXISTS AND COVERS REQUESTED DATE RANGE
+                    should_download = True
                     try:
                         clickhouse_config = await self.central_hub.get_database_config('clickhouse')
                         ch_connection = clickhouse_config['connection']
@@ -130,9 +131,12 @@ class PolygonHistoricalService:
                             database=ch_connection['database']
                         )
 
-                        # Count existing historical data for this pair
+                        # Check existing data range for this pair
                         query = """
-                            SELECT COUNT(*) as count
+                            SELECT
+                                COUNT(*) as count,
+                                MIN(timestamp) as min_date,
+                                MAX(timestamp) as max_date
                             FROM aggregates
                             WHERE symbol = %(symbol)s
                               AND timeframe = %(timeframe)s
@@ -142,30 +146,231 @@ class PolygonHistoricalService:
                             'symbol': pair.symbol,
                             'timeframe': timeframe_str
                         })
-                        existing_count = result[0][0] if result else 0
 
-                        # SKIP if pair already has data
-                        if existing_count > 0:
-                            logger.info(f"⏭️  {pair.symbol} already has {existing_count:,} bars - SKIPPING download")
-                            continue
+                        if result and result[0][0] > 0:
+                            existing_count = result[0][0]
+                            existing_min = result[0][1]
+                            existing_max = result[0][2]
+
+                            # Parse requested date range and ensure timezone consistency
+                            from datetime import datetime, timezone, timedelta
+                            requested_start = datetime.strptime(download_cfg['start_date'], '%Y-%m-%d').replace(tzinfo=timezone.utc)
+                            requested_end = datetime.strptime(download_cfg['end_date'], '%Y-%m-%d').replace(tzinfo=timezone.utc) if download_cfg['end_date'] not in ['now', 'today'] else datetime.now(timezone.utc)
+
+                            # Ensure existing timestamps are timezone-aware
+                            if existing_min.tzinfo is None:
+                                existing_min = existing_min.replace(tzinfo=timezone.utc)
+                            if existing_max.tzinfo is None:
+                                existing_max = existing_max.replace(tzinfo=timezone.utc)
+
+                            # Check if existing data covers requested range
+                            covers_start = existing_min <= requested_start
+                            covers_end = existing_max >= requested_end
+
+                            if covers_start and covers_end:
+                                logger.info(f"⏭️  {pair.symbol} already has {existing_count:,} bars covering {existing_min} to {existing_max} - SKIPPING")
+                                should_download = False
+                            else:
+                                # GAP DETECTED - Download ONLY missing ranges (not full range!)
+                                logger.warning(f"⚠️  {pair.symbol} has {existing_count:,} bars BUT date range gap detected!")
+                                logger.warning(f"   Existing: {existing_min} to {existing_max}")
+                                logger.warning(f"   Requested: {requested_start} to {requested_end}")
+
+                                # Calculate gap ranges
+                                gap_ranges = []
+                                if not covers_start:
+                                    # Missing data at START: requested_start to existing_min
+                                    gap_end = existing_min - timedelta(days=1)
+                                    gap_ranges.append((requested_start, gap_end, "START"))
+                                    logger.warning(f"   📥 START Gap: {requested_start.date()} to {gap_end.date()}")
+
+                                if not covers_end:
+                                    # Missing data at END: existing_max to requested_end
+                                    gap_start = existing_max + timedelta(days=1)
+                                    gap_ranges.append((gap_start, requested_end, "END"))
+                                    logger.warning(f"   📥 END Gap: {gap_start.date()} to {requested_end.date()}")
+
+                                # Store gap ranges for chunked download
+                                pair.gap_ranges = gap_ranges
+                                should_download = True
                         else:
                             logger.info(f"📥 {pair.symbol} is EMPTY - starting download (Priority {pair.priority})")
+                            should_download = True
 
                     except Exception as check_error:
                         logger.warning(f"⚠️  Could not check existing data for {pair.symbol}: {check_error}")
-                        logger.info(f"📊 Proceeding with download for {pair.symbol} (Priority {pair.priority})")
+                        logger.warning(f"⚠️  SKIPPING {pair.symbol} - will retry on next gap check cycle")
+                        logger.warning(f"⚠️  This prevents accidental re-download of ALL historical data")
+                        should_download = False
 
-                    # Download SINGLE pair using download_all_pairs with single pair list
-                    results = await self.downloader.download_all_pairs(
-                        pairs=[pair],  # Single pair only!
-                        start_date=download_cfg['start_date'],
-                        end_date=download_cfg['end_date'],
-                        get_timeframe_func=self.config.get_timeframe_for_pair
-                    )
+                    # Skip download if data already covers requested range
+                    if not should_download:
+                        continue
 
-                    # Get bars for this pair
-                    bars = results.get(pair.symbol, [])
-                    logger.info(f"✅ Downloaded {len(bars)} bars for {pair.symbol}")
+                    # Check if this is gap filling or fresh download
+                    if hasattr(pair, 'gap_ranges') and pair.gap_ranges:
+                        # GAP FILLING MODE: Download ONLY missing ranges in chunks
+                        logger.info(f"📥 GAP FILLING: {len(pair.gap_ranges)} gaps detected for {pair.symbol}")
+
+                        # Calculate total chunks for progress tracking
+                        def calculate_total_chunks(gap_ranges, chunk_months=3):
+                            total = 0
+                            for gap_start, gap_end, _ in gap_ranges:
+                                current = gap_start
+                                while current < gap_end:
+                                    total += 1
+                                    # Move 3 months forward
+                                    new_month = current.month + chunk_months
+                                    new_year = current.year + (new_month - 1) // 12
+                                    new_month = ((new_month - 1) % 12) + 1
+                                    try:
+                                        current = current.replace(year=new_year, month=new_month)
+                                    except ValueError:
+                                        current = current.replace(year=new_year, month=new_month, day=1)
+                                    if current >= gap_end:
+                                        break
+                            return total
+
+                        total_chunks = calculate_total_chunks(pair.gap_ranges)
+
+                        # Initialize progress logger
+                        progress = ProgressLogger(
+                            task_name=f"Downloading {pair.symbol} gaps",
+                            total_items=total_chunks,
+                            service_name="historical-downloader",
+                            milestones=[25, 50, 75, 100],
+                            heartbeat_interval=30
+                        )
+                        progress.start()
+
+                        all_bars = []
+                        chunk_idx = 0
+
+                        for gap_start, gap_end, gap_type in pair.gap_ranges:
+                            # Split gap into 3-month chunks to prevent OOM
+                            chunk_months = 3
+                            current = gap_start
+
+                            while current < gap_end:
+                                chunk_idx += 1
+
+                                # Calculate chunk end (3 months or gap_end, whichever is earlier)
+                                new_month = current.month + chunk_months
+                                new_year = current.year + (new_month - 1) // 12
+                                new_month = ((new_month - 1) % 12) + 1
+
+                                try:
+                                    chunk_end_date = current.replace(year=new_year, month=new_month)
+                                except ValueError:
+                                    # Handle day overflow (e.g., Jan 31 + 3 months = Apr 31 invalid)
+                                    chunk_end_date = current.replace(year=new_year, month=new_month, day=1)
+
+                                chunk_end = min(chunk_end_date, gap_end)
+
+                                # Download this chunk
+                                chunk_results = await self.downloader.download_all_pairs(
+                                    pairs=[pair],
+                                    start_date=current.strftime('%Y-%m-%d'),
+                                    end_date=chunk_end.strftime('%Y-%m-%d'),
+                                    get_timeframe_func=self.config.get_timeframe_for_pair
+                                )
+
+                                chunk_bars = chunk_results.get(pair.symbol, [])
+                                all_bars.extend(chunk_bars)
+
+                                # Update progress (auto-logs at milestones and heartbeats)
+                                progress.update(
+                                    current=chunk_idx,
+                                    additional_info={
+                                        "bars": len(all_bars),
+                                        "gap_type": gap_type
+                                    }
+                                )
+
+                                # Move to next chunk
+                                current = chunk_end + timedelta(days=1)
+
+                        bars = all_bars
+                        progress.complete(summary={"total_bars": len(bars), "gaps_filled": len(pair.gap_ranges)})
+
+                    else:
+                        # FRESH DOWNLOAD MODE: Download full range in chunks (ONLY for EMPTY database)
+                        logger.info(f"📥 Fresh download: {download_cfg['start_date']} to {download_cfg['end_date']}")
+
+                        # Split into 3-month chunks
+                        from datetime import datetime, timedelta
+                        start = datetime.strptime(download_cfg['start_date'], '%Y-%m-%d')
+                        end = datetime.strptime(download_cfg['end_date'], '%Y-%m-%d')
+
+                        # Calculate total chunks for progress tracking
+                        def calculate_fresh_chunks(start, end, chunk_months=3):
+                            total = 0
+                            current = start
+                            while current < end:
+                                total += 1
+                                new_month = current.month + chunk_months
+                                new_year = current.year + (new_month - 1) // 12
+                                new_month = ((new_month - 1) % 12) + 1
+                                try:
+                                    current = current.replace(year=new_year, month=new_month)
+                                except ValueError:
+                                    current = current.replace(year=new_year, month=new_month, day=1)
+                                if current >= end:
+                                    break
+                            return total
+
+                        total_chunks = calculate_fresh_chunks(start, end)
+
+                        # Initialize progress logger
+                        progress = ProgressLogger(
+                            task_name=f"Initial download {pair.symbol}",
+                            total_items=total_chunks,
+                            service_name="historical-downloader",
+                            milestones=[25, 50, 75, 100],
+                            heartbeat_interval=30
+                        )
+                        progress.start()
+
+                        all_bars = []
+                        current = start
+                        chunk_months = 3
+                        chunk_idx = 0
+
+                        while current < end:
+                            chunk_idx += 1
+
+                            # Calculate chunk end (3 months forward)
+                            new_month = current.month + chunk_months
+                            new_year = current.year + (new_month - 1) // 12
+                            new_month = ((new_month - 1) % 12) + 1
+
+                            try:
+                                chunk_end_date = current.replace(year=new_year, month=new_month)
+                            except ValueError:
+                                chunk_end_date = current.replace(year=new_year, month=new_month, day=1)
+
+                            chunk_end = min(chunk_end_date, end)
+
+                            chunk_results = await self.downloader.download_all_pairs(
+                                pairs=[pair],
+                                start_date=current.strftime('%Y-%m-%d'),
+                                end_date=chunk_end.strftime('%Y-%m-%d'),
+                                get_timeframe_func=self.config.get_timeframe_for_pair
+                            )
+
+                            chunk_bars = chunk_results.get(pair.symbol, [])
+                            all_bars.extend(chunk_bars)
+
+                            # Update progress (auto-logs at milestones and heartbeats)
+                            progress.update(
+                                current=chunk_idx,
+                                additional_info={"bars": len(all_bars)}
+                            )
+
+                            current = chunk_end + timedelta(days=1)
+
+                        bars = all_bars
+                        progress.complete(summary={"total_bars": len(bars)})
 
                     if bars:
                         logger.info(f"📤 Publishing {len(bars)} bars for {pair.symbol} to NATS/Kafka...")

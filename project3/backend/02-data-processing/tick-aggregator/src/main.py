@@ -22,6 +22,9 @@ from nats_publisher import AggregatePublisher
 from gap_detector import GapDetector
 from historical_aggregator import HistoricalAggregator
 
+# Central Hub SDK for progress logging
+from central_hub_sdk import ProgressLogger
+
 # Setup logging
 logging.basicConfig(
     level=logging.INFO,
@@ -265,11 +268,26 @@ class TickAggregatorService:
                 total_candles = 0
                 backfill_start = datetime.utcnow()
 
+                # Calculate total tasks for progress tracking
+                total_tasks = len(symbols_to_backfill) * len(target_timeframes)
+
+                # Initialize progress logger for overall backfill
+                backfill_progress = ProgressLogger(
+                    task_name="Historical backfill",
+                    total_items=total_tasks,
+                    service_name="tick-aggregator",
+                    milestones=[25, 50, 75, 100],
+                    heartbeat_interval=30
+                )
+                backfill_progress.start()
+
+                task_idx = 0
+
                 # Process each symbol that needs backfill
                 for symbol in symbols_to_backfill:
-                    logger.info(f"\n📊 Backfilling {symbol}...")
-
                     for tf_config in target_timeframes:
+                        task_idx += 1
+
                         try:
                             candles_count = self.historical_aggregator.aggregate_symbol_timeframe(
                                 symbol=symbol,
@@ -278,9 +296,34 @@ class TickAggregatorService:
                             )
                             total_candles += candles_count
 
+                            # Update overall backfill progress
+                            backfill_progress.update(
+                                current=task_idx,
+                                additional_info={
+                                    "symbol": symbol,
+                                    "timeframe": tf_config['name'],
+                                    "total_candles": total_candles
+                                }
+                            )
+
                         except Exception as e:
                             logger.error(f"❌ Failed {symbol} {tf_config['name']}: {e}")
+                            # Still update progress on error
+                            backfill_progress.update(
+                                current=task_idx,
+                                additional_info={
+                                    "symbol": symbol,
+                                    "timeframe": tf_config['name'],
+                                    "error": str(e)[:50]
+                                }
+                            )
                             continue
+
+                # Complete backfill
+                backfill_progress.complete(summary={
+                    "symbols_backfilled": len(symbols_to_backfill),
+                    "total_candles": total_candles
+                })
 
                 # Summary
                 elapsed = (datetime.utcnow() - backfill_start).total_seconds()

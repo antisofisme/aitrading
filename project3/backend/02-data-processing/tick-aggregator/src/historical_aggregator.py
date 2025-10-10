@@ -11,6 +11,9 @@ import numpy as np
 from technical_indicators import TechnicalIndicators
 import json
 
+# Central Hub SDK for progress logging
+from central_hub_sdk import ProgressLogger
+
 logger = logging.getLogger(__name__)
 
 
@@ -67,7 +70,17 @@ class HistoricalAggregator:
         batch_size: int = 50000  # Reduced from 100k to save memory
     ) -> int:
         """
-        Aggregate 1m bars to target timeframe for one symbol
+        Aggregate 1m bars to target timeframe for one symbol (MEMORY-EFFICIENT)
+
+        Memory Strategy:
+        - TIME-BASED CHUNKS: Split into 3-month periods (like historical-downloader)
+        - OFFSET/LIMIT BATCHING: Within each chunk, process in 50k bar batches
+        - EXPLICIT CLEANUP: Delete DataFrames after each batch
+
+        Example: 10 years XAU/USD 1m = 5.2M bars
+        - Split into 40 chunks (3 months each)
+        - Each chunk ~130k bars (~26MB)
+        - Process in 50k batches within chunk
 
         Args:
             symbol: Symbol to aggregate (e.g., 'XAU/USD')
@@ -80,32 +93,170 @@ class HistoricalAggregator:
         Returns:
             Number of candles generated
         """
-        logger.info(f"📊 Aggregating {symbol} 1m → {target_timeframe}...")
+        logger.info(f"📊 Aggregating {symbol} 1m → {target_timeframe} (memory-efficient mode)...")
 
         try:
-            # Get total count first
+            # Get date range from ClickHouse
+            range_query = f"""
+            SELECT
+                MIN(timestamp) as min_date,
+                MAX(timestamp) as max_date,
+                COUNT(*) as total_bars
+            FROM aggregates
+            WHERE symbol = '{symbol}'
+              AND timeframe = '1m'
+              AND source = 'polygon_historical'
+            """
+
+            range_result = self.client.query(range_query)
+
+            if not range_result.result_rows or range_result.result_rows[0][0] is None:
+                logger.warning(f"⚠️ No 1m bars found for {symbol}")
+                return 0
+
+            min_date = range_result.result_rows[0][0]
+            max_date = range_result.result_rows[0][1]
+            total_bars = range_result.result_rows[0][2]
+
+            logger.info(f"📊 Date range: {min_date.date()} to {max_date.date()} ({total_bars:,} bars)")
+
+            # Override with user-specified dates if provided
+            if start_date:
+                min_date = max(min_date, start_date)
+            if end_date:
+                max_date = min(max_date, end_date)
+
+            # Process in 3-MONTH TIME CHUNKS to prevent memory bloat
+            chunk_months = 3
+
+            # Calculate total chunks for progress tracking
+            def calculate_total_chunks(min_date, max_date, chunk_months=3):
+                total = 0
+                current = min_date
+                while current < max_date:
+                    total += 1
+                    new_month = current.month + chunk_months
+                    new_year = current.year + (new_month - 1) // 12
+                    new_month = ((new_month - 1) % 12) + 1
+                    try:
+                        current = current.replace(year=new_year, month=new_month)
+                    except ValueError:
+                        current = current.replace(year=new_year, month=new_month, day=1)
+                    if current >= max_date:
+                        break
+                return total
+
+            total_chunks = calculate_total_chunks(min_date, max_date)
+
+            # Initialize progress logger
+            progress = ProgressLogger(
+                task_name=f"Aggregating {symbol} {target_timeframe}",
+                total_items=total_chunks,
+                service_name="tick-aggregator",
+                milestones=[25, 50, 75, 100],
+                heartbeat_interval=30
+            )
+            progress.start()
+
+            current_date = min_date
+            chunk_number = 0
+            total_candles_generated = 0
+
+            while current_date < max_date:
+                chunk_number += 1
+
+                # Calculate chunk end date (3 months ahead)
+                new_month = current_date.month + chunk_months
+                new_year = current_date.year + (new_month - 1) // 12
+                new_month = ((new_month - 1) % 12) + 1
+
+                try:
+                    chunk_end = current_date.replace(year=new_year, month=new_month)
+                except ValueError:
+                    # Handle day overflow (e.g., Jan 31 + 3 months)
+                    chunk_end = current_date.replace(year=new_year, month=new_month, day=1)
+
+                chunk_end = min(chunk_end, max_date)
+
+                # Process this time chunk with OFFSET/LIMIT batching
+                chunk_candles = self._process_time_chunk(
+                    symbol=symbol,
+                    target_timeframe=target_timeframe,
+                    interval_minutes=interval_minutes,
+                    chunk_start=current_date,
+                    chunk_end=chunk_end,
+                    batch_size=batch_size
+                )
+
+                total_candles_generated += chunk_candles
+
+                # Update progress (auto-logs at milestones and heartbeats)
+                progress.update(
+                    current=chunk_number,
+                    additional_info={"candles": total_candles_generated}
+                )
+
+                # Move to next chunk
+                current_date = chunk_end
+
+            progress.complete(summary={"total_candles": total_candles_generated})
+            return total_candles_generated
+
+        except Exception as e:
+            logger.error(f"❌ Error aggregating {symbol} {target_timeframe}: {e}", exc_info=True)
+            return 0
+
+    def _process_time_chunk(
+        self,
+        symbol: str,
+        target_timeframe: str,
+        interval_minutes: int,
+        chunk_start: datetime,
+        chunk_end: datetime,
+        batch_size: int
+    ) -> int:
+        """
+        Process one time chunk (3 months) using OFFSET/LIMIT batching
+
+        Args:
+            symbol: Symbol to aggregate
+            target_timeframe: Target timeframe
+            interval_minutes: Interval in minutes
+            chunk_start: Chunk start date
+            chunk_end: Chunk end date
+            batch_size: Batch size for OFFSET/LIMIT
+
+        Returns:
+            Number of candles generated for this chunk
+        """
+        try:
+            # Get count for this time chunk
             count_query = f"""
             SELECT COUNT(*) as count
             FROM aggregates
             WHERE symbol = '{symbol}'
               AND timeframe = '1m'
               AND source = 'polygon_historical'
+              AND timestamp >= '{chunk_start.strftime('%Y-%m-%d %H:%M:%S')}'
+              AND timestamp < '{chunk_end.strftime('%Y-%m-%d %H:%M:%S')}'
             """
             count_result = self.client.query(count_query)
-            total_rows = count_result.result_rows[0][0] if count_result.result_rows else 0
+            chunk_rows = count_result.result_rows[0][0] if count_result.result_rows else 0
 
-            if total_rows == 0:
-                logger.warning(f"⚠️ No 1m bars found for {symbol}")
+            if chunk_rows == 0:
+                logger.warning(f"   ⚠️ No bars in this chunk")
                 return 0
 
-            logger.info(f"📊 Total 1m bars to process: {total_rows:,} (batch size: {batch_size:,})")
+            logger.info(f"   📊 Chunk has {chunk_rows:,} bars (batch size: {batch_size:,})")
 
-            # Process in batches to limit memory usage
-            total_candles_generated = 0
+            # Process chunk in OFFSET/LIMIT batches
+            chunk_candles_generated = 0
             offset = 0
 
-            while offset < total_rows:
-                logger.info(f"📦 Processing batch {offset//batch_size + 1}/{(total_rows + batch_size - 1)//batch_size} (offset: {offset:,})")
+            while offset < chunk_rows:
+                batch_num = offset // batch_size + 1
+                total_batches = (chunk_rows + batch_size - 1) // batch_size
+                logger.info(f"   📦 Batch {batch_num}/{total_batches} (offset: {offset:,})")
 
                 # Query batch
                 query = f"""
@@ -128,14 +279,11 @@ class HistoricalAggregator:
                 WHERE symbol = '{symbol}'
                   AND timeframe = '1m'
                   AND source = 'polygon_historical'
+                  AND timestamp >= '{chunk_start.strftime('%Y-%m-%d %H:%M:%S')}'
+                  AND timestamp < '{chunk_end.strftime('%Y-%m-%d %H:%M:%S')}'
+                ORDER BY timestamp ASC
+                LIMIT {batch_size} OFFSET {offset}
                 """
-
-                if start_date:
-                    query += f" AND timestamp >= '{start_date.strftime('%Y-%m-%d %H:%M:%S')}'"
-                if end_date:
-                    query += f" AND timestamp <= '{end_date.strftime('%Y-%m-%d %H:%M:%S')}'"
-
-                query += f" ORDER BY timestamp ASC LIMIT {batch_size} OFFSET {offset}"
 
                 # Execute query
                 result = self.client.query(query)
@@ -172,8 +320,8 @@ class HistoricalAggregator:
                 if aggregated_candles:
                     # Insert into ClickHouse
                     self._insert_candles(aggregated_candles)
-                    total_candles_generated += len(aggregated_candles)
-                    logger.info(f"✅ Batch complete: {len(aggregated_candles)} candles inserted")
+                    chunk_candles_generated += len(aggregated_candles)
+                    logger.info(f"   ✅ Batch complete: {len(aggregated_candles)} candles inserted")
 
                 # Free memory
                 del df
@@ -181,11 +329,10 @@ class HistoricalAggregator:
 
                 offset += batch_size
 
-            logger.info(f"✅ Total generated: {total_candles_generated} {target_timeframe} candles for {symbol}")
-            return total_candles_generated
+            return chunk_candles_generated
 
         except Exception as e:
-            logger.error(f"❌ Error aggregating {symbol} {target_timeframe}: {e}", exc_info=True)
+            logger.error(f"❌ Error processing time chunk: {e}", exc_info=True)
             return 0
 
     def _aggregate_bars(
