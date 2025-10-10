@@ -36,5 +36,6 @@ __author__ = "Suho Trading System"
 
 from .client import CentralHubClient
 from .progress_logger import ProgressLogger
+from .heartbeat_logger import HeartbeatLogger
 
-__all__ = ['CentralHubClient', 'ProgressLogger']
+__all__ = ['CentralHubClient', 'ProgressLogger', 'HeartbeatLogger']

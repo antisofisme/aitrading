@@ -21,7 +21,7 @@ from aggregate_client import PolygonAggregateClient
 from nats_publisher import NATSPublisher
 
 # Central Hub SDK (installed via pip)
-from central_hub_sdk import CentralHubClient
+from central_hub_sdk import CentralHubClient, HeartbeatLogger
 
 # Setup logging
 logging.basicConfig(
@@ -63,6 +63,9 @@ class PolygonLiveCollector:
 
         self.start_time = datetime.now()
         self.is_running = False
+
+        # HeartbeatLogger for live service monitoring
+        self.heartbeat_logger = None
 
         logger.info("=" * 80)
         logger.info("POLYGON.IO LIVE COLLECTOR + CENTRAL HUB")
@@ -154,13 +157,21 @@ class PolygonLiveCollector:
 
             self.is_running = True
 
+            # Initialize HeartbeatLogger for live service monitoring
+            self.heartbeat_logger = HeartbeatLogger(
+                service_name="live-collector",
+                task_name="Real-time data collection",
+                heartbeat_interval=30  # Log every 30 seconds
+            )
+            self.heartbeat_logger.start()
+
             # Start WebSocket, REST poller, and Aggregate client concurrently
             logger.info("✅ Starting data collection...")
 
             tasks = [
                 self.websocket_client.connect(),
                 self.rest_poller.start(),
-                self._status_reporter()
+                self._heartbeat_reporter()
             ]
 
             # Add aggregate client if enabled
@@ -177,11 +188,11 @@ class PolygonLiveCollector:
             logger.error(f"❌ Error starting collector: {e}", exc_info=True)
             await self.stop()
 
-    async def _status_reporter(self):
-        """Report status every minute"""
+    async def _heartbeat_reporter(self):
+        """Lightweight heartbeat reporter using HeartbeatLogger"""
         while self.is_running:
             try:
-                await asyncio.sleep(60)  # Every minute
+                await asyncio.sleep(5)  # Check every 5 seconds (logger decides when to log)
 
                 # Collect stats
                 ws_stats = self.websocket_client.get_stats() if self.websocket_client else {}
@@ -189,11 +200,29 @@ class PolygonLiveCollector:
                 agg_stats = self.aggregate_client.get_stats() if self.aggregate_client else {}
                 pub_stats = self.publisher.get_stats() if self.publisher else {}
 
-                uptime = datetime.now() - self.start_time
+                # Calculate total processed
+                total_messages = (
+                    ws_stats.get('message_count', 0) +
+                    rest_stats.get('poll_count', 0) +
+                    agg_stats.get('aggregate_count', 0)
+                )
 
+                # Update heartbeat logger (will auto-log when interval reached)
+                self.heartbeat_logger.update(
+                    processed_count=0,  # Don't increment, just update metrics
+                    additional_metrics={
+                        'ws_msgs': ws_stats.get('message_count', 0),
+                        'rest_polls': rest_stats.get('poll_count', 0),
+                        'agg_bars': agg_stats.get('aggregate_count', 0),
+                        'nats': pub_stats.get('nats_publish_count', 0),
+                        'kafka': pub_stats.get('kafka_publish_count', 0)
+                    }
+                )
+
+                # Prepare status data for Central Hub (sent every 30s with heartbeat log)
                 status_data = {
                     'instance_id': self.config.instance_id,
-                    'uptime_seconds': int(uptime.total_seconds()),
+                    'total_messages': total_messages,
                     'websocket': ws_stats,
                     'rest_poller': rest_stats,
                     'aggregate': agg_stats,
@@ -201,27 +230,14 @@ class PolygonLiveCollector:
                     'timestamp': datetime.now().isoformat()
                 }
 
-                # Log status
-                logger.info("=" * 80)
-                logger.info(f"📊 STATUS REPORT - Uptime: {uptime}")
-                logger.info(f"WebSocket Quotes: {ws_stats.get('message_count', 0)} messages | Running: {ws_stats.get('is_running', False)}")
-                logger.info(f"REST Poller: {rest_stats.get('poll_count', 0)} polls | Running: {rest_stats.get('is_running', False)}")
-                logger.info(f"Aggregate Bars: {agg_stats.get('aggregate_count', 0)} bars | Running: {agg_stats.get('is_running', False)}")
-                logger.info(f"NATS: {pub_stats.get('nats_publish_count', 0)} published | Connected: {pub_stats.get('nats_connected', False)}")
-                logger.info(f"Kafka: {pub_stats.get('kafka_publish_count', 0)} published | Connected: {pub_stats.get('kafka_connected', False)}")
-                logger.info("=" * 80)
-
-                # Publish status to NATS
-                await self.publisher.publish_status(status_data)
-
-                # Send heartbeat to Central Hub with metrics
+                # Send heartbeat to Central Hub with metrics (every 30s)
                 if self.central_hub.registered:
                     await self.central_hub.send_heartbeat(metrics=status_data)
 
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error(f"Error in status reporter: {e}")
+                logger.error(f"Error in heartbeat reporter: {e}")
 
     async def stop(self):
         """Stop the collector"""

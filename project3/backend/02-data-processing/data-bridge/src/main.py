@@ -25,6 +25,9 @@ from external_data_writer import ExternalDataWriter
 # Import Database Manager from Central Hub
 from components.data_manager import DataRouter, TickData, CandleData
 
+# Central Hub SDK for heartbeat logging
+from central_hub_sdk import HeartbeatLogger
+
 # Setup logging
 logging.basicConfig(
     level=logging.INFO,
@@ -72,6 +75,9 @@ class DataBridge:
         self.candles_saved_timescale = 0
         self.candles_saved_clickhouse = 0
         self.external_data_saved = 0
+
+        # HeartbeatLogger for live service monitoring
+        self.heartbeat_logger = None
 
         logger.info("=" * 80)
         logger.info("DATA BRIDGE - INTELLIGENT ROUTING")
@@ -195,6 +201,14 @@ class DataBridge:
 
             self.is_running = True
 
+            # Initialize HeartbeatLogger for live service monitoring
+            self.heartbeat_logger = HeartbeatLogger(
+                service_name="data-bridge",
+                task_name="Message routing and deduplication",
+                heartbeat_interval=30  # Log every 30 seconds
+            )
+            self.heartbeat_logger.start()
+
             logger.info("=" * 80)
             logger.info("✅ DATA BRIDGE STARTED - INTELLIGENT ROUTING")
             logger.info("📊 NATS: Real-time data path (PRIMARY)")
@@ -205,11 +219,10 @@ class DataBridge:
             logger.info("💾 Historical (polygon_historical) → ClickHouse.aggregates")
             logger.info("=" * 80)
 
-            # Run Kafka poller, heartbeat, and status reporter concurrently
+            # Run Kafka poller and heartbeat reporter concurrently
             await asyncio.gather(
                 self.kafka_subscriber.poll_messages(),
-                self._heartbeat_loop(),
-                self._status_reporter()
+                self._heartbeat_reporter()
             )
 
         except Exception as e:
@@ -398,83 +411,58 @@ class DataBridge:
             logger.debug(f"External data: {data}")
             raise
 
-    async def _heartbeat_loop(self):
-        """Send periodic heartbeat to Central Hub"""
-        heartbeat_interval = 30  # 30 seconds
-
+    async def _heartbeat_reporter(self):
+        """Lightweight heartbeat reporter using HeartbeatLogger"""
         while self.is_running:
             try:
-                await asyncio.sleep(heartbeat_interval)
+                await asyncio.sleep(5)  # Check every 5 seconds (logger decides when to log)
 
-                # Send heartbeat with metrics if Central Hub is available
+                # Collect stats
+                nats_stats = self.nats_subscriber.get_stats() if self.nats_subscriber else {}
+                kafka_stats = self.kafka_subscriber.get_stats() if self.kafka_subscriber else {}
+                dedup_stats = self.deduplicator.get_stats() if self.deduplicator else {}
+                clickhouse_stats = self.clickhouse_writer.get_stats() if self.clickhouse_writer else {}
+
+                # Calculate total processed
+                total_processed = (
+                    self.ticks_saved +
+                    self.candles_saved_timescale +
+                    self.candles_saved_clickhouse +
+                    self.external_data_saved
+                )
+
+                # Update heartbeat logger (will auto-log when interval reached)
+                self.heartbeat_logger.update(
+                    processed_count=0,  # Don't increment, just update metrics
+                    additional_metrics={
+                        'ticks': self.ticks_saved,
+                        'ch_candles': self.candles_saved_clickhouse,
+                        'external': self.external_data_saved,
+                        'duplicates': dedup_stats.get('total_duplicates', 0),
+                        'ch_buffer': clickhouse_stats.get('buffer_size', 0)
+                    }
+                )
+
+                # Prepare metrics for Central Hub (sent every 30s with heartbeat log)
                 if hasattr(self.config, 'central_hub') and self.config.central_hub:
                     metrics = {
                         'ticks_saved': self.ticks_saved,
                         'candles_saved_timescale': self.candles_saved_timescale,
                         'candles_saved_clickhouse': self.candles_saved_clickhouse,
                         'external_data_saved': self.external_data_saved,
+                        'duplicates': dedup_stats.get('total_duplicates', 0),
                         'uptime_seconds': (datetime.utcnow() - self.start_time).total_seconds()
                     }
 
                     try:
                         await self.config.central_hub.send_heartbeat(metrics=metrics)
-                        logger.debug("💓 Heartbeat sent to Central Hub")
                     except Exception as hb_err:
                         logger.warning(f"⚠️  Failed to send heartbeat: {hb_err}")
 
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error(f"Error in heartbeat loop: {e}")
-
-    async def _status_reporter(self):
-        """Report status periodically"""
-        interval = self.config.monitoring_config.get('report_interval_seconds', 60)
-
-        while self.is_running:
-            try:
-                await asyncio.sleep(interval)
-
-                # Collect statistics
-                uptime = datetime.utcnow() - self.start_time
-
-                nats_stats = self.nats_subscriber.get_stats() if self.nats_subscriber else {}
-                kafka_stats = self.kafka_subscriber.get_stats() if self.kafka_subscriber else {}
-                dedup_stats = self.deduplicator.get_stats() if self.deduplicator else {}
-                clickhouse_stats = self.clickhouse_writer.get_stats() if self.clickhouse_writer else {}
-
-                # Log status
-                logger.info("=" * 80)
-                logger.info(f"📊 STATUS REPORT - Uptime: {uptime}")
-                logger.info(f"NATS Messages: {nats_stats.get('total_messages', 0)} | "
-                           f"Ticks: {nats_stats.get('tick_messages', 0)} | "
-                           f"Aggregates: {nats_stats.get('aggregate_messages', 0)}")
-                logger.info(f"Kafka Messages: {kafka_stats.get('total_messages', 0)} | "
-                           f"Ticks: {kafka_stats.get('tick_messages', 0)} | "
-                           f"Aggregates: {kafka_stats.get('aggregate_messages', 0)}")
-                logger.info(f"Deduplication: {dedup_stats.get('total_duplicates', 0)} duplicates | "
-                           f"Rate: {dedup_stats.get('duplicate_rate', 0):.2%} | "
-                           f"Cache size: {dedup_stats.get('cache_size', 0)}")
-                logger.info(f"TimescaleDB: {self.ticks_saved} ticks | {self.candles_saved_timescale} live candles")
-                logger.info(f"ClickHouse: {self.candles_saved_clickhouse} historical candles | "
-                           f"Buffer: {clickhouse_stats.get('buffer_size', 0)} | "
-                           f"Errors: {clickhouse_stats.get('total_insert_errors', 0)}")
-
-                # External data stats
-                if self.external_data_writer:
-                    external_stats = self.external_data_writer.get_stats()
-                    logger.info(f"External Data: {external_stats.get('total', 0)} total | "
-                               f"Calendar: {external_stats.get('economic_calendar', 0)} | "
-                               f"FRED: {external_stats.get('fred_economic', 0)} | "
-                               f"Crypto: {external_stats.get('crypto_sentiment', 0)} | "
-                               f"Errors: {external_stats.get('errors', 0)}")
-
-                logger.info("=" * 80)
-
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                logger.error(f"Error in status reporter: {e}")
+                logger.error(f"Error in heartbeat reporter: {e}")
 
     async def stop(self):
         """Stop the Data Bridge"""
