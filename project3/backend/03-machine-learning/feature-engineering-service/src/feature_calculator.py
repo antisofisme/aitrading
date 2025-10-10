@@ -99,6 +99,15 @@ class FeatureCalculator:
 
         for idx, candle in aggregates_batch.iterrows():
             try:
+                # CRITICAL: Convert ALL Decimal values to float
+                # Create a mutable copy of the candle Series
+                candle = candle.copy()
+                for col in candle.index:
+                    val = candle[col]
+                    if val is not None and hasattr(val, '__class__'):
+                        if 'Decimal' in str(val.__class__):
+                            candle[col] = float(val)
+
                 timestamp = pd.Timestamp(candle['timestamp'])
                 symbol = candle['symbol']
 
@@ -169,6 +178,7 @@ class FeatureCalculator:
                 # Group 7: Divergence (4 features) - 10%
                 if self.config['feature_groups']['divergence']['enabled']:
                     divergence_features = self.divergence_calculator.calculate(
+                        candle=candle,
                         h1_data=multi_tf_data.get('1h', pd.DataFrame())
                     )
                     features.update(divergence_features)
@@ -184,14 +194,16 @@ class FeatureCalculator:
                 # Group 9: Momentum Indicators (3 features) - 5%
                 if self.config['feature_groups']['momentum_indicators']['enabled']:
                     momentum_features = self.momentum_calculator.calculate(
-                        candle=candle
+                        candle=candle,
+                        h1_data=multi_tf_data.get('1h', pd.DataFrame())
                     )
                     features.update(momentum_features)
 
                 # Group 10: Moving Averages (2 features) - 2%
                 if self.config['feature_groups']['moving_averages']['enabled']:
                     ma_features = self.ma_calculator.calculate(
-                        candle=candle
+                        candle=candle,
+                        h1_data=multi_tf_data.get('1h', pd.DataFrame())
                     )
                     features.update(ma_features)
 
@@ -226,6 +238,8 @@ class FeatureCalculator:
 
             except Exception as e:
                 logger.error(f"❌ Feature calculation failed for candle {idx}: {e}")
+                import traceback
+                logger.error(f"Traceback: {traceback.format_exc()}")
                 continue
 
         # Convert to DataFrame

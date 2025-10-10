@@ -351,6 +351,8 @@ services:
       - INSTANCE_ID=polygon-historical-downloader-1
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - POLYGON_API_KEY=${POLYGON_API_KEY}
+      - HISTORICAL_START_DATE=${HISTORICAL_START_DATE:-2023-01-01}
+      - HISTORICAL_END_DATE=${HISTORICAL_END_DATE:-now}
       - NATS_URL=nats://suho-nats-server:4222
       - KAFKA_BROKERS=suho-kafka:9092
       - CENTRAL_HUB_URL=http://suho-central-hub:7000
@@ -360,9 +362,9 @@ services:
     deploy:
       resources:
         limits:
-          memory: 2G  # Prevent OOM kills
+          memory: 4G  # Increased for 10-year download (was 2G)
         reservations:
-          memory: 512M
+          memory: 1G
     networks:
       - suho-trading-network
     depends_on:

@@ -71,15 +71,17 @@ class Config:
             nats_config = await self.central_hub.get_messaging_config('nats')
             kafka_config = await self.central_hub.get_messaging_config('kafka')
             postgresql_config = await self.central_hub.get_database_config('postgresql')
+            clickhouse_config = await self.central_hub.get_database_config('clickhouse')
 
             # Store Central Hub config
             self._central_hub_config = {
                 'nats': nats_config,
                 'kafka': kafka_config,
-                'postgresql': postgresql_config
+                'postgresql': postgresql_config,
+                'clickhouse': clickhouse_config
             }
 
-            logger.info(f"✅ Central Hub configs loaded")
+            logger.info(f"✅ Central Hub configs loaded (NATS, Kafka, PostgreSQL, ClickHouse)")
 
         except Exception as e:
             logger.warning(f"⚠️  Failed to get config from Central Hub: {e}")

@@ -53,11 +53,13 @@ class Config:
         """Get download configuration"""
         config = self._config.get('download', {})
 
-        # Parse dates
-        start_date = config.get('start_date', '2023-01-01')
-        end_date = config.get('end_date', 'today')
+        # Parse dates - ENV takes priority over YAML config
+        start_date = os.getenv('HISTORICAL_START_DATE',
+                               config.get('start_date', '2023-01-01'))
+        end_date = os.getenv('HISTORICAL_END_DATE',
+                             config.get('end_date', 'today'))
 
-        if end_date == 'today':
+        if end_date == 'today' or end_date == 'now':
             end_date = datetime.now().strftime('%Y-%m-%d')
 
         config['start_date'] = start_date
