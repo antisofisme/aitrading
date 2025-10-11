@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Data Bridge - NATS+Kafka Consumer with Database Manager Integration
-Implements dual-subscribe pattern with Database Manager for storage
-Phase 1: TimescaleDB + DragonflyDB via Database Manager
+Data Bridge - NATS Consumer with Database Manager Integration
+Subscribes to NATS for market data and saves to databases
+Hybrid Architecture Phase 1: NATS-only for market data
 """
 import asyncio
 import logging
@@ -16,9 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, '/app/central-hub/shared')  # Access to Database Manager
 
 from config import Config
-from deduplicator import Deduplicator
 from nats_subscriber import NATSSubscriber
-from kafka_subscriber import KafkaSubscriber
 from clickhouse_writer import ClickHouseWriter
 from external_data_writer import ExternalDataWriter
 
@@ -40,15 +38,15 @@ class DataBridge:
     """
     Main orchestrator for Data Bridge
 
-    Architecture:
-    1. Subscribe to BOTH NATS (fast) and Kafka (reliable)
-    2. Deduplicate messages (same message from both sources)
-    3. Use Database Manager to route data to optimal databases
+    Hybrid Architecture - Phase 1:
+    1. Subscribe to NATS for market data (ticks + candles)
+    2. Route to appropriate database via Database Manager
+    3. No deduplication needed (single source: NATS only)
 
     Data Flow:
-    NATS/Kafka → Data Bridge → Database Manager → [TimescaleDB + DragonflyDB]
+    NATS → Data Bridge → Database Manager → [TimescaleDB / ClickHouse]
 
-    Result: ZERO data loss, high performance, smart routing
+    Result: Simple, fast, no duplicate overhead
     """
 
     def __init__(self):
@@ -63,9 +61,7 @@ class DataBridge:
         # External Data Writer (for External data → ClickHouse)
         self.external_data_writer = None
 
-        self.deduplicator = None
         self.nats_subscriber = None
-        self.kafka_subscriber = None
 
         self.start_time = datetime.utcnow()
         self.is_running = False
@@ -130,32 +126,16 @@ class DataBridge:
             else:
                 logger.warning("⚠️  ClickHouse config not found, historical/external data will not be saved")
 
-            # Initialize deduplicator
-            self.deduplicator = Deduplicator(self.config.dedup_config)
-
-            # Message handler (called by both NATS and Kafka)
+            # Message handler (called by NATS subscriber)
             async def handle_message(data: dict, data_type: str):
                 """
                 Central message handler
 
                 Args:
                     data: Message data
-                    data_type: "tick" or "aggregate"
+                    data_type: "tick" or "aggregate" or "external"
                 """
-                source = data.get('_source', 'unknown')
-
-                # Generate message ID for deduplication
-                message_id = self.deduplicator.generate_message_id(data)
-
-                # DEBUG: Log flow for first 10 messages only
-                if self.ticks_saved < 10:
-                    logger.info(f"🔍 handle_message | type={data_type} | source={source} | msg_id={message_id[:30]}")
-
-                # Check for duplicates
-                if self.deduplicator.is_duplicate(message_id, source):
-                    # Skip duplicate (already processed from other source)
-                    logger.debug(f"⏭️  Skipped duplicate {data_type} from {source}")
-                    return
+                source = data.get('_source', 'nats')
 
                 # Process message based on type
                 try:
@@ -165,39 +145,31 @@ class DataBridge:
                         # Tick data → TimescaleDB.market_ticks
                         await self._save_tick(data)
                         logger.debug(f"✅ Tick saved successfully")
+
                     elif data_type == 'aggregate':
-                        # Aggregate data → ClickHouse.aggregates (live_aggregated or historical)
+                        # Aggregate data → ClickHouse.aggregates
                         await self._save_candle(data)
                         logger.debug(f"✅ Candle saved successfully")
+
                     elif data_type == 'external':
                         # External data → ClickHouse.external_* tables
                         await self._save_external_data(data)
                         logger.debug(f"✅ External data saved successfully")
+
                     else:
                         logger.warning(f"⚠️  Unknown data type: {data_type}")
 
-                    # Mark as processed
-                    self.deduplicator.mark_processed(data, source)
-
                 except Exception as e:
                     logger.error(f"❌ Error processing {data_type} from {source}: {e}", exc_info=True)
-                    # Don't mark as processed if save failed
-                    # Will be retried from Kafka backup
+                    # Log error but don't crash (next message will be processed)
 
-            # Initialize NATS subscriber (PRIMARY path)
+            # Initialize NATS subscriber (market data source)
             self.nats_subscriber = NATSSubscriber(
                 config=self.config.nats_config,
                 message_handler=handle_message
             )
             await self.nats_subscriber.connect()
             await self.nats_subscriber.subscribe_all()
-
-            # Initialize Kafka subscriber (BACKUP path)
-            self.kafka_subscriber = KafkaSubscriber(
-                config=self.config.kafka_config,
-                message_handler=handle_message
-            )
-            await self.kafka_subscriber.connect()
 
             self.is_running = True
 
@@ -210,20 +182,15 @@ class DataBridge:
             self.heartbeat_logger.start()
 
             logger.info("=" * 80)
-            logger.info("✅ DATA BRIDGE STARTED - INTELLIGENT ROUTING")
-            logger.info("📊 NATS: Real-time data path (PRIMARY)")
-            logger.info("📊 Kafka: Backup + gap-filling (COMPLEMENTARY)")
-            logger.info("🔍 Deduplication: ENABLED")
-            logger.info("💾 Live Ticks (polygon_websocket) → TimescaleDB.market_ticks")
-            logger.info("💾 Live Aggregates (live_aggregated) → ClickHouse.aggregates")
-            logger.info("💾 Historical (polygon_historical) → ClickHouse.aggregates")
+            logger.info("✅ DATA BRIDGE STARTED - HYBRID PHASE 1")
+            logger.info("📊 NATS: Market data streaming (ONLY SOURCE)")
+            logger.info("💾 Live Ticks → TimescaleDB.market_ticks")
+            logger.info("💾 Aggregates → ClickHouse.aggregates")
+            logger.info("💾 External Data → ClickHouse.external_*")
             logger.info("=" * 80)
 
-            # Run Kafka poller and heartbeat reporter concurrently
-            await asyncio.gather(
-                self.kafka_subscriber.poll_messages(),
-                self._heartbeat_reporter()
-            )
+            # Run heartbeat reporter
+            await self._heartbeat_reporter()
 
         except Exception as e:
             logger.error(f"❌ Error starting Data Bridge: {e}", exc_info=True)
@@ -419,14 +386,11 @@ class DataBridge:
 
                 # Collect stats
                 nats_stats = self.nats_subscriber.get_stats() if self.nats_subscriber else {}
-                kafka_stats = self.kafka_subscriber.get_stats() if self.kafka_subscriber else {}
-                dedup_stats = self.deduplicator.get_stats() if self.deduplicator else {}
                 clickhouse_stats = self.clickhouse_writer.get_stats() if self.clickhouse_writer else {}
 
                 # Calculate total processed
                 total_processed = (
                     self.ticks_saved +
-                    self.candles_saved_timescale +
                     self.candles_saved_clickhouse +
                     self.external_data_saved
                 )
@@ -438,7 +402,7 @@ class DataBridge:
                         'ticks': self.ticks_saved,
                         'ch_candles': self.candles_saved_clickhouse,
                         'external': self.external_data_saved,
-                        'duplicates': dedup_stats.get('total_duplicates', 0),
+                        'nats_msgs': nats_stats.get('total_messages', 0),
                         'ch_buffer': clickhouse_stats.get('buffer_size', 0)
                     }
                 )
@@ -447,10 +411,9 @@ class DataBridge:
                 if hasattr(self.config, 'central_hub') and self.config.central_hub:
                     metrics = {
                         'ticks_saved': self.ticks_saved,
-                        'candles_saved_timescale': self.candles_saved_timescale,
                         'candles_saved_clickhouse': self.candles_saved_clickhouse,
                         'external_data_saved': self.external_data_saved,
-                        'duplicates': dedup_stats.get('total_duplicates', 0),
+                        'nats_messages': nats_stats.get('total_messages', 0),
                         'uptime_seconds': (datetime.utcnow() - self.start_time).total_seconds()
                     }
 
@@ -469,12 +432,9 @@ class DataBridge:
         logger.info("🛑 Stopping Data Bridge...")
         self.is_running = False
 
-        # Stop subscribers
+        # Stop NATS subscriber
         if self.nats_subscriber:
             await self.nats_subscriber.close()
-
-        if self.kafka_subscriber:
-            await self.kafka_subscriber.close()
 
         # Flush and close ClickHouse writer
         if self.clickhouse_writer:

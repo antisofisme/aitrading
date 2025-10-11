@@ -43,21 +43,21 @@ class PolygonLiveCollector:
         self.central_hub = CentralHubClient(
             service_name="polygon-live-collector",
             service_type="data-collector",
-            version="1.0.0",
+            version="2.0.0",
             capabilities=[
                 "forex-data-collection",
                 "real-time-streaming",
                 "websocket-ingestion",
                 "rest-polling",
                 "aggregate-bars",
-                "nats-publishing",
-                "kafka-publishing"
+                "nats-publishing"
             ],
             metadata={
                 "source": "polygon.io",
                 "mode": "live",
                 "data_types": ["quotes", "aggregates"],
-                "transport": ["nats", "kafka"]
+                "transport": "nats",
+                "architecture": "hybrid-phase1"
             }
         )
 
@@ -93,7 +93,6 @@ class PolygonLiveCollector:
 
                 # Use the fetched configs
                 nats_config = self.config.nats_config
-                kafka_config = self.config.kafka_config
 
                 logger.info(f"✅ Messaging configs loaded from Central Hub")
 
@@ -101,13 +100,9 @@ class PolygonLiveCollector:
                 # Fallback already handled by config.py
                 logger.warning(f"⚠️  Using fallback configuration")
                 nats_config = self.config.nats_config
-                kafka_config = self.config.kafka_config
 
-            # Initialize NATS/Kafka publisher with config from Central Hub
-            self.publisher = NATSPublisher(
-                nats_config=nats_config,
-                kafka_config=kafka_config
-            )
+            # Initialize NATS publisher (market data streaming)
+            self.publisher = NATSPublisher(nats_config=nats_config)
             await self.publisher.connect()
 
             # Message handlers
@@ -214,8 +209,7 @@ class PolygonLiveCollector:
                         'ws_msgs': ws_stats.get('message_count', 0),
                         'rest_polls': rest_stats.get('poll_count', 0),
                         'agg_bars': agg_stats.get('aggregate_count', 0),
-                        'nats': pub_stats.get('nats_publish_count', 0),
-                        'kafka': pub_stats.get('kafka_publish_count', 0)
+                        'nats': pub_stats.get('nats_publish_count', 0)
                     }
                 )
 

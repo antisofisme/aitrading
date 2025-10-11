@@ -1,11 +1,11 @@
 """
-Publisher for NATS and Kafka
-Publishes historical data to message queues
+Publisher for NATS (Hybrid Architecture Phase 1)
+Publishes historical market data to NATS for real-time distribution
 
 RESILIENCE FEATURES:
-- Local disk buffer (fallback if NATS+Kafka unavailable)
+- Local disk buffer (fallback if NATS unavailable)
 - Automatic retry with exponential backoff
-- Circuit breaker for message queue failures
+- Circuit breaker for NATS failures
 - Health status monitoring
 """
 import logging
@@ -16,79 +16,69 @@ from typing import List, Dict, Optional
 from datetime import datetime
 from pathlib import Path
 from nats.aio.client import Client as NATSClient
-from aiokafka import AIOKafkaProducer
 
 logger = logging.getLogger(__name__)
 
 class MessagePublisher:
-    """Publish historical data to NATS and Kafka with fallback to disk"""
+    """
+    Publish historical data to NATS with fallback to disk
 
-    def __init__(self, nats_url: str, kafka_brokers: str):
+    Hybrid Architecture - Phase 1:
+    - Market data (historical OHLCV) → NATS (broadcast to all consumers)
+    - Disk buffer → Prevents data loss if NATS temporarily unavailable
+    """
+
+    def __init__(self, nats_url: str, kafka_brokers: str = None):
         self.nats_url = nats_url
-        self.kafka_brokers = kafka_brokers.split(',')
-
         self.nats_client = None
-        self.kafka_producer = None
 
-        # Local disk buffer (CRITICAL: Prevents data loss if message queues down)
+        # Local disk buffer (CRITICAL: Prevents data loss if NATS down)
         self.buffer_dir = Path("/app/data/buffer")
         self.buffer_dir.mkdir(parents=True, exist_ok=True)
 
         # Circuit breaker state
         self.nats_failures = 0
-        self.kafka_failures = 0
         self.max_failures_before_buffer = 3  # After 3 failures, use disk buffer
 
         self.stats = {
             'published_nats': 0,
-            'published_kafka': 0,
             'buffered_to_disk': 0,
             'flushed_from_buffer': 0,
             'errors': 0
         }
 
     async def connect(self):
-        """Connect to NATS and Kafka"""
+        """Connect to NATS"""
         try:
             # Connect to NATS
             self.nats_client = NATSClient()
             await self.nats_client.connect(self.nats_url)
             logger.info(f"✅ Connected to NATS: {self.nats_url}")
 
-            # Connect to Kafka
-            self.kafka_producer = AIOKafkaProducer(
-                bootstrap_servers=self.kafka_brokers,
-                value_serializer=lambda v: json.dumps(v).encode('utf-8')
-            )
-            await self.kafka_producer.start()
-            logger.info(f"✅ Connected to Kafka: {self.kafka_brokers}")
-
         except Exception as e:
-            logger.error(f"❌ Connection error: {e}")
+            logger.error(f"❌ NATS connection error: {e}")
             raise
 
     async def disconnect(self):
-        """Disconnect from NATS and Kafka"""
+        """Disconnect from NATS"""
         try:
             if self.nats_client:
                 await self.nats_client.drain()
                 logger.info("Disconnected from NATS")
-
-            if self.kafka_producer:
-                await self.kafka_producer.stop()
-                logger.info("Disconnected from Kafka")
 
         except Exception as e:
             logger.error(f"Disconnect error: {e}")
 
     async def publish_aggregate(self, aggregate_data: Dict):
         """
-        Publish aggregate bar to NATS and Kafka with fallback to disk buffer
+        Publish aggregate bar to NATS with fallback to disk buffer
+
+        Subject Pattern (from nats.json):
+        - market.{symbol}.{timeframe}
 
         RESILIENCE:
         - Try NATS first
-        - Try Kafka second
-        - If both fail → Save to local disk buffer
+        - If fails → Save to local disk buffer
         - Periodic retry flushing buffer
 
         Args:
@@ -96,21 +86,24 @@ class MessagePublisher:
         """
         try:
             symbol_clean = aggregate_data['symbol'].replace('/', '')
+            timeframe = aggregate_data['timeframe']
+
+            # Subject: market.{symbol}.{timeframe} (from nats.json)
+            subject = f"market.{symbol_clean}.{timeframe}"
 
             # Add metadata
             message = {
                 **aggregate_data,
                 'event_type': 'ohlcv',
                 'ingested_at': datetime.utcnow().isoformat(),
-                '_source': 'historical'
+                '_source': 'historical',
+                '_transport': 'nats'
             }
 
             nats_success = False
-            kafka_success = False
 
             # Try NATS
             try:
-                subject = f"bars.{symbol_clean}.{aggregate_data['timeframe']}"
                 await self.nats_client.publish(
                     subject,
                     json.dumps(message).encode('utf-8')
@@ -118,36 +111,23 @@ class MessagePublisher:
                 self.stats['published_nats'] += 1
                 self.nats_failures = 0  # Reset failure counter
                 nats_success = True
+
             except Exception as nats_error:
                 self.nats_failures += 1
-                logger.warning(f"⚠️ NATS publish failed: {nats_error}")
-                # Don't raise - try Kafka
+                logger.warning(f"⚠️ NATS publish failed (attempt {self.nats_failures}): {nats_error}")
 
-            # Try Kafka (backup + archive)
-            try:
-                await self.kafka_producer.send(
-                    'aggregate_archive',
-                    value=message
-                )
-                self.stats['published_kafka'] += 1
-                self.kafka_failures = 0  # Reset failure counter
-                kafka_success = True
-            except Exception as kafka_error:
-                self.kafka_failures += 1
-                logger.warning(f"⚠️ Kafka publish failed: {kafka_error}")
-                # Don't raise - will check if buffer needed
+                # CRITICAL: If NATS failed, save to disk buffer
+                if self.nats_failures >= self.max_failures_before_buffer:
+                    logger.error(f"❌ NATS unavailable after {self.nats_failures} failures!")
+                    logger.warning(f"💾 Buffering to disk: {aggregate_data.get('symbol')}")
 
-            # CRITICAL: If BOTH failed, save to disk buffer
-            if not nats_success and not kafka_success:
-                logger.error(f"❌ BOTH NATS and Kafka unavailable!")
-                logger.warning(f"💾 Buffering to disk: {aggregate_data.get('symbol')}")
-
-                await self._buffer_to_disk(message)
-                self.stats['buffered_to_disk'] += 1
+                    await self._buffer_to_disk(message)
+                    self.stats['buffered_to_disk'] += 1
 
         except Exception as e:
             logger.error(f"❌ Critical publish error for {aggregate_data.get('symbol')}: {e}")
             self.stats['errors'] += 1
+
             # Last resort - buffer to disk
             try:
                 await self._buffer_to_disk(message)
@@ -193,41 +173,29 @@ class MessagePublisher:
                     message = json.load(f)
 
                 # Extract original aggregate data
-                symbol = message.get('symbol', 'UNKNOWN')
+                symbol = message.get('symbol', 'UNKNOWN').replace('/', '')
                 timeframe = message.get('timeframe', '1m')
 
-                nats_success = False
-                kafka_success = False
+                # Subject: market.{symbol}.{timeframe}
+                subject = f"market.{symbol}.{timeframe}"
 
                 # Try NATS
                 try:
-                    symbol_clean = symbol.replace('/', '')
-                    subject = f"bars.{symbol_clean}.{timeframe}"
                     await self.nats_client.publish(
                         subject,
                         json.dumps(message).encode('utf-8')
                     )
-                    nats_success = True
-                    self.stats['published_nats'] += 1
-                except Exception as nats_err:
-                    logger.debug(f"NATS still unavailable: {nats_err}")
 
-                # Try Kafka
-                try:
-                    await self.kafka_producer.send('aggregate_archive', value=message)
-                    kafka_success = True
-                    self.stats['published_kafka'] += 1
-                except Exception as kafka_err:
-                    logger.debug(f"Kafka still unavailable: {kafka_err}")
-
-                # If at least ONE succeeded, delete buffer file
-                if nats_success or kafka_success:
+                    # Success - delete buffer file
                     buffer_file.unlink()
                     flushed_count += 1
+                    self.stats['published_nats'] += 1
                     self.stats['flushed_from_buffer'] += 1
                     logger.info(f"✅ Flushed buffer: {buffer_file.name}")
-                else:
-                    logger.debug(f"⏳ Keeping buffer file: {buffer_file.name} (queues still down)")
+
+                except Exception as nats_err:
+                    logger.debug(f"NATS still unavailable: {nats_err}")
+                    logger.debug(f"⏳ Keeping buffer file: {buffer_file.name} (NATS still down)")
 
             except Exception as e:
                 logger.error(f"❌ Error flushing {buffer_file.name}: {e}")
@@ -256,7 +224,6 @@ class MessagePublisher:
             buffer_status = self.get_buffer_status()
             logger.info(f"Published {len(aggregates)} aggregates | "
                        f"NATS: {self.stats['published_nats']} | "
-                       f"Kafka: {self.stats['published_kafka']} | "
                        f"Buffered: {self.stats['buffered_to_disk']} | "
                        f"Buffer Queue: {buffer_status['buffered_messages']} | "
                        f"Errors: {self.stats['errors']}")

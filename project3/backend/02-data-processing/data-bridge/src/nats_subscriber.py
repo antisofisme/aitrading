@@ -56,83 +56,112 @@ class NATSSubscriber:
             raise
 
     async def subscribe_all(self):
-        """Subscribe to all subjects"""
-        subjects = self.config.get('subjects', {})
+        """
+        Subscribe to all market data subjects
 
-        # Subscribe to tick data
-        tick_subject = subjects.get('ticks', 'ticks.>')
-        await self.nc.subscribe(tick_subject, cb=self._handle_tick_message)
-        logger.info(f"📊 Subscribed to {tick_subject}")
+        Subject Patterns (from nats.json):
+        - market.> (all market data: ticks, candles, all symbols)
+        - signals.> (AI signals)
+        - indicators.> (technical indicators)
+        - system.> (system events)
+        """
+        # Subscribe to ALL market data (wildcard pattern from nats.json)
+        # This includes:
+        # - market.EURUSD.tick (ticks)
+        # - market.EURUSD.5m (candles)
+        # - market.XAUUSD.1h (candles)
+        # etc.
+        await self.nc.subscribe("market.>", cb=self._handle_market_message)
+        logger.info(f"📊 Subscribed to market.> (all ticks + candles)")
 
-        # Subscribe to aggregate data
-        agg_subject = subjects.get('aggregates', 'bars.>')
-        await self.nc.subscribe(agg_subject, cb=self._handle_aggregate_message)
-        logger.info(f"📊 Subscribed to {agg_subject}")
-
-        # Subscribe to confirmation data
-        conf_subject = subjects.get('confirmation', 'confirmation.>')
-        await self.nc.subscribe(conf_subject, cb=self._handle_tick_message)
-        logger.info(f"📊 Subscribed to {conf_subject}")
+        # Subscribe to signals (AI trading signals)
+        await self.nc.subscribe("signals.>", cb=self._handle_signal_message)
+        logger.info(f"📊 Subscribed to signals.> (AI signals)")
 
         # Subscribe to external data (economic calendar, sentiment, etc.)
-        external_subject = subjects.get('external', 'market.external.>')
-        await self.nc.subscribe(external_subject, cb=self._handle_external_message)
-        logger.info(f"📊 Subscribed to {external_subject}")
+        await self.nc.subscribe("market.external.>", cb=self._handle_external_message)
+        logger.info(f"📊 Subscribed to market.external.> (external data)")
+
+        # Subscribe to system events
+        await self.nc.subscribe("system.>", cb=self._handle_system_message)
+        logger.info(f"📊 Subscribed to system.> (system events)")
 
         self.is_running = True
 
-    async def _handle_tick_message(self, msg):
-        """Handle tick/confirmation message from NATS"""
+    async def _handle_market_message(self, msg):
+        """
+        Handle market data messages (ticks + candles)
+
+        Subject examples:
+        - market.EURUSD.tick → tick data
+        - market.EURUSD.5m → 5-minute candle
+        - market.XAUUSD.1h → 1-hour candle
+        """
         try:
             # Parse JSON
             data = orjson.loads(msg.data)
 
-            # Add source metadata (preserve existing _source if present, e.g., from Tick Aggregator)
+            # Add source metadata (preserve existing _source if present)
             if '_source' not in data:
                 data['_source'] = 'nats'
             data['_subject'] = msg.subject
 
-            # Send to message handler
-            await self.message_handler(data, data_type='tick')
+            # Determine data type from subject
+            # market.{symbol}.tick → tick
+            # market.{symbol}.{timeframe} → aggregate
+            parts = msg.subject.split('.')
+            if len(parts) >= 3:
+                data_type_indicator = parts[2]  # 'tick' or timeframe like '5m'
 
-            # Update statistics
-            self.total_messages += 1
-            if 'confirmation' in msg.subject:
-                self.confirmation_messages += 1
+                if data_type_indicator == 'tick':
+                    data_type = 'tick'
+                    self.tick_messages += 1
+                else:
+                    data_type = 'aggregate'
+                    self.aggregate_messages += 1
             else:
-                self.tick_messages += 1
+                # Fallback
+                data_type = 'tick' if 'tick' in msg.subject else 'aggregate'
+
+            # Send to message handler
+            await self.message_handler(data, data_type=data_type)
+
+            # Update statistics
+            self.total_messages += 1
 
             if self.total_messages % 10000 == 0:
                 logger.info(f"📈 NATS received {self.total_messages} messages")
 
         except Exception as e:
-            logger.error(f"Error handling NATS tick message: {e}")
+            logger.error(f"Error handling NATS market message: {e}")
+            logger.debug(f"Subject: {msg.subject}")
             logger.debug(f"Message data: {msg.data[:200]}")
 
-    async def _handle_aggregate_message(self, msg):
-        """Handle aggregate message from NATS"""
+    async def _handle_signal_message(self, msg):
+        """Handle AI signal messages (future use)"""
         try:
-            # Parse JSON
             data = orjson.loads(msg.data)
 
-            # Add source metadata (preserve existing _source if present, e.g., from Tick Aggregator)
             if '_source' not in data:
                 data['_source'] = 'nats'
             data['_subject'] = msg.subject
 
-            # Send to message handler
-            await self.message_handler(data, data_type='aggregate')
-
-            # Update statistics
-            self.total_messages += 1
-            self.aggregate_messages += 1
-
-            if self.total_messages % 10000 == 0:
-                logger.info(f"📈 NATS received {self.total_messages} messages")
+            # For now, just log (will be used when AI trading is implemented)
+            logger.debug(f"📊 Received signal: {msg.subject}")
 
         except Exception as e:
-            logger.error(f"Error handling NATS aggregate message: {e}")
-            logger.debug(f"Message data: {msg.data[:200]}")
+            logger.error(f"Error handling signal message: {e}")
+
+    async def _handle_system_message(self, msg):
+        """Handle system events (health, logs, etc.)"""
+        try:
+            data = orjson.loads(msg.data)
+
+            # System messages are for monitoring, not data processing
+            logger.debug(f"🔧 System event: {msg.subject}")
+
+        except Exception as e:
+            logger.error(f"Error handling system message: {e}")
 
     async def _handle_external_message(self, msg):
         """Handle external data message from NATS (economic calendar, sentiment, etc.)"""
