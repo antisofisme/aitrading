@@ -463,11 +463,23 @@ class HistoricalAggregator:
                 if isinstance(timestamp, str):
                     timestamp = datetime.fromisoformat(timestamp.replace('Z', ''))
 
+                # Calculate version based on source (for deduplication priority)
+                source = candle['source']
+                timestamp_ms = int(candle['timestamp_ms'])
+                if source == 'live_aggregated':
+                    version = timestamp_ms  # Highest priority
+                elif source == 'live_gap_filled':
+                    version = timestamp_ms - 1  # High priority
+                elif source == 'historical_aggregated':
+                    version = 1  # Medium priority
+                else:  # polygon_historical, polygon_gap_fill
+                    version = 0  # Low priority
+
                 row = [
                     candle['symbol'],
                     candle['timeframe'],
                     timestamp,
-                    int(candle['timestamp_ms']),  # Ensure integer
+                    timestamp_ms,
                     float(candle['open']),
                     float(candle['high']),
                     float(candle['low']),
@@ -478,8 +490,10 @@ class HistoricalAggregator:
                     float(candle['body_pips']),
                     candle['start_time'],
                     candle['end_time'],
-                    candle['source'],
-                    indicators_json
+                    source,
+                    indicators_json,
+                    version,  # NEW: Version for deduplication
+                    datetime.now()  # NEW: created_at timestamp
                 ]
 
                 # Validate no NaN/Inf in numeric fields
@@ -497,7 +511,7 @@ class HistoricalAggregator:
                     'symbol', 'timeframe', 'timestamp', 'timestamp_ms',
                     'open', 'high', 'low', 'close', 'volume',
                     'vwap', 'range_pips', 'body_pips',
-                    'start_time', 'end_time', 'source', 'indicators'
+                    'start_time', 'end_time', 'source', 'indicators', 'version', 'created_at'
                 ]
             )
 

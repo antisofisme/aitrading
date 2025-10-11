@@ -11,7 +11,7 @@ import logging
 import asyncio
 import json
 from typing import List, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
 import clickhouse_connect
 
 # Circuit breaker for ClickHouse availability
@@ -50,7 +50,7 @@ class ClickHouseWriter:
 
         # Batch buffer for aggregates
         self.aggregate_buffer: List[Dict] = []
-        self.last_flush = datetime.utcnow()
+        self.last_flush = datetime.now(timezone.utc)
 
         # Circuit breaker (CRITICAL: Prevents cascading failures)
         self.circuit_breaker = CircuitBreaker(
@@ -132,7 +132,7 @@ class ClickHouseWriter:
 
         # Check if should flush
         should_flush_size = len(self.aggregate_buffer) >= self.batch_size
-        should_flush_time = (datetime.utcnow() - self.last_flush).total_seconds() >= self.batch_timeout
+        should_flush_time = (datetime.now(timezone.utc) - self.last_flush).total_seconds() >= self.batch_timeout
 
         if should_flush_size or should_flush_time:
             await self.flush_aggregates()
@@ -206,7 +206,7 @@ class ClickHouseWriter:
             if not filtered_buffer:
                 logger.info(f"✅ All {len(self.aggregate_buffer)} records already exist - skipping insert")
                 self.aggregate_buffer.clear()
-                self.last_flush = datetime.utcnow()
+                self.last_flush = datetime.now(timezone.utc)
                 return
 
             # Circuit breaker protection (CRITICAL!)
@@ -214,21 +214,21 @@ class ClickHouseWriter:
                 # Prepare data for insertion (using filtered buffer)
                 data = []
                 for agg in filtered_buffer:
-                    # Convert timestamps
-                    timestamp_dt = datetime.fromtimestamp(agg['timestamp_ms'] / 1000.0)
+                    # Convert timestamps to UTC timezone-aware datetime
+                    timestamp_dt = datetime.fromtimestamp(agg['timestamp_ms'] / 1000.0, tz=timezone.utc)
 
                     # Handle start_time and end_time (could be ISO strings or already datetime)
                     start_time = agg.get('start_time')
                     if isinstance(start_time, str):
                         start_time = datetime.fromisoformat(start_time.replace('Z', '+00:00'))
                     elif isinstance(start_time, (int, float)):
-                        start_time = datetime.fromtimestamp(start_time / 1000.0)
+                        start_time = datetime.fromtimestamp(start_time / 1000.0, tz=timezone.utc)
 
                     end_time = agg.get('end_time')
                     if isinstance(end_time, str):
                         end_time = datetime.fromisoformat(end_time.replace('Z', '+00:00'))
                     elif isinstance(end_time, (int, float)):
-                        end_time = datetime.fromtimestamp(end_time / 1000.0)
+                        end_time = datetime.fromtimestamp(end_time / 1000.0, tz=timezone.utc)
 
                     # Serialize indicators to JSON string (if present)
                     indicators_json = ''
@@ -238,6 +238,17 @@ class ClickHouseWriter:
                         except Exception as e:
                             logger.warning(f"Failed to serialize indicators: {e}")
                             indicators_json = '{}'
+
+                    # Calculate version based on source (for deduplication priority)
+                    source = agg.get('source', 'polygon_historical')
+                    if source == 'live_aggregated':
+                        version = agg['timestamp_ms']  # Highest priority
+                    elif source == 'live_gap_filled':
+                        version = agg['timestamp_ms'] - 1  # High priority
+                    elif source == 'historical_aggregated':
+                        version = 1  # Medium priority
+                    else:  # polygon_historical, polygon_gap_fill
+                        version = 0  # Low priority
 
                     row = [
                         agg['symbol'],
@@ -254,9 +265,11 @@ class ClickHouseWriter:
                         float(agg.get('body_pips', 0)),
                         start_time,
                         end_time,
-                        agg.get('source', 'polygon_historical'),
+                        source,
                         agg.get('event_type', 'ohlcv'),
-                        indicators_json  # Technical indicators as JSON string
+                        indicators_json,  # Technical indicators as JSON string
+                        version,  # NEW: Version for deduplication
+                        datetime.now(timezone.utc)  # NEW: created_at timestamp
                     ]
                     data.append(row)
 
@@ -268,7 +281,7 @@ class ClickHouseWriter:
                         'symbol', 'timeframe', 'timestamp', 'timestamp_ms',
                         'open', 'high', 'low', 'close', 'volume',
                         'vwap', 'range_pips', 'body_pips', 'start_time', 'end_time',
-                        'source', 'event_type', 'indicators'
+                        'source', 'event_type', 'indicators', 'version', 'created_at'
                     ]
                 )
 
@@ -285,7 +298,7 @@ class ClickHouseWriter:
 
             # Clear buffer ONLY on success
             self.aggregate_buffer.clear()
-            self.last_flush = datetime.utcnow()
+            self.last_flush = datetime.now(timezone.utc)
 
         except CircuitBreakerOpen as e:
             # Circuit breaker is OPEN - ClickHouse unavailable

@@ -532,7 +532,7 @@ class PolygonHistoricalService:
             stats = self.publisher.get_stats()
             logger.info(f"📊 Publishing Stats:")
             logger.info(f"   NATS: {stats['published_nats']} messages")
-            logger.info(f"   Kafka: {stats['published_kafka']} messages")
+            logger.info(f"   Buffered: {stats['buffered_to_disk']} messages")
             logger.info(f"   Errors: {stats['errors']}")
             logger.info(f"   Total Published: {total_published}")
 
@@ -543,7 +543,7 @@ class PolygonHistoricalService:
                     "message": "Historical download complete",
                     "total_published": total_published,
                     "nats_published": stats['published_nats'],
-                    "kafka_published": stats['published_kafka'],
+                    "buffered": stats['buffered_to_disk'],
                     "errors": stats['errors']
                 })
 
