@@ -4,48 +4,141 @@
     "port": "${NATS_PORT}",
     "monitoring_port": 8222,
     "protocol": "nats",
-    "timeout": 10000
+    "timeout": 10000,
+    "max_reconnect_attempts": 10,
+    "reconnect_time_wait": 2,
+    "ping_interval": 120
   },
   "jetstream": {
     "enabled": true,
     "store_dir": "/data",
-    "max_memory": "1GB",
-    "max_storage": "10GB"
+    "max_memory": "2GB",
+    "max_storage": "20GB"
   },
   "subjects": {
-    "trading": {
-      "orders": "trading.orders.*",
-      "positions": "trading.positions.*",
-      "market_data": "trading.market.*"
+    "market_data": {
+      "description": "Market data broadcast (shared, ephemeral)",
+      "patterns": {
+        "tick": "market.{symbol}.tick",
+        "candle": "market.{symbol}.{timeframe}",
+        "price_request": "market.{symbol}.price",
+        "status": "market.{symbol}.status"
+      },
+      "examples": [
+        "market.EURUSD.tick",
+        "market.EURUSD.5m",
+        "market.GBPUSD.1h"
+      ]
+    },
+    "signals": {
+      "description": "AI trading signals (broadcast to all users)",
+      "patterns": {
+        "strategy": "signals.{strategy}.{symbol}",
+        "prediction": "signals.predictions.{symbol}",
+        "alert": "signals.alerts.{type}"
+      },
+      "examples": [
+        "signals.scalping.EURUSD",
+        "signals.swing.GBPUSD",
+        "signals.predictions.EURUSD"
+      ]
+    },
+    "indicators": {
+      "description": "Technical indicators (calculated on-the-fly)",
+      "patterns": {
+        "technical": "indicators.{type}.{symbol}",
+        "custom": "indicators.custom.{name}.{symbol}"
+      },
+      "examples": [
+        "indicators.rsi.EURUSD",
+        "indicators.macd.GBPUSD",
+        "indicators.bollinger.EURUSD"
+      ]
     },
     "system": {
-      "health": "system.health.*",
-      "config": "system.config.*",
-      "logs": "system.logs.*"
+      "description": "System events (monitoring, health)",
+      "patterns": {
+        "health": "system.health.{service}",
+        "config": "system.config.{service}",
+        "logs": "system.logs.{level}",
+        "discovery": "system.discovery.{event}"
+      },
+      "examples": [
+        "system.health.data-bridge",
+        "system.config.trading-engine",
+        "system.logs.error"
+      ]
     }
   },
   "streams": {
-    "trading_stream": {
-      "subjects": ["trading.>"],
+    "market_data_stream": {
+      "description": "Market data stream (ephemeral, high throughput)",
+      "subjects": ["market.>"],
       "retention": "limits",
-      "max_age": 86400000,
-      "max_msgs": 1000000,
-      "storage": "file"
+      "max_age": 300000,
+      "max_msgs": 10000000,
+      "storage": "memory",
+      "discard": "old",
+      "max_msg_size": 1048576
     },
-    "system_stream": {
-      "subjects": ["system.>"],
+    "signals_stream": {
+      "description": "Trading signals stream",
+      "subjects": ["signals.>"],
       "retention": "limits",
       "max_age": 3600000,
+      "max_msgs": 1000000,
+      "storage": "memory",
+      "discard": "old"
+    },
+    "system_stream": {
+      "description": "System events stream",
+      "subjects": ["system.>"],
+      "retention": "limits",
+      "max_age": 86400000,
       "max_msgs": 100000,
-      "storage": "memory"
+      "storage": "file",
+      "discard": "old"
     }
   },
   "consumers": {
-    "trading_processor": {
-      "stream": "trading_stream",
+    "data_bridge": {
+      "stream": "market_data_stream",
+      "durable": true,
+      "deliver_policy": "all",
+      "ack_policy": "explicit",
+      "max_deliver": 3,
+      "ack_wait": 30000000000
+    },
+    "signal_processor": {
+      "stream": "signals_stream",
       "durable": true,
       "deliver_policy": "all",
       "ack_policy": "explicit"
+    }
+  },
+  "permissions": {
+    "description": "Service-level permissions",
+    "services": {
+      "live-collector": {
+        "publish": ["market.>", "signals.>"],
+        "subscribe": []
+      },
+      "historical-downloader": {
+        "publish": ["market.>"],
+        "subscribe": []
+      },
+      "data-bridge": {
+        "publish": [],
+        "subscribe": ["market.>", "signals.>"]
+      },
+      "dashboard": {
+        "publish": [],
+        "subscribe": ["market.>", "signals.>", "indicators.>"]
+      },
+      "trading-engine": {
+        "publish": ["signals.>"],
+        "subscribe": ["market.>"]
+      }
     }
   }
 }
