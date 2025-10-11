@@ -276,3 +276,104 @@ async def get_all_database_configs(request: Request) -> Dict[str, Any]:
         logger = logging.getLogger("central-hub.api.config")
         logger.error(f"Failed to get all database configs: {e}")
         raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
+
+
+@config_router.get("/messaging/nats/subjects")
+async def get_nats_subjects(request: Request, domain: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Get NATS subject patterns
+
+    Query params:
+        domain: market_data, signals, indicators, system (optional)
+
+    Returns:
+        Subject patterns for specified domain or all domains
+
+    Examples:
+        GET /api/config/messaging/nats/subjects
+        GET /api/config/messaging/nats/subjects?domain=market_data
+    """
+    try:
+        config_manager = request.app.state.config_manager
+        subjects = config_manager.get_nats_subjects(domain)
+
+        return {
+            "status": "success",
+            "domain": domain or "all",
+            "subjects": subjects,
+            "version": "1.0.0",
+            "last_updated": int(time.time() * 1000)
+        }
+
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        import logging
+        logger = logging.getLogger("central-hub.api.config")
+        logger.error(f"Failed to get NATS subjects: {e}")
+        raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
+
+
+@config_router.get("/messaging/kafka/topics")
+async def get_kafka_topics(request: Request, domain: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Get Kafka topic configurations
+
+    Query params:
+        domain: user_domain, system_domain (optional)
+
+    Returns:
+        Topic configs for specified domain or all domains
+
+    Examples:
+        GET /api/config/messaging/kafka/topics
+        GET /api/config/messaging/kafka/topics?domain=user_domain
+    """
+    try:
+        config_manager = request.app.state.config_manager
+        topics = config_manager.get_kafka_topics(domain)
+
+        return {
+            "status": "success",
+            "domain": domain or "all",
+            "topics": topics,
+            "version": "1.0.0",
+            "last_updated": int(time.time() * 1000)
+        }
+
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        import logging
+        logger = logging.getLogger("central-hub.api.config")
+        logger.error(f"Failed to get Kafka topics: {e}")
+        raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
+
+
+@config_router.get("/messaging/kafka/consumer-groups")
+async def get_kafka_consumer_groups(request: Request) -> Dict[str, Any]:
+    """
+    Get pre-defined Kafka consumer group configurations
+
+    Returns:
+        Consumer group configs for all services
+
+    Example:
+        GET /api/config/messaging/kafka/consumer-groups
+    """
+    try:
+        config_manager = request.app.state.config_manager
+        consumer_groups = config_manager.get_kafka_consumer_groups()
+
+        return {
+            "status": "success",
+            "consumer_groups": consumer_groups,
+            "version": "1.0.0",
+            "last_updated": int(time.time() * 1000)
+        }
+
+    except Exception as e:
+        import logging
+        logger = logging.getLogger("central-hub.api.config")
+        logger.error(f"Failed to get Kafka consumer groups: {e}")
+        raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")

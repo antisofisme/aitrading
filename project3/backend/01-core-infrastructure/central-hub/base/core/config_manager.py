@@ -113,6 +113,89 @@ class ConfigManager:
         """Get all messaging configurations"""
         return self.configurations.get("messaging", {})
 
+    def get_nats_subjects(self, domain: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Get NATS subject patterns for specific domain
+
+        Args:
+            domain: market_data, signals, indicators, system (optional)
+
+        Returns:
+            Subject patterns dict
+
+        Example:
+            >>> config_manager.get_nats_subjects("market_data")
+            {
+                "patterns": {
+                    "tick": "market.{symbol}.tick",
+                    "candle": "market.{symbol}.{timeframe}"
+                },
+                "examples": ["market.EURUSD.tick", "market.EURUSD.5m"]
+            }
+        """
+        nats_config = self.get_messaging_config("nats")
+        subjects = nats_config.get("subjects", {})
+
+        if domain:
+            domain_subjects = subjects.get(domain, {})
+            if not domain_subjects:
+                available_domains = list(subjects.keys())
+                raise ValueError(f"Domain '{domain}' not found. Available domains: {available_domains}")
+            return domain_subjects
+
+        return subjects
+
+    def get_kafka_topics(self, domain: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Get Kafka topic configurations for specific domain
+
+        Args:
+            domain: user_domain, system_domain (optional)
+
+        Returns:
+            Topic configurations dict
+
+        Example:
+            >>> config_manager.get_kafka_topics("user_domain")
+            {
+                "auth": {
+                    "name": "user.auth",
+                    "partitions": 3,
+                    "retention_ms": 7776000000
+                }
+            }
+        """
+        kafka_config = self.get_messaging_config("kafka")
+        topics = kafka_config.get("topics", {})
+
+        if domain:
+            domain_topics = topics.get(domain, {})
+            if not domain_topics:
+                available_domains = list(topics.keys())
+                raise ValueError(f"Domain '{domain}' not found. Available domains: {available_domains}")
+            return domain_topics
+
+        return topics
+
+    def get_kafka_consumer_groups(self) -> Dict[str, Any]:
+        """
+        Get pre-defined Kafka consumer group configurations
+
+        Returns:
+            Consumer group configs for all services
+
+        Example:
+            >>> config_manager.get_kafka_consumer_groups()
+            {
+                "trading_engine": {
+                    "group_id": "trading-engine",
+                    "topics": ["user.commands"]
+                }
+            }
+        """
+        kafka_config = self.get_messaging_config("kafka")
+        return kafka_config.get("consumer_groups", {})
+
     def _load_legacy_configurations(self) -> Dict[str, Any]:
         """Load legacy configurations that aren't in shared/static yet"""
         return {
