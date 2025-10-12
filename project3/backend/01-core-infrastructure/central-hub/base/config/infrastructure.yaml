@@ -57,7 +57,7 @@ databases:
 # Messaging Infrastructure
 messaging:
   nats:
-    host: suho-nats-server
+    host: nats-1
     port: 4222
     management_port: 8222
     type: nats
@@ -69,7 +69,7 @@ messaging:
       interval: 30
     dependencies: []
     critical: true
-    description: "Primary message broker"
+    description: "Primary message broker (NATS cluster primary node)"
 
   kafka:
     host: suho-kafka

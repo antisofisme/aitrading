@@ -24,7 +24,7 @@
     },
     "nats_kafka": {
       "enabled": false,
-      "nats_url": "nats://suho-nats-server:4222",
+      "nats_url": "nats://nats-1:4222,nats://nats-2:4222,nats://nats-3:4222",
       "kafka_brokers": ["suho-kafka:9092"]
     }
   },
