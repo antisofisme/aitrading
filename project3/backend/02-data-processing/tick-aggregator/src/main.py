@@ -237,7 +237,7 @@ class TickAggregatorServiceV2:
             gap_detector=self.gap_detector,
             symbols=self.symbols,
             timeframes=self.config.timeframes,
-            lookback_days=2  # Match TimescaleDB retention (2-3 days max for live ticks)
+            lookback_days=7  # Match TimescaleDB retention (7 days as per Issue #20)
         )
 
         # [3] HistoricalProcessor (MEDIUM)
