@@ -176,8 +176,6 @@ services:
       - "--routes=nats://nats-2:6222,nats://nats-3:6222"
       - "--jetstream"
       - "--store_dir=/data"
-      - "--max_mem_store=1GB"
-      - "--max_file_store=10GB"
       - "--http_port=8222"
     volumes:
       - nats-1-data:/data
@@ -211,8 +209,6 @@ services:
       - "--routes=nats://nats-1:6222,nats://nats-3:6222"
       - "--jetstream"
       - "--store_dir=/data"
-      - "--max_mem_store=1GB"
-      - "--max_file_store=10GB"
       - "--http_port=8222"
     volumes:
       - nats-2-data:/data
@@ -246,8 +242,6 @@ services:
       - "--routes=nats://nats-1:6222,nats://nats-2:6222"
       - "--jetstream"
       - "--store_dir=/data"
-      - "--max_mem_store=1GB"
-      - "--max_file_store=10GB"
       - "--http_port=8222"
     volumes:
       - nats-3-data:/data
