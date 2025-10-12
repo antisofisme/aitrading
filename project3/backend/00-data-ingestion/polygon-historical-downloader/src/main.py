@@ -87,18 +87,28 @@ class PolygonHistoricalService:
             nats_config = await self.central_hub.get_messaging_config('nats')
             kafka_config = await self.central_hub.get_messaging_config('kafka')
 
-            # Build connection URLs from config
-            nats_url = f"nats://{nats_config['connection']['host']}:{nats_config['connection']['port']}"
-            kafka_brokers = ','.join(kafka_config['connection']['bootstrap_servers'])
+            # Build connection URLs from config (support cluster URLs)
+            hub_nats = nats_config['connection']
 
-            logger.info(f"✅ Using NATS: {nats_url}")
+            # Use cluster_urls if available (preferred for HA)
+            cluster_urls = hub_nats.get('cluster_urls')
+            if cluster_urls:
+                # Use cluster URLs for high availability
+                nats_url = ','.join(cluster_urls)
+                logger.info(f"✅ Using NATS cluster: {nats_url}")
+            else:
+                # Fallback to single host/port (legacy mode)
+                nats_url = f"nats://{hub_nats['host']}:{hub_nats['port']}"
+                logger.info(f"✅ Using NATS: {nats_url}")
+
+            kafka_brokers = ','.join(kafka_config['connection']['bootstrap_servers'])
             logger.info(f"✅ Using Kafka: {kafka_brokers}")
 
         except Exception as e:
             # Fallback to environment variables if Central Hub config fails
             logger.warning(f"⚠️  Failed to get messaging config from Central Hub: {e}")
-            logger.warning("⚠️  Falling back to environment variables...")
-            nats_url = os.getenv('NATS_URL', 'nats://suho-nats-server:4222')
+            logger.warning(f"⚠️  Falling back to environment variables...")
+            nats_url = os.getenv('NATS_URL', 'nats://nats-1:4222,nats://nats-2:4222,nats://nats-3:4222')
             kafka_brokers = os.getenv('KAFKA_BROKERS', 'suho-kafka:9092')
 
         # Initialize publisher with config
@@ -483,12 +493,27 @@ class PolygonHistoricalService:
                             }
                             aggregates.append(aggregate)
 
-                        # Publish in batches
+                        # Publish in batches with periodic heartbeat
                         batch_size = 100
+                        heartbeat_interval = 10000  # Send heartbeat every 10K bars
+                        last_heartbeat = 0
+
                         for i in range(0, len(aggregates), batch_size):
                             batch = aggregates[i:i+batch_size]
                             await self.publisher.publish_batch(batch)
                             total_published += len(batch)
+
+                            # Send heartbeat during long publishes (prevents container kill)
+                            if (i - last_heartbeat) >= heartbeat_interval:
+                                if self.central_hub.registered:
+                                    await self.central_hub.send_heartbeat(metrics={
+                                        "status": "publishing",
+                                        "current_pair": pair.symbol,
+                                        "published": i,
+                                        "total": len(aggregates),
+                                        "progress_pct": round((i / len(aggregates)) * 100, 1)
+                                    })
+                                last_heartbeat = i
 
                         logger.info(f"✅ Published {len(aggregates)} bars for {pair.symbol}")
 
@@ -853,10 +878,17 @@ class PolygonHistoricalService:
             from gap_detector import GapDetector
             gap_detector = GapDetector(gap_config)
 
-            # Get messaging configs
+            # Get messaging configs (support cluster URLs)
             nats_config = await self.central_hub.get_messaging_config('nats')
             kafka_config = await self.central_hub.get_messaging_config('kafka')
-            nats_url = f"nats://{nats_config['connection']['host']}:{nats_config['connection']['port']}"
+
+            hub_nats = nats_config['connection']
+            cluster_urls = hub_nats.get('cluster_urls')
+            if cluster_urls:
+                nats_url = ','.join(cluster_urls)
+            else:
+                nats_url = f"nats://{hub_nats['host']}:{hub_nats['port']}"
+
             kafka_brokers = ','.join(kafka_config['connection']['bootstrap_servers'])
 
             # Reinitialize publisher
@@ -1004,7 +1036,14 @@ class PolygonHistoricalService:
                         if not self.publisher:
                             nats_config = await self.central_hub.get_messaging_config('nats')
                             kafka_config = await self.central_hub.get_messaging_config('kafka')
-                            nats_url = f"nats://{nats_config['connection']['host']}:{nats_config['connection']['port']}"
+
+                            hub_nats = nats_config['connection']
+                            cluster_urls = hub_nats.get('cluster_urls')
+                            if cluster_urls:
+                                nats_url = ','.join(cluster_urls)
+                            else:
+                                nats_url = f"nats://{hub_nats['host']}:{hub_nats['port']}"
+
                             kafka_brokers = ','.join(kafka_config['connection']['bootstrap_servers'])
 
                             self.publisher = MessagePublisher(nats_url, kafka_brokers)

@@ -18,7 +18,7 @@ class NATSPublisher:
 
     async def connect(self):
         """
-        Connect to NATS (Real-time streaming)
+        Connect to NATS (Real-time streaming) with cluster support
 
         Hybrid Architecture - Phase 1:
         - Market data (live quotes, OHLCV) → NATS (broadcast, <1ms latency)
@@ -26,13 +26,26 @@ class NATSPublisher:
         """
         try:
             self.nc = NATS()
+
+            # Parse NATS URLs - support both single URL and cluster formats
+            nats_url = self.nats_config.get('url', 'nats://suho-nats-server:4222')
+
+            if ',' in nats_url:
+                # Cluster mode: split comma-separated URLs into array
+                nats_servers = [url.strip() for url in nats_url.split(',')]
+                logger.info(f"✅ Connecting to NATS cluster ({len(nats_servers)} nodes)")
+            else:
+                # Single server mode
+                nats_servers = [nats_url]
+                logger.info(f"✅ Connecting to NATS: {nats_url}")
+
             await self.nc.connect(
-                servers=[self.nats_config.get('url', 'nats://suho-nats-server:4222')],
+                servers=nats_servers,
                 max_reconnect_attempts=self.nats_config.get('max_reconnect', 10),
                 reconnect_time_wait=self.nats_config.get('reconnect_delay', 2),
                 ping_interval=self.nats_config.get('ping_interval', 120)
             )
-            logger.info(f"✅ NATS Connected (Market data streaming) - {self.nats_config.get('url')}")
+            logger.info(f"✅ NATS Connected (Market data streaming)")
 
         except Exception as e:
             logger.error(f"❌ NATS connection FAILED: {e}")

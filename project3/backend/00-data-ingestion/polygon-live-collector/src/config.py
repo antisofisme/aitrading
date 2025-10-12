@@ -153,11 +153,23 @@ class Config:
         # If config fetched from Central Hub, use it
         if self._nats_config_from_hub:
             conn = self._nats_config_from_hub['connection']
-            return {
-                'url': f"nats://{conn['host']}:{conn['port']}",
-                'max_reconnect_attempts': -1,
-                'reconnect_time_wait': 2
-            }
+
+            # Use cluster_urls if available (preferred for HA)
+            cluster_urls = conn.get('cluster_urls')
+            if cluster_urls:
+                # Return comma-separated cluster URLs for high availability
+                return {
+                    'url': ','.join(cluster_urls),
+                    'max_reconnect_attempts': -1,
+                    'reconnect_time_wait': 2
+                }
+            else:
+                # Fallback to single host/port (legacy mode)
+                return {
+                    'url': f"nats://{conn['host']}:{conn['port']}",
+                    'max_reconnect_attempts': -1,
+                    'reconnect_time_wait': 2
+                }
 
         # Fallback to YAML config
         return self._config.get('nats_config', {})

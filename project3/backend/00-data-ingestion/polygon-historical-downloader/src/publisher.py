@@ -48,12 +48,23 @@ class MessagePublisher:
         }
 
     async def connect(self):
-        """Connect to NATS"""
+        """Connect to NATS (support cluster URLs)"""
         try:
             # Connect to NATS
             self.nats_client = NATSClient()
-            await self.nats_client.connect(self.nats_url)
-            logger.info(f"✅ Connected to NATS: {self.nats_url}")
+
+            # Parse NATS URLs - support both single URL and cluster formats
+            if ',' in self.nats_url:
+                # Cluster mode: split comma-separated URLs into array
+                nats_servers = [url.strip() for url in self.nats_url.split(',')]
+                logger.info(f"✅ Connecting to NATS cluster ({len(nats_servers)} nodes)")
+                await self.nats_client.connect(servers=nats_servers)
+            else:
+                # Single server mode
+                logger.info(f"✅ Connecting to NATS: {self.nats_url}")
+                await self.nats_client.connect(servers=[self.nats_url])
+
+            logger.info(f"✅ Connected to NATS successfully")
 
         except Exception as e:
             logger.error(f"❌ NATS connection error: {e}")
