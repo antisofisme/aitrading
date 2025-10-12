@@ -312,6 +312,58 @@ class KafkaSubscriber:
         except Exception as e:
             logger.error(f"Error seeking to end: {e}")
 
+    async def pause(self):
+        """
+        Pause consumption from all assigned partitions (backpressure mechanism)
+
+        This uses aiokafka's native pause functionality to stop fetching
+        messages while maintaining the consumer group membership.
+        """
+        if not self.consumer or not self.is_running:
+            logger.warning("Cannot pause - Kafka consumer not running")
+            return
+
+        try:
+            partitions = self.consumer.assignment()
+            if partitions:
+                self.consumer.pause(*partitions)
+                logger.info(f"⏸️  Kafka consumer paused ({len(partitions)} partitions)")
+            else:
+                logger.warning("No partitions assigned to pause")
+        except Exception as e:
+            logger.error(f"Error pausing Kafka consumer: {e}")
+
+    async def resume(self):
+        """
+        Resume consumption from all paused partitions (backpressure mechanism)
+
+        Resumes fetching messages from previously paused partitions.
+        """
+        if not self.consumer or not self.is_running:
+            logger.warning("Cannot resume - Kafka consumer not running")
+            return
+
+        try:
+            partitions = self.consumer.paused()
+            if partitions:
+                self.consumer.resume(*partitions)
+                logger.info(f"▶️  Kafka consumer resumed ({len(partitions)} partitions)")
+            else:
+                logger.debug("No paused partitions to resume")
+        except Exception as e:
+            logger.error(f"Error resuming Kafka consumer: {e}")
+
+    def is_paused(self) -> bool:
+        """Check if any partitions are currently paused"""
+        if not self.consumer or not self.is_running:
+            return False
+
+        try:
+            paused_partitions = self.consumer.paused()
+            return len(paused_partitions) > 0
+        except Exception:
+            return False
+
     async def close(self):
         """
         Gracefully close Kafka consumer
@@ -349,6 +401,7 @@ class KafkaSubscriber:
         return {
             'is_running': self.is_running,
             'is_connected': self.is_connected(),
+            'is_paused': self.is_paused(),
             'total_messages': self.total_messages,
             'tick_messages': self.tick_messages,
             'aggregate_messages': self.aggregate_messages,

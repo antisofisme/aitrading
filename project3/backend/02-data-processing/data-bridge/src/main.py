@@ -35,6 +35,11 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Backpressure thresholds
+MAX_BUFFER_SIZE = 50_000  # Max 50k messages
+PAUSE_THRESHOLD = 40_000  # Pause at 40k (80%)
+RESUME_THRESHOLD = 20_000  # Resume at 20k (40%)
+
 class DataBridge:
     """
     Main orchestrator for Data Bridge
@@ -78,6 +83,13 @@ class DataBridge:
         self.candles_saved_timescale = 0
         self.candles_saved_clickhouse = 0
         self.external_data_saved = 0
+
+        # Backpressure control
+        self.nats_paused = False
+        self.kafka_paused = False
+        self.backpressure_active_count = 0
+        self.last_pause_time = None
+        self.last_resume_time = None
 
         # HeartbeatLogger for live service monitoring
         self.heartbeat_logger = None
@@ -252,7 +264,7 @@ class DataBridge:
             self.heartbeat_logger.start()
 
             logger.info("=" * 80)
-            logger.info("✅ DATA BRIDGE STARTED - HYBRID PHASE 1 + RETRY QUEUE")
+            logger.info("✅ DATA BRIDGE STARTED - HYBRID PHASE 1 + RETRY QUEUE + BACKPRESSURE")
             logger.info("📊 NATS: Market data streaming (ONLY SOURCE)")
             logger.info("💾 Live Ticks → TimescaleDB.market_ticks")
             logger.info("💾 Aggregates → ClickHouse.aggregates")
@@ -261,6 +273,10 @@ class DataBridge:
             if self.retry_queue:
                 logger.info("   └─ Max retries: 6 (1s → 2s → 4s → 8s → 16s → 32s)")
                 logger.info("   └─ DLQ: PostgreSQL data_bridge_dlq table")
+            logger.info(f"⚡ Backpressure: ENABLED")
+            logger.info(f"   └─ Pause threshold: {PAUSE_THRESHOLD:,} messages (80%)")
+            logger.info(f"   └─ Resume threshold: {RESUME_THRESHOLD:,} messages (40%)")
+            logger.info(f"   └─ Max buffer: {MAX_BUFFER_SIZE:,} messages")
             logger.info("=" * 80)
 
             # Run heartbeat reporter
@@ -452,11 +468,92 @@ class DataBridge:
             logger.debug(f"External data: {data}")
             raise
 
+    async def check_backpressure(self):
+        """
+        Monitor buffer and control data ingestion via backpressure
+
+        This method checks the current buffer size and pauses/resumes
+        NATS and Kafka consumers to prevent OOM during burst traffic.
+
+        Thresholds:
+        - PAUSE_THRESHOLD (40k): Pause consumption at 80% capacity
+        - RESUME_THRESHOLD (20k): Resume consumption at 40% capacity
+
+        This creates a hysteresis effect to prevent rapid pause/resume cycles.
+        """
+        try:
+            # Calculate total buffer size across all writers
+            clickhouse_buffer_size = len(self.clickhouse_writer.aggregate_buffer) if self.clickhouse_writer else 0
+            external_buffer_size = len(self.external_data_writer.buffer) if self.external_data_writer and hasattr(self.external_data_writer, 'buffer') else 0
+
+            # Note: TimescaleDB writes are real-time (no buffer), so only count ClickHouse buffers
+            current_size = clickhouse_buffer_size + external_buffer_size
+
+            # Check if we need to pause (buffer exceeds PAUSE_THRESHOLD)
+            if current_size > PAUSE_THRESHOLD and not (self.nats_paused and self.kafka_paused):
+                logger.warning(
+                    f"⚠️  BACKPRESSURE ACTIVE: Buffer high ({current_size:,}/{MAX_BUFFER_SIZE:,}), "
+                    f"pausing data ingestion (CH: {clickhouse_buffer_size:,}, Ext: {external_buffer_size:,})"
+                )
+
+                # Pause NATS subscriber
+                if self.nats_subscriber and not self.nats_paused:
+                    await self.nats_subscriber.pause()
+                    self.nats_paused = True
+                    logger.info("⏸️  NATS subscriber paused")
+
+                # Pause Kafka subscriber (if active)
+                if self.kafka_subscriber and hasattr(self, 'kafka_subscriber') and not self.kafka_paused:
+                    await self.kafka_subscriber.pause()
+                    self.kafka_paused = True
+                    logger.info("⏸️  Kafka subscriber paused")
+
+                # Update metrics
+                self.backpressure_active_count += 1
+                self.last_pause_time = datetime.utcnow()
+
+            # Check if we can resume (buffer drops below RESUME_THRESHOLD)
+            elif current_size < RESUME_THRESHOLD and (self.nats_paused or self.kafka_paused):
+                logger.info(
+                    f"✅ BACKPRESSURE RELEASED: Buffer normal ({current_size:,}/{MAX_BUFFER_SIZE:,}), "
+                    f"resuming data ingestion (CH: {clickhouse_buffer_size:,}, Ext: {external_buffer_size:,})"
+                )
+
+                # Resume NATS subscriber
+                if self.nats_subscriber and self.nats_paused:
+                    await self.nats_subscriber.resume()
+                    self.nats_paused = False
+                    logger.info("▶️  NATS subscriber resumed")
+
+                # Resume Kafka subscriber (if active)
+                if self.kafka_subscriber and hasattr(self, 'kafka_subscriber') and self.kafka_paused:
+                    await self.kafka_subscriber.resume()
+                    self.kafka_paused = False
+                    logger.info("▶️  Kafka subscriber resumed")
+
+                # Update metrics
+                self.last_resume_time = datetime.utcnow()
+
+            # Alert if paused for too long (sign of ClickHouse bottleneck)
+            if self.nats_paused and self.last_pause_time:
+                pause_duration = (datetime.utcnow() - self.last_pause_time).total_seconds()
+                if pause_duration > 600:  # 10 minutes
+                    logger.error(
+                        f"🔴 CRITICAL: Backpressure active for {pause_duration/60:.1f} minutes! "
+                        f"ClickHouse write bottleneck detected. Current buffer: {current_size:,}"
+                    )
+
+        except Exception as e:
+            logger.error(f"Error in backpressure check: {e}", exc_info=True)
+
     async def _heartbeat_reporter(self):
         """Lightweight heartbeat reporter using HeartbeatLogger"""
         while self.is_running:
             try:
                 await asyncio.sleep(5)  # Check every 5 seconds (logger decides when to log)
+
+                # Check backpressure (prevent OOM during burst traffic)
+                await self.check_backpressure()
 
                 # Collect stats
                 nats_stats = self.nats_subscriber.get_stats() if self.nats_subscriber else {}
@@ -484,6 +581,19 @@ class DataBridge:
                     metrics['retry_queue_size'] = retry_stats.get('queue_size', 0)
                     metrics['retry_success_rate'] = round(retry_stats.get('success_rate', 0), 2)
                     metrics['total_dlq'] = retry_stats.get('total_failed_to_dlq', 0)
+
+                # Add backpressure metrics
+                metrics['backpressure'] = {
+                    'active': self.nats_paused or self.kafka_paused,
+                    'nats_paused': self.nats_paused,
+                    'kafka_paused': self.kafka_paused,
+                    'current_buffer': len(self.clickhouse_writer.aggregate_buffer) if self.clickhouse_writer else 0,
+                    'pause_threshold': PAUSE_THRESHOLD,
+                    'resume_threshold': RESUME_THRESHOLD,
+                    'pause_count': self.backpressure_active_count,
+                    'last_pause': self.last_pause_time.isoformat() if self.last_pause_time else None,
+                    'last_resume': self.last_resume_time.isoformat() if self.last_resume_time else None
+                }
 
                 self.heartbeat_logger.update(
                     processed_count=0,  # Don't increment, just update metrics
@@ -518,6 +628,16 @@ class DataBridge:
         """
         logger.info("🛑 Stopping Data Bridge...")
         self.is_running = False
+
+        # Step 0: Resume subscribers if paused (important for graceful shutdown)
+        if self.nats_paused or self.kafka_paused:
+            logger.info("▶️  Resuming paused subscribers before shutdown...")
+            if self.nats_subscriber and self.nats_paused:
+                await self.nats_subscriber.resume()
+                self.nats_paused = False
+            if self.kafka_subscriber and hasattr(self, 'kafka_subscriber') and self.kafka_paused:
+                await self.kafka_subscriber.resume()
+                self.kafka_paused = False
 
         # Step 1: Stop heartbeat logger
         if self.heartbeat_logger:

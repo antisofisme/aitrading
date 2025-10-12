@@ -98,6 +98,11 @@ class NATSSubscriber:
         - market.XAUUSD.1h → 1-hour candle
         """
         try:
+            # Check if paused (backpressure)
+            if self.is_paused():
+                logger.debug(f"⏸️  Message dropped (backpressure active): {msg.subject}")
+                return  # Drop message during backpressure
+
             # Parse JSON
             data = orjson.loads(msg.data)
 
@@ -140,6 +145,10 @@ class NATSSubscriber:
     async def _handle_signal_message(self, msg):
         """Handle AI signal messages (future use)"""
         try:
+            # Check if paused (backpressure)
+            if self.is_paused():
+                return  # Drop message during backpressure
+
             data = orjson.loads(msg.data)
 
             if '_source' not in data:
@@ -155,6 +164,9 @@ class NATSSubscriber:
     async def _handle_system_message(self, msg):
         """Handle system events (health, logs, etc.)"""
         try:
+            # Check if paused (backpressure) - system messages always processed
+            # System messages are critical and should not be dropped
+
             data = orjson.loads(msg.data)
 
             # System messages are for monitoring, not data processing
@@ -166,6 +178,11 @@ class NATSSubscriber:
     async def _handle_external_message(self, msg):
         """Handle external data message from NATS (economic calendar, sentiment, etc.)"""
         try:
+            # Check if paused (backpressure)
+            if self.is_paused():
+                logger.debug(f"⏸️  External message dropped (backpressure active): {msg.subject}")
+                return  # Drop message during backpressure
+
             # Parse JSON
             data = orjson.loads(msg.data)
 
@@ -198,6 +215,52 @@ class NATSSubscriber:
             logger.debug(f"Message subject: {msg.subject}")
             logger.debug(f"Message data: {msg.data[:200]}")
 
+    async def pause(self):
+        """
+        Pause message consumption from NATS (backpressure mechanism)
+
+        Note: NATS doesn't have native pause/resume like Kafka.
+        We implement this by setting a flag to drop messages.
+        Messages will still be received but will be acknowledged and dropped.
+        """
+        if not self.is_running:
+            logger.warning("Cannot pause - NATS subscriber not running")
+            return
+
+        # Set internal flag to pause processing
+        if not hasattr(self, '_paused'):
+            self._paused = False
+
+        if not self._paused:
+            self._paused = True
+            logger.info("⏸️  NATS subscriber paused (messages will be acknowledged and dropped)")
+        else:
+            logger.debug("NATS subscriber already paused")
+
+    async def resume(self):
+        """
+        Resume message consumption from NATS (backpressure mechanism)
+
+        Resumes normal message processing after a pause.
+        """
+        if not self.is_running:
+            logger.warning("Cannot resume - NATS subscriber not running")
+            return
+
+        # Clear internal pause flag
+        if not hasattr(self, '_paused'):
+            self._paused = False
+
+        if self._paused:
+            self._paused = False
+            logger.info("▶️  NATS subscriber resumed (normal message processing)")
+        else:
+            logger.debug("NATS subscriber already running")
+
+    def is_paused(self) -> bool:
+        """Check if subscriber is currently paused"""
+        return hasattr(self, '_paused') and self._paused
+
     async def close(self):
         """Close NATS connection"""
         logger.info("Closing NATS connection...")
@@ -211,6 +274,7 @@ class NATSSubscriber:
         """Get subscriber statistics"""
         return {
             'is_running': self.is_running,
+            'is_paused': self.is_paused(),
             'total_messages': self.total_messages,
             'tick_messages': self.tick_messages,
             'aggregate_messages': self.aggregate_messages,
