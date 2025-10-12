@@ -58,6 +58,12 @@ class DataBridge:
     def __init__(self):
         self.config = Config()
 
+        # Instance identification
+        import os
+        import socket
+        self.instance_id = os.getenv('INSTANCE_ID', socket.gethostname())
+        self.instance_number = os.getenv('INSTANCE_NUMBER', '1')
+
         # Database Manager (for Live data → TimescaleDB + DragonflyDB)
         self.db_router = None
 
@@ -97,6 +103,7 @@ class DataBridge:
         logger.info("=" * 80)
         logger.info("DATA BRIDGE - INTELLIGENT ROUTING + RETRY QUEUE")
         logger.info("=" * 80)
+        logger.info(f"🆔 Instance ID: {self.instance_id} (#{self.instance_number})")
         logger.info(f"Instance ID: {self.config.instance_id}")
         logger.info(f"Log Level: {self.config.log_level}")
 
@@ -257,7 +264,7 @@ class DataBridge:
 
             # Initialize HeartbeatLogger for live service monitoring
             self.heartbeat_logger = HeartbeatLogger(
-                service_name="data-bridge",
+                service_name=f"data-bridge-{self.instance_number}",
                 task_name="Message routing and deduplication",
                 heartbeat_interval=30  # Log every 30 seconds
             )
@@ -603,6 +610,8 @@ class DataBridge:
                 # Prepare metrics for Central Hub (sent every 30s with heartbeat log)
                 if hasattr(self.config, 'central_hub') and self.config.central_hub:
                     metrics = {
+                        'instance_id': self.instance_id,
+                        'instance_number': self.instance_number,
                         'ticks_saved': self.ticks_saved,
                         'candles_saved_clickhouse': self.candles_saved_clickhouse,
                         'external_data_saved': self.external_data_saved,

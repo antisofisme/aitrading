@@ -484,11 +484,17 @@ services:
     build:
       context: .  # Root context for SDK access
       dockerfile: 02-data-processing/data-bridge/Dockerfile
-    container_name: suho-data-bridge
+    # Scale to 3 instances for load balancing
+    deploy:
+      replicas: 3
+    # Note: container_name removed (conflicts with replicas)
+    # Docker will auto-generate names: suho-data-bridge-1, suho-data-bridge-2, suho-data-bridge-3
     hostname: suho-data-bridge
     restart: unless-stopped
     environment:
-      - INSTANCE_ID=data-bridge-1
+      - KAFKA_GROUP_ID=data-bridge-group  # Same group for load balancing across instances
+      - INSTANCE_ID=${HOSTNAME}  # Unique per container (auto-set by Docker)
+      - INSTANCE_NUMBER=${REPLICA_NUMBER:-1}  # For metrics tracking
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       # Central Hub URL (for config distribution)
       # Economic Calendar Historical Data

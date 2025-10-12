@@ -4,6 +4,8 @@ Health check script for Data Bridge
 Verifies all dependencies are ready before service starts
 """
 import sys
+import os
+import socket
 import asyncio
 
 
@@ -106,7 +108,11 @@ async def check_central_hub():
 
 async def main():
     """Run all health checks"""
-    print("🔍 Checking Data Bridge dependencies...", flush=True)
+    # Get instance identification
+    instance_id = os.getenv('INSTANCE_ID', socket.gethostname())
+    instance_number = os.getenv('INSTANCE_NUMBER', '1')
+
+    print(f"🔍 Checking Data Bridge dependencies (Instance: {instance_id} #{instance_number})...", flush=True)
 
     # Run synchronous checks first
     clickhouse_ok = check_clickhouse()

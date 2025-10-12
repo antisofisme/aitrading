@@ -15,14 +15,21 @@ nats:
     external: "market.external.>"   # All external data (economic, sentiment, etc.)
 
 # Kafka Configuration (BACKUP + gap-filling)
+# IMPORTANT: Multiple instances share the same group_id for load balancing
+# Kafka will automatically distribute partitions across instances in the same group
 kafka:
   brokers:
     - "suho-kafka:9092"
 
-  group_id: "data-bridge"
-  auto_offset_reset: "earliest"  # Consume ALL messages from beginning (for historical data recovery)
+  group_id: "data-bridge-group"  # Same group for all instances = automatic load balancing
+  auto_offset_reset: "latest"  # Use 'latest' to avoid reprocessing on startup (changed from 'earliest')
   enable_auto_commit: true
   auto_commit_interval_ms: 5000
+
+  # Consumer group settings for multi-instance coordination
+  session_timeout_ms: 30000       # 30s - time before consumer considered dead
+  heartbeat_interval_ms: 10000    # 10s - consumer heartbeat to coordinator
+  max_poll_interval_ms: 300000    # 5 min - max time between polls before rebalance
 
   fetch_min_bytes: 1024
   fetch_max_wait_ms: 500
