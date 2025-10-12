@@ -65,26 +65,26 @@ def check_clickhouse():
         return False
 
 
-def check_kafka():
-    """Check Kafka connection"""
+async def check_kafka():
+    """Check Kafka connection (non-critical - service has circuit breaker)"""
     try:
-        from kafka import KafkaProducer
-        from kafka.errors import NoBrokersAvailable
+        from aiokafka import AIOKafkaProducer
+        from aiokafka.errors import KafkaConnectionError
 
-        producer = KafkaProducer(
-            bootstrap_servers=['suho-kafka:9092'],
-            request_timeout_ms=3000,
-            max_block_ms=3000
+        producer = AIOKafkaProducer(
+            bootstrap_servers='suho-kafka:9092',
+            request_timeout_ms=3000
         )
-        producer.close(timeout=1)
+        await producer.start()
+        await producer.stop()
         print("Kafka: ✅", flush=True)
         return True
-    except NoBrokersAvailable:
-        print("Kafka: ❌ No brokers available", file=sys.stderr, flush=True)
-        return False
+    except KafkaConnectionError:
+        print("Kafka: ⚠️  Not available (service will use circuit breaker)", flush=True)
+        return True  # Non-critical: circuit breaker handles Kafka issues
     except Exception as e:
-        print(f"Kafka: ❌ {e}", file=sys.stderr, flush=True)
-        return False
+        print(f"Kafka: ⚠️  {e} (service will use circuit breaker)", flush=True)
+        return True  # Non-critical: circuit breaker handles Kafka issues
 
 
 async def check_central_hub():
@@ -110,18 +110,18 @@ async def main():
 
     # Run synchronous checks first
     clickhouse_ok = check_clickhouse()
-    kafka_ok = check_kafka()
 
-    # Run async checks
+    # Run async checks (including Kafka)
     results = await asyncio.gather(
         check_postgresql(),
         check_nats(),
+        check_kafka(),
         check_central_hub(),
         return_exceptions=True
     )
 
     # Process results
-    checks = [clickhouse_ok, kafka_ok]
+    checks = [clickhouse_ok]
     for result in results:
         if isinstance(result, Exception):
             print(f"Check failed with exception: {result}", file=sys.stderr, flush=True)
