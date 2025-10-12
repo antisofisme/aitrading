@@ -275,8 +275,25 @@ class CentralHubService(BaseService):
         # Try NATS connection
         try:
             nats_url = os.getenv("NATS_URL", "nats://nats-server:4222")
-            self.nats_client = await asyncio.wait_for(nats.connect(nats_url), timeout=5.0)
-            self.logger.info(f"✅ Real NATS connected to {nats_url}")
+
+            # Parse NATS URLs - support both single URL and cluster (comma-separated) formats
+            if "," in nats_url:
+                # Cluster mode: split comma-separated URLs into a list
+                nats_servers = [url.strip() for url in nats_url.split(",")]
+                self.logger.info(f"🔗 Connecting to NATS cluster: {nats_servers}")
+                self.nats_client = await asyncio.wait_for(
+                    nats.connect(servers=nats_servers),
+                    timeout=5.0
+                )
+                self.logger.info(f"✅ Real NATS cluster connected to {len(nats_servers)} servers: {', '.join(nats_servers)}")
+            else:
+                # Single server mode
+                self.logger.info(f"🔗 Connecting to NATS server: {nats_url}")
+                self.nats_client = await asyncio.wait_for(
+                    nats.connect(servers=[nats_url]),
+                    timeout=5.0
+                )
+                self.logger.info(f"✅ Real NATS connected to {nats_url}")
         except Exception as e:
             self.logger.error(f"❌ NATS connection FAILED: {str(e)}")
             self.logger.error("❌ Central Hub cannot start without NATS - shutting down")
