@@ -36,6 +36,7 @@ from datetime import datetime, timezone
 from typing import Dict, Any, Optional
 from pathlib import Path
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.events import EVENT_JOB_MISSED
 
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent))
@@ -152,8 +153,12 @@ class TickAggregatorServiceV2:
             await self.stop()
 
     async def _initialize_shared_components(self):
-        """Initialize components shared across processors"""
-        logger.info("📦 Initializing shared components...")
+        """Initialize components shared across processors with retry logic"""
+        logger.info("📦 Initializing shared components with retry logic...")
+
+        # Import retry utility
+        sys.path.insert(0, '/app')
+        from shared.utils.connection_retry import connect_with_retry, sync_connect_with_retry
 
         # Tick aggregator (TimescaleDB → candles)
         logger.info("   [1/4] Tick Aggregator...")
@@ -161,15 +166,24 @@ class TickAggregatorServiceV2:
             db_config=self.config.database_config,
             aggregation_config=self.config.aggregation_config
         )
-        await self.aggregator.connect()
+        await connect_with_retry(
+            self.aggregator.connect,
+            "TimescaleDB (Tick Aggregator)",
+            max_retries=10
+        )
 
-        # NATS/Kafka publisher
+        # NATS/Kafka publisher (with circuit breaker + PostgreSQL fallback)
         logger.info("   [2/4] NATS/Kafka Publisher...")
         self.publisher = AggregatePublisher(
             nats_config=self.config.nats_config,
-            kafka_config=self.config.kafka_config
+            kafka_config=self.config.kafka_config,
+            db_config=self.config.database_config  # PostgreSQL for fallback queue
         )
-        await self.publisher.connect()
+        await connect_with_retry(
+            self.publisher.connect,
+            "NATS/Kafka (Publisher)",
+            max_retries=10
+        )
 
         # Gap detector (ClickHouse gap scanning)
         logger.info("   [3/4] Gap Detector...")
@@ -177,9 +191,13 @@ class TickAggregatorServiceV2:
             clickhouse_config=self.config.clickhouse_config
         )
         try:
-            self.gap_detector.connect()
+            sync_connect_with_retry(
+                self.gap_detector.connect,
+                "ClickHouse (Gap Detector)",
+                max_retries=10
+            )
         except Exception as e:
-            logger.warning(f"⚠️ Gap Detector failed: {e}")
+            logger.warning(f"⚠️ Gap Detector failed after retries: {e}")
             logger.warning("⚠️ Gap detection will be disabled")
             self.gap_detector = None
 
@@ -189,7 +207,11 @@ class TickAggregatorServiceV2:
             clickhouse_config=self.config.clickhouse_config,
             aggregation_config=self.config.aggregation_config
         )
-        self.historical_aggregator.connect()
+        sync_connect_with_retry(
+            self.historical_aggregator.connect,
+            "ClickHouse (Historical Aggregator)",
+            max_retries=10
+        )
 
         logger.info("✅ Shared components initialized")
 
@@ -215,7 +237,7 @@ class TickAggregatorServiceV2:
             gap_detector=self.gap_detector,
             symbols=self.symbols,
             timeframes=self.config.timeframes,
-            lookback_days=7
+            lookback_days=2  # Match TimescaleDB retention (2-3 days max for live ticks)
         )
 
         # [3] HistoricalProcessor (MEDIUM)
@@ -236,10 +258,51 @@ class TickAggregatorServiceV2:
 
         logger.info("✅ All 4 processors initialized")
 
+    def _monitor_job_duration(self, job_name: str, start_time: datetime) -> float:
+        """Monitor and alert on long-running jobs"""
+        duration = (datetime.now(timezone.utc) - start_time).total_seconds() / 3600  # hours
+
+        if duration > 5:
+            logger.warning(
+                f"⚠️ Job '{job_name}' running for {duration:.1f} hours "
+                f"(threshold: 5h). Next scheduled run may be skipped."
+            )
+
+        return duration
+
+    async def _run_historical_processor_with_monitoring(self):
+        """Wrapper to monitor historical processor execution"""
+        start_time = datetime.now(timezone.utc)
+        job_name = "HistoricalProcessor"
+
+        try:
+            logger.info(f"🚀 Starting {job_name}")
+            await self.historical_processor.process()
+
+            duration = self._monitor_job_duration(job_name, start_time)
+            logger.info(f"✅ {job_name} completed in {duration:.2f} hours")
+
+        except Exception as e:
+            logger.error(f"❌ {job_name} failed: {e}", exc_info=True)
+            raise
+
+    def _job_missed_listener(self, event):
+        """Log when jobs are skipped due to coalesce"""
+        logger.warning(
+            f"⏭️ Job skipped due to previous run still active: {event.job_id} "
+            f"(scheduled for {event.scheduled_run_time})"
+        )
+
     async def _setup_scheduler(self):
         """Setup APScheduler with 4 cron jobs"""
         logger.info("⏰ Setting up scheduler...")
         self.scheduler = AsyncIOScheduler()
+
+        # Register event listener for skipped jobs
+        self.scheduler.add_listener(
+            self._job_missed_listener,
+            EVENT_JOB_MISSED
+        )
 
         # [1] LiveProcessor - Every 1 minute (CRITICAL)
         self.scheduler.add_job(
@@ -249,9 +312,11 @@ class TickAggregatorServiceV2:
             id='live_processor',
             name='LiveProcessor (1min)',
             replace_existing=True,
+            max_instances=1,
+            coalesce=True,
             misfire_grace_time=30
         )
-        logger.info("   ✅ LiveProcessor: */1 * * * * (every 1 min)")
+        logger.info("   ✅ LiveProcessor: */1 * * * * (every 1 min, max_instances=1, coalesce=True)")
 
         # [2] LiveGapMonitor - Every 5 minutes (HIGH)
         self.scheduler.add_job(
@@ -261,22 +326,26 @@ class TickAggregatorServiceV2:
             id='live_gap_monitor',
             name='LiveGapMonitor (5min)',
             replace_existing=True,
+            max_instances=1,
+            coalesce=True,
             misfire_grace_time=60
         )
-        logger.info("   ✅ LiveGapMonitor: */5 * * * * (every 5 min)")
+        logger.info("   ✅ LiveGapMonitor: */5 * * * * (every 5 min, max_instances=1, coalesce=True)")
 
-        # [3] HistoricalProcessor - Every 6 hours (MEDIUM)
+        # [3] HistoricalProcessor - Every 6 hours (MEDIUM) - WITH MONITORING
         self.scheduler.add_job(
-            self.historical_processor.process,
+            self._run_historical_processor_with_monitoring,
             'cron',
             hour='*/6',  # Every 6 hours
             minute='30',  # At :30 past the hour
             id='historical_processor',
             name='HistoricalProcessor (6h)',
             replace_existing=True,
-            misfire_grace_time=300
+            max_instances=1,  # Only one instance at a time
+            coalesce=True,  # Skip if previous run still active
+            misfire_grace_time=300  # Allow 5 min delay for startup
         )
-        logger.info("   ✅ HistoricalProcessor: 30 */6 * * * (every 6h at :30)")
+        logger.info("   ✅ HistoricalProcessor: 30 */6 * * * (every 6h at :30, max_instances=1, coalesce=True)")
 
         # [4] HistoricalGapMonitor - Daily at 02:00 UTC (LOW)
         self.scheduler.add_job(
@@ -287,11 +356,13 @@ class TickAggregatorServiceV2:
             id='historical_gap_monitor',
             name='HistoricalGapMonitor (daily)',
             replace_existing=True,
+            max_instances=1,
+            coalesce=True,
             misfire_grace_time=600
         )
-        logger.info("   ✅ HistoricalGapMonitor: 0 2 * * * (daily at 02:00 UTC)")
+        logger.info("   ✅ HistoricalGapMonitor: 0 2 * * * (daily at 02:00 UTC, max_instances=1, coalesce=True)")
 
-        logger.info("✅ Scheduler configured with 4 cron jobs")
+        logger.info("✅ Scheduler configured with 4 cron jobs (all with max_instances=1 and coalesce=True)")
 
     async def _heartbeat_loop(self):
         """Send periodic heartbeat with metrics from all 4 components"""

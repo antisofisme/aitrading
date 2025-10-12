@@ -1,9 +1,12 @@
 # NATS Client (async)
 nats-py==2.8.0
 
-# Kafka Client
-kafka-python==2.0.2
+# Kafka Client (async)
+aiokafka==0.10.0
 lz4==4.3.3  # Kafka lz4 compression codec
+
+# Legacy Kafka Client (deprecated, keeping for backward compatibility)
+# kafka-python==2.0.2
 
 # Data Processing
 orjson==3.10.7  # Fast JSON

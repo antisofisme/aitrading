@@ -17,6 +17,14 @@ COPY 02-data-processing/tick-aggregator/src/ /app/src/
 # Copy shared schemas
 COPY 01-core-infrastructure/central-hub/shared/ /app/shared/
 
+# Copy healthcheck script
+COPY 02-data-processing/tick-aggregator/healthcheck.sh /app/healthcheck.sh
+RUN chmod +x /app/healthcheck.sh
+
+# Configure health check - verifies all dependencies
+HEALTHCHECK --interval=15s --timeout=10s --start-period=60s --retries=3 \
+  CMD /app/healthcheck.sh
+
 # Set Python path
 ENV PYTHONPATH=/app
 

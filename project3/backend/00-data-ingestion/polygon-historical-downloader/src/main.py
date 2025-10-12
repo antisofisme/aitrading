@@ -9,7 +9,7 @@ import logging
 import sys
 import os
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, date, timedelta
 
 sys.path.insert(0, str(Path(__file__).parent))
 
@@ -20,6 +20,10 @@ from period_tracker import PeriodTracker
 
 # Central Hub SDK (installed via pip)
 from central_hub_sdk import CentralHubClient, ProgressLogger
+
+# Add shared components to path
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
+from shared.components.utils.gap_fill_verifier import GapFillVerifier
 
 logging.basicConfig(
     level=logging.INFO,
@@ -39,6 +43,9 @@ class PolygonHistoricalService:
         # Publisher will be initialized after getting config from Central Hub
         self.publisher = None
 
+        # Gap fill verifier will be initialized after getting ClickHouse config
+        self.verifier = None
+
         # Period tracker to prevent duplicate downloads
         self.period_tracker = PeriodTracker(
             tracker_file="/data/downloaded_periods.json"
@@ -53,6 +60,7 @@ class PolygonHistoricalService:
                 "historical-data-download",
                 "bulk-publishing",
                 "gap-detection",
+                "gap-verification",
                 "nats-publishing",
                 "kafka-publishing"
             ],
@@ -66,7 +74,7 @@ class PolygonHistoricalService:
         )
 
         logger.info("=" * 80)
-        logger.info("POLYGON.IO HISTORICAL DOWNLOADER + CENTRAL HUB")
+        logger.info("POLYGON.IO HISTORICAL DOWNLOADER + CENTRAL HUB + GAP VERIFICATION")
         logger.info("=" * 80)
 
     async def run_initial_download(self):
@@ -185,28 +193,77 @@ class PolygonHistoricalService:
                             covers_start = existing_min <= requested_start
                             covers_end = existing_max >= requested_end
 
-                            if covers_start and covers_end:
-                                logger.info(f"⏭️  {pair.symbol} already has {existing_count:,} bars covering {existing_min} to {existing_max} - SKIPPING")
+                            # CRITICAL: Even if START/END covered, check for MIDDLE gaps!
+                            # Use get_date_range_gaps() to detect ALL missing dates
+                            logger.info(f"🔍 {pair.symbol}: Checking for gaps (including middle gaps)...")
+
+                            from gap_detector import GapDetector
+                            gap_config = {
+                                'host': ch_connection['host'],
+                                'port': ch_connection.get('native_port', 9000),
+                                'user': ch_connection['user'],
+                                'password': ch_connection['password'],
+                                'database': ch_connection['database'],
+                                'table': 'aggregates'
+                            }
+                            gap_detector = GapDetector(gap_config)
+
+                            # Get ALL missing dates in full requested range
+                            missing_dates = gap_detector.get_date_range_gaps(
+                                symbol=pair.symbol,
+                                start_date=download_cfg['start_date'],
+                                end_date=download_cfg['end_date'] if download_cfg['end_date'] not in ['now', 'today'] else datetime.now().strftime('%Y-%m-%d'),
+                                timeframe=timeframe_str
+                            )
+
+                            if not missing_dates:
+                                # NO GAPS - data complete!
+                                logger.info(f"✅ {pair.symbol} has {existing_count:,} bars with NO GAPS - SKIPPING")
                                 should_download = False
                             else:
-                                # GAP DETECTED - Download ONLY missing ranges (not full range!)
-                                logger.warning(f"⚠️  {pair.symbol} has {existing_count:,} bars BUT date range gap detected!")
-                                logger.warning(f"   Existing: {existing_min} to {existing_max}")
-                                logger.warning(f"   Requested: {requested_start} to {requested_end}")
+                                # GAPS DETECTED (Start/Middle/End) - Download ONLY missing dates
+                                logger.warning(f"⚠️  {pair.symbol} has {existing_count:,} bars BUT {len(missing_dates)} dates MISSING!")
+                                logger.warning(f"   Existing range: {existing_min} to {existing_max}")
+                                logger.warning(f"   Missing dates: {len(missing_dates)} total")
 
-                                # Calculate gap ranges
+                                # Group consecutive missing dates into gap ranges
                                 gap_ranges = []
-                                if not covers_start:
-                                    # Missing data at START: requested_start to existing_min
-                                    gap_end = existing_min - timedelta(days=1)
-                                    gap_ranges.append((requested_start, gap_end, "START"))
-                                    logger.warning(f"   📥 START Gap: {requested_start.date()} to {gap_end.date()}")
+                                if missing_dates:
+                                    # Convert string dates to datetime
+                                    missing_datetime = [datetime.strptime(d, '%Y-%m-%d').replace(tzinfo=timezone.utc) for d in missing_dates]
+                                    missing_datetime.sort()
 
-                                if not covers_end:
-                                    # Missing data at END: existing_max to requested_end
-                                    gap_start = existing_max + timedelta(days=1)
-                                    gap_ranges.append((gap_start, requested_end, "END"))
-                                    logger.warning(f"   📥 END Gap: {gap_start.date()} to {requested_end.date()}")
+                                    # Group consecutive dates
+                                    current_start = missing_datetime[0]
+                                    current_end = missing_datetime[0]
+
+                                    for i in range(1, len(missing_datetime)):
+                                        # Check if this date is consecutive (within 4 days to account for weekends)
+                                        if (missing_datetime[i] - current_end).days <= 4:
+                                            current_end = missing_datetime[i]
+                                        else:
+                                            # Gap ended, save range
+                                            gap_type = "MIDDLE"
+                                            if current_start <= requested_start + timedelta(days=7):
+                                                gap_type = "START"
+                                            elif current_end >= requested_end - timedelta(days=7):
+                                                gap_type = "END"
+
+                                            gap_ranges.append((current_start, current_end, gap_type))
+                                            logger.warning(f"   📥 {gap_type} Gap: {current_start.date()} to {current_end.date()}")
+
+                                            # Start new range
+                                            current_start = missing_datetime[i]
+                                            current_end = missing_datetime[i]
+
+                                    # Don't forget last range
+                                    gap_type = "MIDDLE"
+                                    if current_start <= requested_start + timedelta(days=7):
+                                        gap_type = "START"
+                                    elif current_end >= requested_end - timedelta(days=7):
+                                        gap_type = "END"
+                                    gap_ranges.append((current_start, current_end, gap_type))
+                                    logger.warning(f"   📥 {gap_type} Gap: {current_start.date()} to {current_end.date()}")
 
                                 # Store gap ranges for chunked download
                                 pair.gap_ranges = gap_ranges
@@ -481,9 +538,19 @@ class PolygonHistoricalService:
                             bars_in_clickhouse = result[0][0] if result else 0
                             verification_ratio = bars_in_clickhouse / len(bars) if len(bars) > 0 else 0
 
-                            logger.info(f"📊 Verification: {bars_in_clickhouse}/{len(bars)} bars in ClickHouse ({verification_ratio*100:.1f}%)")
+                            # Use timeframe-aware threshold for verification
+                            from gap_detector import INTRADAY_TIMEFRAMES, INTRADAY_THRESHOLD, DAILY_THRESHOLD
+                            if timeframe_str in INTRADAY_TIMEFRAMES:
+                                verification_threshold = INTRADAY_THRESHOLD  # 100% for intraday
+                            else:
+                                verification_threshold = DAILY_THRESHOLD  # 80% for daily+
 
-                            if verification_ratio < 0.95:  # Less than 95% received
+                            logger.info(
+                                f"📊 Verification: {bars_in_clickhouse}/{len(bars)} bars in ClickHouse "
+                                f"({verification_ratio*100:.1f}%) - Threshold: {verification_threshold*100}% for {timeframe_str}"
+                            )
+
+                            if verification_ratio < verification_threshold:
                                 logger.error(f"⚠️  VERIFICATION FAILED: Only {verification_ratio*100:.1f}% of data reached ClickHouse!")
                                 logger.error(f"⚠️  Expected: {len(bars)}, Got: {bars_in_clickhouse}")
                                 logger.error(f"⚠️  Data-bridge might have crashed during publish. Re-publishing...")
@@ -552,8 +619,210 @@ class PolygonHistoricalService:
 
         logger.info("✅ Initial download complete")
 
+    async def download_and_verify_gap(
+        self,
+        symbol: str,
+        start_date: date,
+        end_date: date,
+        timeframe: str = '1m',
+        max_retry_attempts: int = 3
+    ) -> bool:
+        """
+        Download gap and verify it reached ClickHouse with retry logic
+
+        Pipeline: Polygon -> NATS -> Tick Aggregator -> Data Bridge -> ClickHouse
+        Expected propagation time: 30-60 seconds
+
+        Args:
+            symbol: Trading pair (e.g., 'XAU/USD')
+            start_date: Gap start date
+            end_date: Gap end date
+            timeframe: Timeframe (default: '1m')
+            max_retry_attempts: Maximum retry attempts (default: 3)
+
+        Returns:
+            True if download and verification succeeded
+        """
+        try:
+            # 1. Download data from Polygon
+            logger.info(f"📥 Downloading gap: {symbol} {start_date} to {end_date}")
+
+            # Use existing downloader with date range
+            timeframe_parts = timeframe.replace('m', ' minute').replace('h', ' hour').replace('d', ' day')
+            results = await self.downloader.download_all_pairs(
+                pairs=[p for p in self.config.pairs if p.symbol == symbol],
+                start_date=start_date.strftime('%Y-%m-%d'),
+                end_date=end_date.strftime('%Y-%m-%d'),
+                get_timeframe_func=self.config.get_timeframe_for_pair
+            )
+
+            bars = results.get(symbol, [])
+
+            if not bars:
+                logger.warning(f"No data downloaded for {symbol} {start_date}")
+                return False
+
+            logger.info(f"Downloaded {len(bars)} bars")
+
+            # 2. Publish to NATS
+            logger.info(f"📤 Publishing {len(bars)} bars to NATS")
+
+            # Convert to aggregate format
+            aggregates = []
+            for bar in bars:
+                aggregate = {
+                    'symbol': bar['symbol'],
+                    'timeframe': timeframe,
+                    'timestamp_ms': bar['timestamp_ms'],
+                    'open': bar['open'],
+                    'high': bar['high'],
+                    'low': bar['low'],
+                    'close': bar['close'],
+                    'volume': bar['volume'],
+                    'vwap': bar.get('vwap', 0),
+                    'range_pips': (bar['high'] - bar['low']) * 10000,
+                    'start_time': bar['timestamp'],
+                    'end_time': bar['timestamp'],
+                    'source': 'polygon_gap_fill',
+                    'event_type': 'ohlcv'
+                }
+                aggregates.append(aggregate)
+
+            # Publish in batches
+            batch_size = 100
+            for i in range(0, len(aggregates), batch_size):
+                batch = aggregates[i:i+batch_size]
+                await self.publisher.publish_batch(batch)
+
+            # 3. Wait for data to propagate through pipeline
+            logger.info("⏳ Waiting 30s for data to propagate through pipeline...")
+            await asyncio.sleep(30)
+
+            # 4. Verify each date in range with retry
+            if not self.verifier:
+                logger.error("Verifier not initialized!")
+                return False
+
+            current_date = start_date
+            all_verified = True
+
+            while current_date <= end_date:
+                # Skip weekends (Forex closed)
+                if current_date.weekday() < 5:
+                    verified = await self.verifier.verify_with_retry(
+                        symbol=symbol,
+                        timeframe=timeframe,
+                        target_date=current_date,
+                        min_bars=1,
+                        max_retries=3,
+                        retry_delay=10
+                    )
+
+                    if not verified:
+                        logger.error(f"❌ Verification failed: {symbol} {current_date}")
+                        all_verified = False
+
+                current_date += timedelta(days=1)
+
+            if all_verified:
+                logger.info(f"✅ Gap filled and verified: {symbol} {start_date} to {end_date}")
+            else:
+                logger.error(f"❌ Gap verification incomplete: {symbol} {start_date} to {end_date}")
+
+            return all_verified
+
+        except Exception as e:
+            logger.error(f"Download and verify failed: {e}", exc_info=True)
+            return False
+
+    async def retry_failed_verifications(self, failed_gaps: list, max_retry_attempts: int = 2):
+        """
+        Retry gaps that failed verification
+
+        Args:
+            failed_gaps: List of gap dictionaries with symbol, timeframe, start_date, end_date
+            max_retry_attempts: Maximum retry attempts (default: 2)
+        """
+        logger.info(f"🔄 Retrying {len(failed_gaps)} failed gap verifications...")
+
+        permanently_failed = []
+
+        for gap in failed_gaps:
+            retry_count = gap.get('retry_count', 0)
+
+            if retry_count >= max_retry_attempts:
+                logger.error(
+                    f"⛔ Max retries ({max_retry_attempts}) reached for "
+                    f"{gap['symbol']} {gap['start_date']} to {gap['end_date']}, "
+                    f"marking for manual review"
+                )
+                permanently_failed.append(gap)
+                continue
+
+            logger.info(
+                f"🔄 Retry attempt {retry_count + 1}/{max_retry_attempts}: "
+                f"{gap['symbol']} {gap['start_date']} to {gap['end_date']}"
+            )
+
+            # Wait before retry (exponential backoff)
+            wait_time = 30 * (2 ** retry_count)  # 30s, 60s, 120s...
+            logger.info(f"⏳ Waiting {wait_time}s before retry...")
+            await asyncio.sleep(wait_time)
+
+            # Retry download and verification
+            success = await self.download_and_verify_gap(
+                symbol=gap['symbol'],
+                start_date=gap['start_date'],
+                end_date=gap['end_date'],
+                timeframe=gap['timeframe'],
+                max_retry_attempts=3
+            )
+
+            if success:
+                logger.info(f"✅ Retry successful: {gap['symbol']} {gap['start_date']}")
+
+                # Mark as complete in tracker
+                self.period_tracker.mark_downloaded(
+                    symbol=gap['symbol'],
+                    timeframe=gap['timeframe'],
+                    start_date=gap['start_date'].strftime('%Y-%m-%d'),
+                    end_date=gap['end_date'].strftime('%Y-%m-%d'),
+                    bars_count=0,
+                    source='polygon_gap_fill_retry',
+                    verified=True
+                )
+            else:
+                logger.warning(f"⚠️  Retry failed: {gap['symbol']} {gap['start_date']}")
+                gap['retry_count'] = retry_count + 1
+                permanently_failed.append(gap)
+
+        # Log permanently failed gaps for manual review
+        if permanently_failed:
+            logger.error("=" * 80)
+            logger.error("⛔ GAPS REQUIRING MANUAL REVIEW")
+            logger.error("=" * 80)
+            for gap in permanently_failed:
+                logger.error(
+                    f"   {gap['symbol']} {gap['timeframe']}: "
+                    f"{gap['start_date']} to {gap['end_date']} "
+                    f"(retries: {gap.get('retry_count', 0)})"
+                )
+                if 'error' in gap:
+                    logger.error(f"      Error: {gap['error']}")
+            logger.error("=" * 80)
+
+            # Report to Central Hub
+            if self.central_hub.registered:
+                await self.central_hub.send_heartbeat(metrics={
+                    "status": "gaps_require_manual_review",
+                    "failed_gaps": len(permanently_failed),
+                    "message": f"{len(permanently_failed)} gaps failed after max retries"
+                })
+
+        return len(permanently_failed) == 0
+
     async def check_and_fill_gaps(self):
-        """Check for gaps and download missing data"""
+        """Check for gaps and download missing data with verification"""
         try:
             logger.info("🔍 Checking for data gaps...")
 
@@ -569,6 +838,12 @@ class PolygonHistoricalService:
                     'database': ch_connection['database'],
                     'table': 'aggregates'
                 }
+
+                # Initialize verifier if not already done
+                if not self.verifier:
+                    self.verifier = GapFillVerifier(gap_config)
+                    logger.info("✅ Gap fill verifier initialized")
+
             except Exception as e:
                 logger.warning(f"⚠️  Failed to get ClickHouse config from Central Hub: {e}")
                 # Skip gap detection if can't get config
@@ -591,80 +866,89 @@ class PolygonHistoricalService:
             )
             await self.publisher.connect()
 
-            # Check gaps for all pairs
+            # Check gaps for all pairs with verification
             pairs = self.config.pairs
             total_gaps_filled = 0
+            failed_gaps = []
 
             for pair in pairs:
                 symbol = pair.symbol
                 logger.info(f"🔍 Checking gaps for {symbol}...")
 
+                # Determine timeframe
+                timeframe, multiplier = self.config.get_timeframe_for_pair(pair)
+                timeframe_str = f"{multiplier}{timeframe[0]}"
+
                 # Detect gaps in last 30 days
                 gaps = gap_detector.detect_gaps(symbol, days=30, max_gap_minutes=60)
 
                 if gaps:
-                    logger.info(f"📥 Found {len(gaps)} gaps for {symbol}, downloading...")
+                    logger.info(f"📥 Found {len(gaps)} gaps for {symbol}, downloading with verification...")
 
                     for gap_start, gap_end in gaps:
                         try:
-                            # Download data for this gap
-                            timeframe, multiplier = self.config.get_timeframe_for_pair(pair)
-                            bars = await self.downloader.download_range(
+                            # Convert datetime to date
+                            if isinstance(gap_start, datetime):
+                                gap_start_date = gap_start.date()
+                            else:
+                                gap_start_date = gap_start
+
+                            if isinstance(gap_end, datetime):
+                                gap_end_date = gap_end.date()
+                            else:
+                                gap_end_date = gap_end
+
+                            # Download and verify with retry
+                            success = await self.download_and_verify_gap(
                                 symbol=symbol,
-                                from_date=gap_start.strftime('%Y-%m-%d'),
-                                to_date=gap_end.strftime('%Y-%m-%d'),
-                                timeframe=timeframe,
-                                multiplier=multiplier
+                                start_date=gap_start_date,
+                                end_date=gap_end_date,
+                                timeframe=timeframe_str,
+                                max_retry_attempts=3
                             )
 
-                            if bars:
-                                # Convert and publish
-                                timeframe_str = f"{multiplier}{timeframe[0]}"
-                                aggregates = []
-                                for bar in bars:
-                                    aggregate = {
-                                        'symbol': bar['symbol'],
-                                        'timeframe': timeframe_str,
-                                        'timestamp_ms': bar['timestamp_ms'],
-                                        'open': bar['open'],
-                                        'high': bar['high'],
-                                        'low': bar['low'],
-                                        'close': bar['close'],
-                                        'volume': bar['volume'],
-                                        'vwap': bar.get('vwap', 0),
-                                        'range_pips': (bar['high'] - bar['low']) * 10000,
-                                        'start_time': bar['timestamp'],
-                                        'end_time': bar['timestamp'],
-                                        'source': 'polygon_gap_fill',
-                                        'event_type': 'ohlcv'
-                                    }
-                                    aggregates.append(aggregate)
+                            if success:
+                                logger.info(f"✅ Gap filled and verified: {symbol} {gap_start_date} -> {gap_end_date}")
 
-                                # Publish in batches
-                                batch_size = 100
-                                for i in range(0, len(aggregates), batch_size):
-                                    batch = aggregates[i:i+batch_size]
-                                    await self.publisher.publish_batch(batch)
-                                    total_gaps_filled += len(batch)
-
-                                logger.info(f"✅ Filled gap for {symbol}: {gap_start} -> {gap_end} ({len(bars)} bars)")
-
-                                # ✅ MARK GAP AS FILLED
+                                # Mark as complete in tracker
                                 self.period_tracker.mark_downloaded(
                                     symbol=symbol,
                                     timeframe=timeframe_str,
-                                    start_date=gap_start.strftime('%Y-%m-%d'),
-                                    end_date=gap_end.strftime('%Y-%m-%d'),
-                                    bars_count=len(bars),
+                                    start_date=gap_start_date.strftime('%Y-%m-%d'),
+                                    end_date=gap_end_date.strftime('%Y-%m-%d'),
+                                    bars_count=0,  # Will be counted in verification
                                     source='polygon_gap_fill',
-                                    verified=False  # Gap fills are not verified
+                                    verified=True  # Verified after download
                                 )
+                                total_gaps_filled += 1
+                            else:
+                                logger.error(f"❌ Gap fill failed or unverified: {symbol} {gap_start_date} -> {gap_end_date}")
+                                failed_gaps.append({
+                                    'symbol': symbol,
+                                    'timeframe': timeframe_str,
+                                    'start_date': gap_start_date,
+                                    'end_date': gap_end_date,
+                                    'retry_count': 0
+                                })
 
                         except Exception as e:
-                            logger.error(f"❌ Error filling gap for {symbol}: {e}")
+                            logger.error(f"❌ Error filling gap for {symbol}: {e}", exc_info=True)
+                            failed_gaps.append({
+                                'symbol': symbol,
+                                'timeframe': timeframe_str,
+                                'start_date': gap_start_date if 'gap_start_date' in locals() else gap_start,
+                                'end_date': gap_end_date if 'gap_end_date' in locals() else gap_end,
+                                'retry_count': 0,
+                                'error': str(e)
+                            })
 
                 else:
                     logger.info(f"✅ No gaps found for {symbol}")
+
+            # Retry failed verifications
+            if failed_gaps:
+                logger.warning(f"⚠️  {len(failed_gaps)} gaps failed verification, retrying...")
+                await self.retry_failed_verifications(failed_gaps, max_retry_attempts=2)
 
             await self.publisher.disconnect()
 

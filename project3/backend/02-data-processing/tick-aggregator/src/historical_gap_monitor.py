@@ -98,12 +98,12 @@ class HistoricalGapMonitor:
 
                     try:
                         # Detect gaps in historical data
-                        # Note: We look back further than live monitor (30 days vs 7 days)
+                        # Note: We scan full historical range (11 years) to find all gaps back to 2015
                         missing_timestamps = self.gap_detector.detect_recent_gaps(
                             symbol=symbol,
                             timeframe=timeframe,
                             interval_minutes=interval_minutes,
-                            lookback_hours=30 * 24  # 30 days
+                            lookback_hours=365 * 11 * 24  # 11 years (covers 2015-2025 + buffer)
                         )
 
                         if missing_timestamps:

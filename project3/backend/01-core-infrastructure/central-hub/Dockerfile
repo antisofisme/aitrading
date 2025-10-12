@@ -20,12 +20,16 @@ COPY shared/ ./shared/
 # Create logs directory
 RUN mkdir -p /app/logs
 
+# Copy healthcheck script
+COPY 01-core-infrastructure/central-hub/healthcheck.sh /app/healthcheck.sh
+RUN chmod +x /app/healthcheck.sh
+
 # Expose port
 EXPOSE 7000
 
-# Health check using python instead of curl
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-  CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:7000/health')" || exit 1
+# Health check - verifies API responds
+HEALTHCHECK --interval=10s --timeout=5s --start-period=30s --retries=5 \
+  CMD /app/healthcheck.sh
 
 # Set Python path and run application
 ENV PYTHONPATH=/app/shared:/app/base

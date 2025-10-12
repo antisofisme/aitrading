@@ -51,18 +51,19 @@ class PeriodTracker:
 
     def _load(self):
         """Load periods from JSON file"""
-        try:
-            if self.tracker_file.exists():
-                with open(self.tracker_file, 'r') as f:
-                    self.periods = json.load(f)
-                logger.info(f"✅ Loaded {len(self.periods)} tracked periods from {self.tracker_file}")
-            else:
-                logger.info(f"📝 No existing tracker file, starting fresh")
+        with self.lock:
+            try:
+                if self.tracker_file.exists():
+                    with open(self.tracker_file, 'r') as f:
+                        self.periods = json.load(f)
+                    logger.info(f"✅ Loaded {len(self.periods)} tracked periods from {self.tracker_file}")
+                else:
+                    logger.info(f"📝 No existing tracker file, starting fresh")
+                    self.periods = {}
+            except Exception as e:
+                logger.error(f"❌ Error loading tracker file: {e}")
+                logger.warning(f"⚠️  Starting with empty tracker")
                 self.periods = {}
-        except Exception as e:
-            logger.error(f"❌ Error loading tracker file: {e}")
-            logger.warning(f"⚠️  Starting with empty tracker")
-            self.periods = {}
 
     def _save(self):
         """Save periods to JSON file"""
@@ -112,51 +113,52 @@ class PeriodTracker:
         """
         key = self._get_key(symbol, timeframe)
 
-        # No records for this symbol/timeframe
-        if key not in self.periods:
-            return False, "No previous downloads recorded"
+        with self.lock:
+            # No records for this symbol/timeframe
+            if key not in self.periods:
+                return False, "No previous downloads recorded"
 
-        try:
-            # Parse requested dates
-            if len(start_date) == 10:  # YYYY-MM-DD
-                requested_start = datetime.strptime(start_date, '%Y-%m-%d').replace(tzinfo=timezone.utc)
-            else:
-                requested_start = self._parse_date(start_date)
+            try:
+                # Parse requested dates
+                if len(start_date) == 10:  # YYYY-MM-DD
+                    requested_start = datetime.strptime(start_date, '%Y-%m-%d').replace(tzinfo=timezone.utc)
+                else:
+                    requested_start = self._parse_date(start_date)
 
-            if end_date in ['now', 'today']:
-                requested_end = datetime.now(timezone.utc)
-            elif len(end_date) == 10:
-                requested_end = datetime.strptime(end_date, '%Y-%m-%d').replace(tzinfo=timezone.utc)
-            else:
-                requested_end = self._parse_date(end_date)
+                if end_date in ['now', 'today']:
+                    requested_end = datetime.now(timezone.utc)
+                elif len(end_date) == 10:
+                    requested_end = datetime.strptime(end_date, '%Y-%m-%d').replace(tzinfo=timezone.utc)
+                else:
+                    requested_end = self._parse_date(end_date)
 
-            # Check if any existing period covers this range
-            for period in self.periods[key]:
-                existing_start = self._parse_date(period['start'])
-                existing_end = self._parse_date(period['end'])
+                # Check if any existing period covers this range
+                for period in self.periods[key]:
+                    existing_start = self._parse_date(period['start'])
+                    existing_end = self._parse_date(period['end'])
 
-                # Check if requested range is fully covered
-                if existing_start <= requested_start and existing_end >= requested_end:
-                    downloaded_at = period.get('downloaded_at', 'unknown')
-                    bars_count = period.get('bars_count', 'unknown')
+                    # Check if requested range is fully covered
+                    if existing_start <= requested_start and existing_end >= requested_end:
+                        downloaded_at = period.get('downloaded_at', 'unknown')
+                        bars_count = period.get('bars_count', 'unknown')
 
-                    reason = (
-                        f"Already downloaded on {downloaded_at} "
-                        f"({bars_count} bars, verified={period.get('verified', False)})"
-                    )
+                        reason = (
+                            f"Already downloaded on {downloaded_at} "
+                            f"({bars_count} bars, verified={period.get('verified', False)})"
+                        )
 
-                    logger.info(f"✅ {key} period {start_date} to {end_date} already covered")
-                    logger.info(f"   Existing: {existing_start.date()} to {existing_end.date()}")
+                        logger.info(f"✅ {key} period {start_date} to {end_date} already covered")
+                        logger.info(f"   Existing: {existing_start.date()} to {existing_end.date()}")
 
-                    return True, reason
+                        return True, reason
 
-            # Not fully covered
-            return False, "Period not fully covered by existing downloads"
+                # Not fully covered
+                return False, "Period not fully covered by existing downloads"
 
-        except Exception as e:
-            logger.error(f"Error checking period: {e}")
-            # On error, return False to be safe (allow download)
-            return False, f"Error checking period: {e}"
+            except Exception as e:
+                logger.error(f"Error checking period: {e}")
+                # On error, return False to be safe (allow download)
+                return False, f"Error checking period: {e}"
 
     def mark_downloaded(
         self,
@@ -206,14 +208,15 @@ class PeriodTracker:
                 'verified': verified
             }
 
-            # Initialize list if needed
-            if key not in self.periods:
-                self.periods[key] = []
+            with self.lock:
+                # Initialize list if needed
+                if key not in self.periods:
+                    self.periods[key] = []
 
-            # Add period record
-            self.periods[key].append(period_record)
+                # Add period record
+                self.periods[key].append(period_record)
 
-            # Save to disk
+            # Save to disk (already has its own lock)
             self._save()
 
             logger.info(f"✅ Marked {key} as downloaded: {start_date} to {end_date} ({bars_count} bars)")
@@ -228,7 +231,8 @@ class PeriodTracker:
         Returns: List of period records
         """
         key = self._get_key(symbol, timeframe)
-        return self.periods.get(key, [])
+        with self.lock:
+            return self.periods.get(key, []).copy()
 
     def get_missing_ranges(
         self,
@@ -262,32 +266,34 @@ class PeriodTracker:
             symbol: Trading pair
             timeframe: Optional specific timeframe (if None, clears all timeframes)
         """
-        if timeframe:
-            key = self._get_key(symbol, timeframe)
-            if key in self.periods:
-                del self.periods[key]
-                self._save()
-                logger.info(f"🗑️  Cleared tracking for {key}")
-        else:
-            # Clear all timeframes for this symbol
-            keys_to_delete = [k for k in self.periods.keys() if k.startswith(f"{symbol}_")]
-            for key in keys_to_delete:
-                del self.periods[key]
+        with self.lock:
+            if timeframe:
+                key = self._get_key(symbol, timeframe)
+                if key in self.periods:
+                    del self.periods[key]
+                    self._save()
+                    logger.info(f"🗑️  Cleared tracking for {key}")
+            else:
+                # Clear all timeframes for this symbol
+                keys_to_delete = [k for k in self.periods.keys() if k.startswith(f"{symbol}_")]
+                for key in keys_to_delete:
+                    del self.periods[key]
 
-            self._save()
-            logger.info(f"🗑️  Cleared all tracking for {symbol} ({len(keys_to_delete)} timeframes)")
+                self._save()
+                logger.info(f"🗑️  Cleared all tracking for {symbol} ({len(keys_to_delete)} timeframes)")
 
     def get_stats(self) -> dict:
         """Get tracker statistics"""
-        total_periods = sum(len(periods) for periods in self.periods.values())
-        total_bars = sum(
-            sum(p.get('bars_count', 0) for p in periods)
-            for periods in self.periods.values()
-        )
+        with self.lock:
+            total_periods = sum(len(periods) for periods in self.periods.values())
+            total_bars = sum(
+                sum(p.get('bars_count', 0) for p in periods)
+                for periods in self.periods.values()
+            )
 
-        return {
-            'tracked_combinations': len(self.periods),
-            'total_periods': total_periods,
-            'total_bars_tracked': total_bars,
-            'tracker_file': str(self.tracker_file)
-        }
+            return {
+                'tracked_combinations': len(self.periods),
+                'total_periods': total_periods,
+                'total_bars_tracked': total_bars,
+                'tracker_file': str(self.tracker_file)
+            }

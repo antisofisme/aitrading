@@ -5,6 +5,7 @@ Batch processing with multi-timeframe support + 12 core technical indicators
 import asyncio
 import asyncpg
 import logging
+import time
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
 import pandas as pd
@@ -23,6 +24,14 @@ class TickAggregator:
     4. Publish to NATS/Kafka
     """
 
+    # Query timeout settings
+    QUERY_TIMEOUT_SHORT = 10.0  # 10 seconds for simple queries
+    QUERY_TIMEOUT_MEDIUM = 30.0  # 30 seconds for aggregations
+    QUERY_TIMEOUT_LONG = 60.0  # 60 seconds for complex queries
+
+    # Slow query threshold for logging
+    SLOW_QUERY_THRESHOLD = 5.0  # Log queries > 5 seconds
+
     def __init__(self, db_config: Dict[str, Any], aggregation_config: Dict[str, Any]):
         self.db_config = db_config
         self.aggregation_config = aggregation_config
@@ -37,7 +46,104 @@ class TickAggregator:
         self.total_candles_generated = 0
         self.total_indicators_calculated = 0
 
+        # Query performance statistics
+        self.query_stats = {
+            'total_queries': 0,
+            'slow_queries': 0,
+            'timeout_errors': 0,
+            'total_duration': 0.0
+        }
+
         logger.info("TickAggregator initialized with technical indicators support")
+
+    async def _execute_query_with_timeout(
+        self,
+        conn,
+        query: str,
+        *args,
+        timeout: float = 30.0,
+        query_name: str = "unknown"
+    ):
+        """
+        Execute query with timeout and performance logging
+
+        Args:
+            conn: AsyncPG connection
+            query: SQL query string
+            args: Query parameters
+            timeout: Timeout in seconds
+            query_name: Name for logging
+
+        Returns:
+            Query results
+
+        Raises:
+            asyncio.TimeoutError: If query exceeds timeout
+        """
+        start_time = time.time()
+
+        try:
+            # Execute with timeout
+            result = await asyncio.wait_for(
+                conn.fetch(query, *args),
+                timeout=timeout
+            )
+
+            # Log slow queries
+            duration = time.time() - start_time
+            if duration > self.SLOW_QUERY_THRESHOLD:
+                logger.warning(
+                    f"🐌 Slow query '{query_name}': {duration:.2f}s "
+                    f"(threshold: {self.SLOW_QUERY_THRESHOLD}s)"
+                )
+            else:
+                logger.debug(f"✅ Query '{query_name}': {duration:.2f}s")
+
+            # Update statistics
+            self._update_query_stats(duration, timed_out=False)
+
+            return result
+
+        except asyncio.TimeoutError:
+            duration = time.time() - start_time
+            logger.error(
+                f"❌ Query timeout '{query_name}' after {duration:.2f}s "
+                f"(limit: {timeout}s)\nQuery: {query[:200]}..."
+            )
+            self._update_query_stats(duration, timed_out=True)
+            raise
+        except Exception as e:
+            duration = time.time() - start_time
+            logger.error(
+                f"❌ Query error '{query_name}' after {duration:.2f}s: {e}"
+            )
+            raise
+
+    def _update_query_stats(self, duration: float, timed_out: bool = False):
+        """Update query performance statistics"""
+        self.query_stats['total_queries'] += 1
+        self.query_stats['total_duration'] += duration
+
+        if duration > self.SLOW_QUERY_THRESHOLD:
+            self.query_stats['slow_queries'] += 1
+
+        if timed_out:
+            self.query_stats['timeout_errors'] += 1
+
+    def get_query_stats(self):
+        """Get query performance statistics"""
+        total = self.query_stats['total_queries']
+        if total == 0:
+            return self.query_stats
+
+        avg_duration = self.query_stats['total_duration'] / total
+        slow_pct = (self.query_stats['slow_queries'] / total) * 100
+
+        return {
+            **self.query_stats,
+            'avg_duration_seconds': round(avg_duration, 2),
+            'slow_query_percentage': round(slow_pct, 1)
+        }
 
     async def connect(self):
         """Create database connection pool"""
@@ -103,11 +209,14 @@ class TickAggregator:
 
         try:
             async with self.pool.acquire() as conn:
-                rows = await conn.fetch(
+                rows = await self._execute_query_with_timeout(
+                    conn,
                     query,
                     symbols,
                     start_time,
-                    end_time
+                    end_time,
+                    timeout=self.QUERY_TIMEOUT_MEDIUM,
+                    query_name=f"aggregate_ticks_{timeframe}"
                 )
 
             if not rows:
@@ -243,10 +352,12 @@ class TickAggregator:
             await self.pool.close()
             logger.info("✅ TimescaleDB connection pool closed")
 
-    def get_stats(self) -> Dict[str, int]:
+    def get_stats(self) -> Dict[str, Any]:
         """Get aggregator statistics"""
+        query_stats = self.get_query_stats()
         return {
             'total_ticks_processed': self.total_ticks_processed,
             'total_candles_generated': self.total_candles_generated,
-            'total_indicators_calculated': self.total_indicators_calculated
+            'total_indicators_calculated': self.total_indicators_calculated,
+            'query_performance': query_stats
         }

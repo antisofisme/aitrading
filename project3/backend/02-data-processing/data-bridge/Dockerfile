@@ -20,14 +20,22 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY 02-data-processing/data-bridge/src/ ./src/
 COPY 02-data-processing/data-bridge/config/ ./config/
 
-# Copy Central Hub shared components for Database Manager
-COPY 01-core-infrastructure/central-hub/shared/ ./central-hub/shared/
+# Copy Central Hub shared components
+COPY 01-core-infrastructure/central-hub/shared/ ./shared/
 
 # Create logs directory
 RUN mkdir -p /app/logs
 
-# Set Python path for Database Manager access
-ENV PYTHONPATH="/app:/app/central-hub/shared"
+# Copy healthcheck script
+COPY 02-data-processing/data-bridge/healthcheck.sh /app/healthcheck.sh
+RUN chmod +x /app/healthcheck.sh
+
+# Configure health check - verifies all dependencies
+HEALTHCHECK --interval=15s --timeout=10s --start-period=60s --retries=3 \
+  CMD /app/healthcheck.sh
+
+# Set Python path for shared utilities access
+ENV PYTHONPATH="/app"
 
 WORKDIR /app/src
 

@@ -19,6 +19,7 @@ from config import Config
 from nats_subscriber import NATSSubscriber
 from clickhouse_writer import ClickHouseWriter
 from external_data_writer import ExternalDataWriter
+from retry_queue import RetryQueue
 
 # Import Database Manager from Central Hub
 from components.data_manager import DataRouter, TickData, CandleData
@@ -55,6 +56,12 @@ class DataBridge:
         # Database Manager (for Live data → TimescaleDB + DragonflyDB)
         self.db_router = None
 
+        # PostgreSQL connection pool (for RetryQueue DLQ)
+        self.pg_pool = None
+
+        # Retry Queue (for failed ClickHouse writes)
+        self.retry_queue = None
+
         # ClickHouse Writer (for Historical data → ClickHouse)
         self.clickhouse_writer = None
 
@@ -76,7 +83,7 @@ class DataBridge:
         self.heartbeat_logger = None
 
         logger.info("=" * 80)
-        logger.info("DATA BRIDGE - INTELLIGENT ROUTING")
+        logger.info("DATA BRIDGE - INTELLIGENT ROUTING + RETRY QUEUE")
         logger.info("=" * 80)
         logger.info(f"Instance ID: {self.config.instance_id}")
         logger.info(f"Log Level: {self.config.log_level}")
@@ -91,6 +98,10 @@ class DataBridge:
             await self.config.initialize_central_hub()
             logger.info("✅ Central Hub configuration loaded")
 
+            # Import retry utility
+            sys.path.insert(0, '/app')
+            from shared.utils.connection_retry import connect_with_retry
+
             # Initialize Database Manager with Central Hub configs (Live → TimescaleDB)
             logger.info("📦 Initializing Database Manager for Live data...")
             from components.data_manager.pools import get_pool_manager
@@ -98,30 +109,85 @@ class DataBridge:
             # Get database configs from Central Hub
             db_configs = self.config.database_configs
 
-            # Initialize pool manager with Central Hub configs
-            pool_manager = await get_pool_manager(configs=db_configs)
+            # Initialize pool manager with Central Hub configs with retry
+            pool_manager = await connect_with_retry(
+                lambda: get_pool_manager(configs=db_configs),
+                "Database Pool Manager",
+                max_retries=10
+            )
 
             # Initialize DataRouter (will use the pool manager we just created)
             self.db_router = DataRouter()
-            await self.db_router.initialize()
+            await connect_with_retry(
+                self.db_router.initialize,
+                "DataRouter (Database Manager)",
+                max_retries=10
+            )
             logger.info("✅ Database Manager ready (TimescaleDB + DragonflyDB)")
 
-            # Initialize ClickHouse Writer (Historical → ClickHouse)
+            # Initialize PostgreSQL pool for RetryQueue DLQ (uses same PostgreSQL connection)
+            logger.info("📦 Initializing PostgreSQL pool for Retry Queue DLQ...")
+            import asyncpg
+            postgres_config = db_configs.get('postgresql', {}).get('connection', {})
+            if postgres_config:
+                try:
+                    async def create_pg_pool():
+                        return await asyncpg.create_pool(
+                            host=postgres_config.get('host', 'localhost'),
+                            port=postgres_config.get('port', 5432),
+                            database=postgres_config.get('database', 'suho_analytics'),
+                            user=postgres_config.get('user', 'postgres'),
+                            password=postgres_config.get('password', ''),
+                            min_size=2,
+                            max_size=5,
+                            command_timeout=30
+                        )
+
+                    self.pg_pool = await connect_with_retry(
+                        create_pg_pool,
+                        "PostgreSQL Pool (DLQ)",
+                        max_retries=10
+                    )
+                    logger.info("✅ PostgreSQL pool created for DLQ")
+
+                    # Initialize RetryQueue
+                    self.retry_queue = RetryQueue(
+                        pg_pool=self.pg_pool,
+                        max_queue_size=10000
+                    )
+                    await self.retry_queue.start()
+                    logger.info("✅ Retry Queue initialized and started")
+                except Exception as pg_error:
+                    logger.warning(f"⚠️ Failed to initialize PostgreSQL pool for DLQ: {pg_error}")
+                    logger.warning("⚠️ Retry Queue DISABLED - data loss possible on ClickHouse failures!")
+            else:
+                logger.warning("⚠️ PostgreSQL config not found - Retry Queue DISABLED")
+
+            # Initialize ClickHouse Writer (Historical → ClickHouse) with RetryQueue
             logger.info("📦 Initializing ClickHouse Writer for Historical data...")
             clickhouse_config = self.config.database_configs.get('clickhouse')
             if clickhouse_config:
                 self.clickhouse_writer = ClickHouseWriter(
                     config=clickhouse_config,
                     batch_size=1000,  # Larger batches for historical data
-                    batch_timeout=10.0  # 10 seconds
+                    batch_timeout=10.0,  # 10 seconds
+                    retry_queue=self.retry_queue  # Enable retry queue
                 )
-                await self.clickhouse_writer.connect()
-                logger.info("✅ ClickHouse Writer ready")
+                await connect_with_retry(
+                    self.clickhouse_writer.connect,
+                    "ClickHouse Writer",
+                    max_retries=10
+                )
+                logger.info("✅ ClickHouse Writer ready (with Retry Queue)")
 
                 # Initialize External Data Writer (External → ClickHouse)
                 logger.info("📦 Initializing External Data Writer...")
                 self.external_data_writer = ExternalDataWriter(clickhouse_config)
-                await self.external_data_writer.connect()
+                await connect_with_retry(
+                    self.external_data_writer.connect,
+                    "External Data Writer (ClickHouse)",
+                    max_retries=10
+                )
                 logger.info("✅ External Data Writer ready")
             else:
                 logger.warning("⚠️  ClickHouse config not found, historical/external data will not be saved")
@@ -168,7 +234,11 @@ class DataBridge:
                 config=self.config.nats_config,
                 message_handler=handle_message
             )
-            await self.nats_subscriber.connect()
+            await connect_with_retry(
+                self.nats_subscriber.connect,
+                "NATS Subscriber",
+                max_retries=10
+            )
             await self.nats_subscriber.subscribe_all()
 
             self.is_running = True
@@ -182,11 +252,15 @@ class DataBridge:
             self.heartbeat_logger.start()
 
             logger.info("=" * 80)
-            logger.info("✅ DATA BRIDGE STARTED - HYBRID PHASE 1")
+            logger.info("✅ DATA BRIDGE STARTED - HYBRID PHASE 1 + RETRY QUEUE")
             logger.info("📊 NATS: Market data streaming (ONLY SOURCE)")
             logger.info("💾 Live Ticks → TimescaleDB.market_ticks")
             logger.info("💾 Aggregates → ClickHouse.aggregates")
             logger.info("💾 External Data → ClickHouse.external_*")
+            logger.info(f"🔄 Retry Queue: {'ENABLED' if self.retry_queue else 'DISABLED'}")
+            if self.retry_queue:
+                logger.info("   └─ Max retries: 6 (1s → 2s → 4s → 8s → 16s → 32s)")
+                logger.info("   └─ DLQ: PostgreSQL data_bridge_dlq table")
             logger.info("=" * 80)
 
             # Run heartbeat reporter
@@ -387,6 +461,7 @@ class DataBridge:
                 # Collect stats
                 nats_stats = self.nats_subscriber.get_stats() if self.nats_subscriber else {}
                 clickhouse_stats = self.clickhouse_writer.get_stats() if self.clickhouse_writer else {}
+                retry_stats = self.retry_queue.get_stats() if self.retry_queue else {}
 
                 # Calculate total processed
                 total_processed = (
@@ -396,15 +471,23 @@ class DataBridge:
                 )
 
                 # Update heartbeat logger (will auto-log when interval reached)
+                metrics = {
+                    'ticks': self.ticks_saved,
+                    'ch_candles': self.candles_saved_clickhouse,
+                    'external': self.external_data_saved,
+                    'nats_msgs': nats_stats.get('total_messages', 0),
+                    'ch_buffer': clickhouse_stats.get('buffer_size', 0)
+                }
+
+                # Add retry queue metrics if available
+                if retry_stats:
+                    metrics['retry_queue_size'] = retry_stats.get('queue_size', 0)
+                    metrics['retry_success_rate'] = round(retry_stats.get('success_rate', 0), 2)
+                    metrics['total_dlq'] = retry_stats.get('total_failed_to_dlq', 0)
+
                 self.heartbeat_logger.update(
                     processed_count=0,  # Don't increment, just update metrics
-                    additional_metrics={
-                        'ticks': self.ticks_saved,
-                        'ch_candles': self.candles_saved_clickhouse,
-                        'external': self.external_data_saved,
-                        'nats_msgs': nats_stats.get('total_messages', 0),
-                        'ch_buffer': clickhouse_stats.get('buffer_size', 0)
-                    }
+                    additional_metrics=metrics
                 )
 
                 # Prepare metrics for Central Hub (sent every 30s with heartbeat log)
@@ -428,19 +511,113 @@ class DataBridge:
                 logger.error(f"Error in heartbeat reporter: {e}")
 
     async def stop(self):
-        """Stop the Data Bridge"""
+        """
+        Stop the Data Bridge with proper shutdown sequence
+
+        CRITICAL: Flush buffers BEFORE closing subscribers to prevent data loss
+        """
         logger.info("🛑 Stopping Data Bridge...")
         self.is_running = False
 
-        # Stop NATS subscriber
-        if self.nats_subscriber:
-            await self.nats_subscriber.close()
+        # Step 1: Stop heartbeat logger
+        if self.heartbeat_logger:
+            logger.info("📊 Stopping heartbeat logger...")
+            self.heartbeat_logger.stop()
 
-        # Flush and close ClickHouse writer
+        # Step 1.5: Stop retry queue worker (will flush remaining to DLQ)
+        if self.retry_queue:
+            logger.info("🔄 Stopping Retry Queue...")
+            await self.retry_queue.stop()
+            logger.info("✅ Retry Queue stopped")
+
+        # Step 2: FLUSH all buffered data BEFORE closing connections
+        logger.info("💾 Flushing buffered data...")
+
+        # Flush ClickHouse buffer with timeout protection
         if self.clickhouse_writer:
-            await self.clickhouse_writer.close()
+            try:
+                # Wait max 30 seconds for flush to complete
+                logger.info(f"💾 Flushing ClickHouse buffer ({len(self.clickhouse_writer.aggregate_buffer)} items)...")
+                await asyncio.wait_for(
+                    self.clickhouse_writer.flush_all(),
+                    timeout=30.0
+                )
+                logger.info("✅ ClickHouse buffer flushed successfully")
+            except asyncio.TimeoutError:
+                logger.warning(f"⚠️ ClickHouse flush timeout (30s exceeded), buffer size: {len(self.clickhouse_writer.aggregate_buffer)}")
+                logger.warning("⚠️ Some data may be lost!")
+            except Exception as e:
+                logger.error(f"❌ Error flushing ClickHouse buffer: {e}", exc_info=True)
 
-        logger.info("✅ Data Bridge stopped")
+        # Flush external data writer buffer
+        if self.external_data_writer:
+            try:
+                logger.info("💾 Flushing external data buffer...")
+                await asyncio.wait_for(
+                    self.external_data_writer.flush_all(),
+                    timeout=30.0
+                )
+                logger.info("✅ External data buffer flushed successfully")
+            except asyncio.TimeoutError:
+                logger.warning("⚠️ External data flush timeout (30s exceeded)")
+            except Exception as e:
+                logger.error(f"❌ Error flushing external data buffer: {e}", exc_info=True)
+
+        # Step 3: Wait 1 second for any pending async operations
+        logger.info("⏳ Waiting for pending operations to complete...")
+        await asyncio.sleep(1)
+
+        # Step 4: Close Database Manager (flush TimescaleDB writes)
+        if self.db_router and self.db_router.pool_manager:
+            try:
+                logger.info("💾 Closing Database Manager connection pools...")
+                await self.db_router.pool_manager.close_all()
+                logger.info("✅ Database Manager connection pools closed")
+            except Exception as e:
+                logger.error(f"❌ Error closing Database Manager: {e}", exc_info=True)
+
+        # Step 5: NOW close NATS subscriber (no more incoming messages)
+        if self.nats_subscriber:
+            logger.info("📡 Closing NATS subscriber...")
+            await self.nats_subscriber.close()
+            logger.info("✅ NATS subscriber closed")
+
+        # Step 6: Close ClickHouse writer connection
+        if self.clickhouse_writer:
+            logger.info("🔌 Closing ClickHouse connection...")
+            if self.clickhouse_writer.client:
+                self.clickhouse_writer.client.close()
+            logger.info("✅ ClickHouse connection closed")
+
+        # Step 7: Close external data writer connection
+        if self.external_data_writer:
+            logger.info("🔌 Closing external data writer connection...")
+            if self.external_data_writer.client:
+                self.external_data_writer.client.close()
+            logger.info("✅ External data writer connection closed")
+
+        # Step 8: Close PostgreSQL pool
+        if self.pg_pool:
+            logger.info("🔌 Closing PostgreSQL pool...")
+            await self.pg_pool.close()
+            logger.info("✅ PostgreSQL pool closed")
+
+        # Final statistics
+        logger.info("=" * 80)
+        logger.info("📊 SHUTDOWN STATISTICS")
+        logger.info(f"  Ticks saved: {self.ticks_saved}")
+        logger.info(f"  ClickHouse candles: {self.candles_saved_clickhouse}")
+        logger.info(f"  External data: {self.external_data_saved}")
+        logger.info(f"  Total processed: {self.ticks_saved + self.candles_saved_clickhouse + self.external_data_saved}")
+        if self.retry_queue:
+            retry_stats = self.retry_queue.get_stats()
+            logger.info(f"  Retry queue stats:")
+            logger.info(f"    - Total retried: {retry_stats.get('total_retried', 0)}")
+            logger.info(f"    - Success rate: {retry_stats.get('success_rate', 0):.1f}%")
+            logger.info(f"    - Failed to DLQ: {retry_stats.get('total_failed_to_dlq', 0)}")
+            logger.info(f"    - Dropped (overflow): {retry_stats.get('total_dropped', 0)}")
+        logger.info("=" * 80)
+        logger.info("✅ Data Bridge stopped gracefully")
 
     def handle_signal(self, signum, frame):
         """Handle shutdown signals"""

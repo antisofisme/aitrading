@@ -112,7 +112,7 @@ class PolygonHistoricalDownloader:
 
     def _parse_aggregate(self, bar: dict, pair: PairConfig) -> Optional[dict]:
         """
-        Parse aggregate bar from Polygon.io
+        Parse aggregate bar from Polygon.io with data quality validation
 
         Bar format:
         {
@@ -125,20 +125,89 @@ class PolygonHistoricalDownloader:
             "t": 1577836800000, # Timestamp (Unix MS)
             "n": 100          # Number of transactions
         }
+
+        Validation:
+        - OHLC must not be None, 0, or NaN
+        - Reject incomplete/invalid bars (don't insert bad data)
         """
         try:
-            # Extract OHLC
-            open_price = float(bar.get('o', 0))
-            high_price = float(bar.get('h', 0))
-            low_price = float(bar.get('l', 0))
-            close_price = float(bar.get('c', 0))
-            volume = int(bar.get('v', 0))
-            vwap = float(bar.get('vw', 0))
-            num_trades = int(bar.get('n', 0))
+            # Extract OHLC - DO NOT default to 0, use None to detect missing
+            open_price = bar.get('o')
+            high_price = bar.get('h')
+            low_price = bar.get('l')
+            close_price = bar.get('c')
+            volume = bar.get('v', 0)
+            vwap = bar.get('vw')
+            num_trades = bar.get('n', 0)
+            timestamp_ms = bar.get('t')
+
+            # CRITICAL: Validate data completeness
+            # Reject bars with missing or invalid OHLC
+            if open_price is None or high_price is None or low_price is None or close_price is None:
+                logger.warning(
+                    f"⚠️ [DataQuality] {pair.symbol}: Skipping bar with NULL OHLC values "
+                    f"(o={open_price}, h={high_price}, l={low_price}, c={close_price})"
+                )
+                return None
+
+            if timestamp_ms is None or timestamp_ms == 0:
+                logger.warning(f"⚠️ [DataQuality] {pair.symbol}: Skipping bar with invalid timestamp")
+                return None
+
+            # Convert to float and validate not 0
+            try:
+                open_price = float(open_price)
+                high_price = float(high_price)
+                low_price = float(low_price)
+                close_price = float(close_price)
+                volume = int(volume)
+                timestamp_ms = int(timestamp_ms)
+            except (ValueError, TypeError) as e:
+                logger.warning(f"⚠️ [DataQuality] {pair.symbol}: Invalid numeric values: {e}")
+                return None
+
+            # Validate OHLC are positive (forex prices never 0)
+            if open_price <= 0 or high_price <= 0 or low_price <= 0 or close_price <= 0:
+                logger.warning(
+                    f"⚠️ [DataQuality] {pair.symbol}: Skipping bar with zero/negative prices "
+                    f"(o={open_price}, h={high_price}, l={low_price}, c={close_price})"
+                )
+                return None
+
+            # Validate price logic (high >= low, open/close within range)
+            if high_price < low_price:
+                logger.warning(
+                    f"⚠️ [DataQuality] {pair.symbol}: Invalid bar - high < low "
+                    f"(h={high_price}, l={low_price})"
+                )
+                return None
+
+            if open_price < low_price or open_price > high_price:
+                logger.warning(
+                    f"⚠️ [DataQuality] {pair.symbol}: Invalid bar - open outside range "
+                    f"(o={open_price}, h={high_price}, l={low_price})"
+                )
+                return None
+
+            if close_price < low_price or close_price > high_price:
+                logger.warning(
+                    f"⚠️ [DataQuality] {pair.symbol}: Invalid bar - close outside range "
+                    f"(c={close_price}, h={high_price}, l={low_price})"
+                )
+                return None
 
             # Timestamp
-            timestamp_ms = int(bar.get('t', 0))
             timestamp = datetime.fromtimestamp(timestamp_ms / 1000.0)
+
+            # VWAP optional (some bars may not have it)
+            if vwap is not None:
+                try:
+                    vwap = float(vwap)
+                except (ValueError, TypeError):
+                    vwap = close_price  # Fallback to close
+
+            else:
+                vwap = close_price
 
             # Calculate bid/ask estimates (use close as mid, spread ~0.0002)
             # This is an approximation since historical aggregates don't have bid/ask
@@ -164,7 +233,7 @@ class PolygonHistoricalDownloader:
             }
 
         except Exception as e:
-            logger.error(f"Error parsing bar: {e}")
+            logger.error(f"❌ [DataQuality] Error parsing bar for {pair.symbol}: {e}")
             return None
 
     async def download_all_pairs(

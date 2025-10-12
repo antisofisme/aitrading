@@ -3,6 +3,8 @@ ClickHouse Writer with Batch Insertion for Historical Data + Technical Indicator
 
 RESILIENCE FEATURES:
 - Circuit breaker prevents cascading failures
+- Retry queue with exponential backoff (NEW)
+- PostgreSQL dead letter queue for failed messages (NEW)
 - Batch insertion optimization
 - Auto-reconnection on failure
 - Comprehensive error handling
@@ -10,7 +12,7 @@ RESILIENCE FEATURES:
 import logging
 import asyncio
 import json
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from datetime import datetime, timezone
 import clickhouse_connect
 
@@ -33,7 +35,13 @@ class ClickHouseWriter:
     Historical Downloader → NATS/Kafka → Data Bridge → ClickHouse Writer → ClickHouse.aggregates
     """
 
-    def __init__(self, config: Dict[str, Any], batch_size: int = 1000, batch_timeout: float = 10.0):
+    def __init__(
+        self,
+        config: Dict[str, Any],
+        batch_size: int = 1000,
+        batch_timeout: float = 10.0,
+        retry_queue: Optional['RetryQueue'] = None
+    ):
         """
         Initialize ClickHouse writer
 
@@ -41,10 +49,12 @@ class ClickHouseWriter:
             config: ClickHouse connection config from Central Hub
             batch_size: Number of candles to batch before insert
             batch_timeout: Seconds to wait before flushing batch
+            retry_queue: RetryQueue instance for failed writes (optional but recommended)
         """
         self.config = config
         self.batch_size = batch_size
         self.batch_timeout = batch_timeout
+        self.retry_queue = retry_queue
 
         self.client = None
 
@@ -64,8 +74,13 @@ class ClickHouseWriter:
         self.total_batch_inserts = 0
         self.total_insert_errors = 0
         self.circuit_breaker_trips = 0
+        self.total_retried = 0  # NEW: Track retry queue usage
 
-        logger.info(f"ClickHouse Writer initialized (batch_size={batch_size}, timeout={batch_timeout}s)")
+        logger.info(
+            f"ClickHouse Writer initialized "
+            f"(batch_size={batch_size}, timeout={batch_timeout}s, "
+            f"retry_queue={'enabled' if retry_queue else 'disabled'})"
+        )
 
     async def connect(self):
         """Connect to ClickHouse"""
@@ -304,9 +319,19 @@ class ClickHouseWriter:
             # Circuit breaker is OPEN - ClickHouse unavailable
             self.circuit_breaker_trips += 1
             logger.error(f"🔴 Circuit breaker OPEN: {e}")
-            logger.error(f"⚠️ Keeping {len(self.aggregate_buffer)} aggregates in buffer (will retry)")
-            # DO NOT clear buffer - will retry on next flush
-            raise  # Re-raise so Kafka offset NOT committed
+
+            # NEW: Add messages to retry queue if available
+            if self.retry_queue:
+                await self._move_buffer_to_retry_queue(
+                    filtered_buffer if 'filtered_buffer' in locals() else self.aggregate_buffer,
+                    error=str(e)
+                )
+                self.aggregate_buffer.clear()
+                self.last_flush = datetime.now(timezone.utc)
+            else:
+                logger.error(f"⚠️ Keeping {len(self.aggregate_buffer)} aggregates in buffer (will retry)")
+                # DO NOT clear buffer - will retry on next flush
+                raise  # Re-raise so Kafka offset NOT committed
 
         except Exception as e:
             self.total_insert_errors += 1
@@ -317,15 +342,66 @@ class ClickHouseWriter:
             if self.aggregate_buffer:
                 logger.error(f"Sample data: {self.aggregate_buffer[0]}")
 
-            # On error, DO NOT clear buffer immediately
-            # Let circuit breaker handle retry logic
-            # Only clear if buffer too large (prevent OOM)
-            if len(self.aggregate_buffer) > self.batch_size * 10:
-                logger.critical(f"⚠️ Buffer overflow ({len(self.aggregate_buffer)} items) - clearing to prevent OOM")
+            # NEW: Add messages to retry queue if available
+            if self.retry_queue:
+                await self._move_buffer_to_retry_queue(
+                    filtered_buffer if 'filtered_buffer' in locals() else self.aggregate_buffer,
+                    error=str(e)
+                )
                 self.aggregate_buffer.clear()
+                self.last_flush = datetime.now(timezone.utc)
             else:
-                logger.warning(f"⚠️ Keeping buffer for retry (size: {len(self.aggregate_buffer)})")
-                raise  # Re-raise so Kafka offset NOT committed
+                # OLD BEHAVIOR: On error, DO NOT clear buffer immediately
+                # Let circuit breaker handle retry logic
+                # Only clear if buffer too large (prevent OOM)
+                if len(self.aggregate_buffer) > self.batch_size * 10:
+                    logger.critical(f"⚠️ Buffer overflow ({len(self.aggregate_buffer)} items) - clearing to prevent OOM")
+                    self.aggregate_buffer.clear()
+                else:
+                    logger.warning(f"⚠️ Keeping buffer for retry (size: {len(self.aggregate_buffer)})")
+                    raise  # Re-raise so Kafka offset NOT committed
+
+    async def _move_buffer_to_retry_queue(self, buffer: List[Dict], error: str):
+        """
+        Move failed messages from buffer to retry queue
+
+        Args:
+            buffer: List of aggregate messages that failed to insert
+            error: Error message describing the failure
+        """
+        if not self.retry_queue:
+            return
+
+        for aggregate in buffer:
+            try:
+                # Determine priority based on source
+                source = aggregate.get('source', 'polygon_historical')
+                if source in ['live_aggregated', 'polygon_live']:
+                    priority = 'high'
+                elif source in ['live_gap_filled', 'historical_aggregated']:
+                    priority = 'medium'
+                else:
+                    priority = 'low'
+
+                # Generate correlation ID for tracking
+                correlation_id = (
+                    f"{aggregate.get('symbol', 'unknown')}_"
+                    f"{aggregate.get('timeframe', 'unknown')}_"
+                    f"{aggregate.get('timestamp_ms', 0)}"
+                )
+
+                # Add to retry queue
+                await self.retry_queue.add(
+                    message_data=aggregate,
+                    priority=priority,
+                    correlation_id=correlation_id,
+                    message_type='aggregate'
+                )
+                self.total_retried += 1
+
+            except Exception as queue_error:
+                logger.error(f"Failed to add message to retry queue: {queue_error}")
+                logger.critical(f"Message lost: {aggregate}")
 
     async def flush_all(self):
         """Flush all pending data"""
@@ -333,12 +409,20 @@ class ClickHouseWriter:
 
     def get_stats(self) -> Dict:
         """Get writer statistics"""
-        return {
+        stats = {
             'total_aggregates_inserted': self.total_aggregates_inserted,
             'total_batch_inserts': self.total_batch_inserts,
             'total_insert_errors': self.total_insert_errors,
-            'buffer_size': len(self.aggregate_buffer)
+            'buffer_size': len(self.aggregate_buffer),
+            'total_retried': self.total_retried
         }
+
+        # Add retry queue stats if available
+        if self.retry_queue:
+            retry_stats = self.retry_queue.get_stats()
+            stats['retry_queue'] = retry_stats
+
+        return stats
 
     async def close(self):
         """Close connection and flush remaining data"""

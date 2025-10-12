@@ -25,16 +25,23 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY 00-data-ingestion/polygon-historical-downloader/src/ ./src/
 COPY 00-data-ingestion/polygon-historical-downloader/config/ ./config/
 
+# Copy shared utilities
+COPY 01-core-infrastructure/central-hub/shared/ ./shared/
+
 # Create logs directory
 RUN mkdir -p /var/log/polygon-historical-downloader
 
+# Copy healthcheck script
+COPY 00-data-ingestion/polygon-historical-downloader/healthcheck.sh /app/healthcheck.sh
+RUN chmod +x /app/healthcheck.sh
+
 # Set Python path
-ENV PYTHONPATH=/app/src
+ENV PYTHONPATH=/app
 ENV PYTHONUNBUFFERED=1
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD python3 -c "import sys; sys.exit(0)"
+# Configure health check - verifies all dependencies
+HEALTHCHECK --interval=15s --timeout=10s --start-period=60s --retries=3 \
+    CMD /app/healthcheck.sh
 
 # Run the downloader
 CMD ["python3", "/app/src/main.py"]

@@ -34,9 +34,10 @@ services:
       - suho-trading-network
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U suho_admin -d suho_trading"]
-      interval: 30s
-      timeout: 10s
+      interval: 10s
+      timeout: 5s
       retries: 5
+      start_period: 10s
     labels:
       - "com.suho.service=postgresql"
       - "com.suho.type=primary-database"
@@ -64,10 +65,11 @@ services:
     networks:
       - suho-trading-network
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8123/ping"]
-      interval: 30s
-      timeout: 10s
+      test: ["CMD", "clickhouse-client", "--query", "SELECT 1"]
+      interval: 10s
+      timeout: 5s
       retries: 5
+      start_period: 20s
     labels:
       - "com.suho.service=clickhouse"
       - "com.suho.type=analytics-database"
@@ -86,9 +88,10 @@ services:
       - suho-trading-network
     healthcheck:
       test: ["CMD", "redis-cli", "-a", "dragonfly_secure_2024", "ping"]
-      interval: 15s
+      interval: 10s
       timeout: 5s
       retries: 3
+      start_period: 5s
     labels:
       - "com.suho.service=dragonflydb"
       - "com.suho.type=cache-database"
@@ -115,9 +118,10 @@ services:
       - suho-trading-network
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/v1/.well-known/ready"]
-      interval: 30s
-      timeout: 10s
+      interval: 15s
+      timeout: 5s
       retries: 5
+      start_period: 20s
     labels:
       - "com.suho.service=weaviate"
       - "com.suho.type=vector-database"
@@ -144,6 +148,12 @@ services:
       - arangodb_apps:/var/lib/arangodb3-apps
     networks:
       - suho-trading-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8529/_api/version"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     labels:
       - "com.suho.service=arangodb"
       - "com.suho.type=graph-database"
@@ -162,10 +172,11 @@ services:
     networks:
       - suho-trading-network
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8222/healthz"]
-      interval: 15s
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8222/healthz || exit 1"]
+      interval: 10s
       timeout: 5s
-      retries: 3
+      retries: 5
+      start_period: 5s
     labels:
       - "com.suho.service=nats"
       - "com.suho.type=message-broker"
@@ -185,9 +196,10 @@ services:
       - suho-trading-network
     healthcheck:
       test: ["CMD", "bash", "-c", "echo ruok | nc localhost 2181"]
-      interval: 30s
-      timeout: 10s
+      interval: 15s
+      timeout: 5s
       retries: 3
+      start_period: 10s
     labels:
       - "com.suho.service=zookeeper"
 
@@ -200,7 +212,8 @@ services:
       - "9092:9092"
       - "9101:9101"
     depends_on:
-      - zookeeper
+      zookeeper:
+        condition: service_healthy
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: suho-zookeeper:2181
@@ -219,10 +232,11 @@ services:
     networks:
       - suho-trading-network
     healthcheck:
-      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "suho-kafka:9092"]
-      interval: 30s
+      test: ["CMD-SHELL", "kafka-broker-api-versions.sh --bootstrap-server localhost:9092 || exit 1"]
+      interval: 15s
       timeout: 10s
       retries: 5
+      start_period: 30s
     labels:
       - "com.suho.service=kafka"
       - "com.suho.type=message-broker"
@@ -237,8 +251,8 @@ services:
 
   central-hub:
     build:
-      context: ./01-core-infrastructure/central-hub
-      dockerfile: Dockerfile  # Changed from Dockerfile.wheelhouse for new dependencies
+      context: .
+      dockerfile: 01-core-infrastructure/central-hub/Dockerfile
     container_name: suho-central-hub
     restart: unless-stopped
     ports:
@@ -294,10 +308,20 @@ services:
     networks:
       - suho-trading-network
     depends_on:
-      - postgresql
-      - dragonflydb
-      - nats
-      - kafka
+      postgresql:
+        condition: service_healthy
+      dragonflydb:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:7000/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
     labels:
       - "com.suho.service=central-hub"
       - "com.suho.type=core-service"
@@ -334,7 +358,13 @@ services:
       kafka:
         condition: service_healthy
       central-hub:
-        condition: service_started
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python3", "/app/src/healthcheck.py"]
+      interval: 20s
+      timeout: 15s
+      retries: 3
+      start_period: 90s
     labels:
       - "com.suho.service=polygon-live-collector"
       - "com.suho.type=data-collector"
@@ -370,10 +400,16 @@ services:
     depends_on:
       nats:
         condition: service_healthy
-      kafka:
+      clickhouse:
         condition: service_healthy
       central-hub:
-        condition: service_started
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python3", "/app/src/healthcheck.py"]
+      interval: 20s
+      timeout: 15s
+      retries: 3
+      start_period: 60s
     labels:
       - "com.suho.service=polygon-historical-downloader"
       - "com.suho.type=data-downloader"
@@ -428,7 +464,13 @@ services:
       postgresql:
         condition: service_healthy
       central-hub:
-        condition: service_started
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python3", "/app/src/healthcheck.py"]
+      interval: 20s
+      timeout: 15s
+      retries: 3
+      start_period: 90s
     labels:
       - "com.suho.service=external-data-collector"
       - "com.suho.type=data-collector"
@@ -478,10 +520,18 @@ services:
         condition: service_healthy
       postgresql:
         condition: service_healthy
+      clickhouse:
+        condition: service_healthy
       dragonflydb:
         condition: service_healthy
       central-hub:
-        condition: service_started
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python3", "/app/src/healthcheck.py"]
+      interval: 20s
+      timeout: 15s
+      retries: 3
+      start_period: 90s
     labels:
       - "com.suho.service=data-bridge"
       - "com.suho.type=data-processor"
@@ -520,8 +570,18 @@ services:
     depends_on:
       postgresql:
         condition: service_healthy
+      clickhouse:
+        condition: service_healthy
       nats:
         condition: service_healthy
+      central-hub:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python3", "/app/src/healthcheck.py"]
+      interval: 20s
+      timeout: 15s
+      retries: 3
+      start_period: 90s
     labels:
       - "com.suho.service=tick-aggregator"
       - "com.suho.type=data-processor"
@@ -600,7 +660,13 @@ services:
       clickhouse:
         condition: service_healthy
       central-hub:
-        condition: service_started
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python3", "/app/src/healthcheck.py"]
+      interval: 20s
+      timeout: 15s
+      retries: 3
+      start_period: 90s
     labels:
       - "com.suho.service=feature-engineering"
       - "com.suho.type=ml-service"
@@ -652,11 +718,22 @@ services:
     networks:
       - suho-trading-network
     depends_on:
-      - postgresql
-      - dragonflydb
-      - nats
-      - kafka
-      - central-hub
+      postgresql:
+        condition: service_healthy
+      dragonflydb:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      central-hub:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     labels:
       - "com.suho.service=api-gateway"
       - "com.suho.type=gateway-service"

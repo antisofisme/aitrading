@@ -92,13 +92,35 @@ class DatabasePoolManager:
             raise ConfigurationError("dragonflydb", f"Config file not found: {df_config_file}")
 
     def _resolve_env(self, value: str) -> str:
-        """Resolve ENV:VAR_NAME pattern to environment variable"""
-        if isinstance(value, str) and value.startswith("ENV:"):
+        """Resolve environment variable patterns: ENV:VAR_NAME or ${VAR_NAME}"""
+        # If not a string, return as-is (already resolved)
+        if not isinstance(value, str):
+            return value
+
+        # Pattern 1: ENV:VAR_NAME
+        if value.startswith("ENV:"):
             env_var = value[4:]  # Remove "ENV:" prefix
             env_value = os.getenv(env_var)
             if env_value is None:
                 raise ConfigurationError("environment", f"Environment variable {env_var} not set")
             return env_value
+
+        # Pattern 2: ${VAR_NAME} or $VAR_NAME
+        if "${" in value or value.startswith("$"):
+            import re
+            # Replace ${VAR_NAME} with actual value
+            def replacer(match):
+                var_name = match.group(1)
+                env_value = os.getenv(var_name)
+                if env_value is None:
+                    raise ConfigurationError("environment", f"Environment variable {var_name} not set")
+                return env_value
+
+            # Handle ${VAR_NAME}
+            value = re.sub(r'\$\{([^}]+)\}', replacer, value)
+            # Handle $VAR_NAME (word boundary)
+            value = re.sub(r'\$([A-Z_][A-Z0-9_]*)', replacer, value)
+
         return value
 
     async def _init_timescale_pool(self):

@@ -10,6 +10,7 @@ import pandas as pd
 import numpy as np
 from technical_indicators import TechnicalIndicators
 import json
+import hashlib
 
 # Central Hub SDK for progress logging
 from central_hub_sdk import ProgressLogger
@@ -42,6 +43,55 @@ class HistoricalAggregator:
         self.total_candles_generated = 0
 
         logger.info("HistoricalAggregator initialized")
+
+    def _calculate_version_for_historical(self, candle: Dict[str, Any]) -> int:
+        """
+        Calculate deterministic version for historical data using content hash
+
+        Purpose: Same historical data will ALWAYS produce the same version.
+        This prevents duplicate versions during backfills and enables proper
+        deduplication in ClickHouse ReplacingMergeTree.
+
+        Args:
+            candle: Dictionary containing OHLCV data
+
+        Returns:
+            Integer version (deterministic hash-based)
+        """
+        # Create deterministic string from candle data
+        # Use sorted keys to ensure consistent ordering
+        content_keys = ['symbol', 'timeframe', 'timestamp_ms', 'open', 'high', 'low', 'close', 'volume', 'source']
+        content_str = '|'.join([
+            f"{key}:{candle.get(key)}"
+            for key in content_keys
+            if key in candle
+        ])
+
+        # Generate hash and convert to integer
+        hash_obj = hashlib.md5(content_str.encode())
+        hash_int = int(hash_obj.hexdigest()[:16], 16)  # Use first 16 hex chars
+
+        # Convert to microseconds-like scale (for consistency with existing versions)
+        # Keep it reasonable size to fit in ClickHouse Int64
+        version = hash_int % (10**15)  # Max ~1 quadrillion
+
+        logger.debug(f"Historical version calculated: {version} for {content_str[:80]}...")
+
+        return version
+
+    def _calculate_version_for_live(self, timestamp_ms: int) -> int:
+        """
+        Calculate timestamp-based version for live data
+
+        Purpose: Live data uses timestamp as version so latest data always wins.
+
+        Args:
+            timestamp_ms: Bar timestamp in milliseconds since epoch
+
+        Returns:
+            Timestamp-based version (microseconds since epoch)
+        """
+        return timestamp_ms * 1000  # Convert ms to microseconds for higher precision
 
     def connect(self):
         """Connect to ClickHouse"""
@@ -358,7 +408,7 @@ class HistoricalAggregator:
             # Determine resample rule
             resample_rule = self._get_resample_rule(target_timeframe)
 
-            # Aggregate OHLCV
+            # Aggregate OHLCV with COUNT to validate completeness
             resampled = df.resample(resample_rule).agg({
                 'open': 'first',
                 'high': 'max',
@@ -367,11 +417,36 @@ class HistoricalAggregator:
                 'volume': 'sum',  # Sum tick counts
                 'vwap': 'mean',
                 'range_pips': 'sum',
-                'body_pips': 'sum'
+                'body_pips': 'sum',
+                'timestamp_ms': 'count'  # Track how many 1m bars in this candle
             }).dropna()
 
             if resampled.empty:
                 return []
+
+            # CRITICAL: Filter out incomplete candles
+            # For 5m candle: need 5 x 1m bars. For 15m: need 15 bars, etc.
+            expected_bars_per_candle = interval_minutes / 1  # 1m = base unit
+
+            # Create mask for complete candles only
+            complete_mask = resampled['timestamp_ms'] >= (expected_bars_per_candle * 0.8)  # Allow 20% tolerance for weekends
+
+            incomplete_count = (~complete_mask).sum()
+            if incomplete_count > 0:
+                logger.warning(
+                    f"⚠️ [Aggregation] {symbol} {target_timeframe}: "
+                    f"Skipping {incomplete_count} incomplete candles (source 1m bars missing)"
+                )
+
+            # Keep only complete candles
+            resampled = resampled[complete_mask]
+
+            if resampled.empty:
+                logger.warning(f"⚠️ [Aggregation] {symbol} {target_timeframe}: All candles incomplete, nothing to generate")
+                return []
+
+            # Drop the count column (not needed in final output)
+            resampled = resampled.drop(columns=['timestamp_ms'])
 
             # Convert aggregated results to float (critical for indicators calculation)
             for col in ['open', 'high', 'low', 'close', 'volume', 'vwap', 'range_pips', 'body_pips']:
@@ -450,6 +525,16 @@ class HistoricalAggregator:
         """Insert candles into ClickHouse aggregates table"""
         try:
             # Prepare data for insertion
+            # Log versioning strategy for this batch
+            if candles:
+                source = candles[0]['source']
+                if source == 'historical_aggregated':
+                    logger.info(f"📊 [Versioning] Using content-based deterministic versioning for {len(candles)} historical candles")
+                elif source in ['live_aggregated', 'live_gap_filled']:
+                    logger.info(f"📊 [Versioning] Using timestamp-based versioning for {len(candles)} live candles")
+                else:
+                    logger.info(f"📊 [Versioning] Using default versioning (v=0) for {len(candles)} raw historical candles")
+
             data = []
             for candle in candles:
                 # Convert indicators dict to JSON string if not already
@@ -466,14 +551,24 @@ class HistoricalAggregator:
                 # Calculate version based on source (for deduplication priority)
                 source = candle['source']
                 timestamp_ms = int(candle['timestamp_ms'])
+
                 if source == 'live_aggregated':
-                    version = timestamp_ms  # Highest priority
+                    # Live data: Use timestamp-based version (latest wins)
+                    version = self._calculate_version_for_live(timestamp_ms)
+                    logger.debug(f"Live version: {version} for {candle['symbol']} {candle['timeframe']} {timestamp_ms}")
                 elif source == 'live_gap_filled':
-                    version = timestamp_ms - 1  # High priority
+                    # Live gap fill: Use timestamp-based version (slightly lower priority)
+                    version = self._calculate_version_for_live(timestamp_ms) - 1
+                    logger.debug(f"Live gap-fill version: {version} for {candle['symbol']} {candle['timeframe']} {timestamp_ms}")
                 elif source == 'historical_aggregated':
-                    version = 1  # Medium priority
+                    # Historical data: Use content-based deterministic version
+                    # Same data = same version ALWAYS (prevents duplicate versions on backfill)
+                    version = self._calculate_version_for_historical(candle)
+                    logger.debug(f"Historical version: {version} for {candle['symbol']} {candle['timeframe']} {timestamp_ms}")
                 else:  # polygon_historical, polygon_gap_fill
-                    version = 0  # Low priority
+                    # Raw historical data: Use lowest version
+                    version = 0
+                    logger.debug(f"Raw historical version: {version} for {candle['symbol']} {candle['timeframe']} {timestamp_ms}")
 
                 row = [
                     candle['symbol'],
