@@ -38,22 +38,49 @@ class NATSSubscriber:
         logger.info("NATS subscriber initialized")
 
     async def connect(self):
-        """Connect to NATS server"""
+        """Connect to NATS cluster with automatic failover"""
         try:
             self.nc = NATS()
 
+            # Parse cluster URLs from config (supports both formats)
+            # Format 1: cluster_urls array (preferred)
+            # Format 2: comma-separated url string (legacy)
+            cluster_urls = self.config.get('cluster_urls')
+            if cluster_urls:
+                servers = cluster_urls
+            else:
+                url_config = self.config.get('url', 'nats://localhost:4222')
+                servers = url_config.split(',') if ',' in url_config else [url_config]
+
             await self.nc.connect(
-                servers=[self.config.get('url', 'nats://localhost:4222')],
+                servers=servers,
                 max_reconnect_attempts=self.config.get('max_reconnect_attempts', -1),
                 reconnect_time_wait=self.config.get('reconnect_time_wait', 2),
-                ping_interval=self.config.get('ping_interval', 120)
+                ping_interval=self.config.get('ping_interval', 120),
+                # Cluster event callbacks
+                reconnected_cb=self._on_reconnect,
+                disconnected_cb=self._on_disconnect,
+                error_cb=self._on_error,
             )
 
-            logger.info(f"✅ Connected to NATS: {self.config.get('url')}")
+            logger.info(f"✅ Connected to NATS cluster: {servers}")
+            logger.info(f"📡 Active server: {self.nc.connected_url}")
 
         except Exception as e:
-            logger.error(f"❌ NATS connection failed: {e}")
+            logger.error(f"❌ NATS cluster connection failed: {e}")
             raise
+
+    async def _on_reconnect(self):
+        """Called when reconnected to another NATS node"""
+        logger.info(f"🔄 NATS reconnected to: {self.nc.connected_url}")
+
+    async def _on_disconnect(self):
+        """Called when disconnected from NATS node"""
+        logger.warning(f"⚠️ NATS disconnected")
+
+    async def _on_error(self, error):
+        """Called on NATS connection error"""
+        logger.error(f"❌ NATS error: {error}")
 
     async def subscribe_all(self):
         """

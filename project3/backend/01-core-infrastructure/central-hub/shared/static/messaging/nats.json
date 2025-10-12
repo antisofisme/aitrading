@@ -1,13 +1,44 @@
 {
   "connection": {
+    "cluster_urls": [
+      "nats://nats-1:4222",
+      "nats://nats-2:4222",
+      "nats://nats-3:4222"
+    ],
     "host": "${NATS_HOST}",
     "port": "${NATS_PORT}",
     "monitoring_port": 8222,
     "protocol": "nats",
     "timeout": 10000,
-    "max_reconnect_attempts": 10,
+    "max_reconnect_attempts": -1,
     "reconnect_time_wait": 2,
     "ping_interval": 120
+  },
+  "cluster": {
+    "name": "suho-cluster",
+    "nodes": [
+      {
+        "name": "nats-1",
+        "host": "nats-1",
+        "port": 4222,
+        "cluster_port": 6222,
+        "monitoring_port": 8222
+      },
+      {
+        "name": "nats-2",
+        "host": "nats-2",
+        "port": 4222,
+        "cluster_port": 6222,
+        "monitoring_port": 8223
+      },
+      {
+        "name": "nats-3",
+        "host": "nats-3",
+        "port": 4222,
+        "cluster_port": 6222,
+        "monitoring_port": 8224
+      }
+    ]
   },
   "jetstream": {
     "enabled": true,

@@ -122,12 +122,21 @@ aggregation:
   batch_size: 10000  # Ticks per query
   max_symbols_per_batch: 10  # Process N symbols in parallel
 
-# NATS Configuration (will be fetched from Central Hub)
+# NATS Configuration (with cluster support for High Availability)
 nats:
-  url: "nats://suho-nats-server:4222"
-  max_reconnect_attempts: -1  # Infinite
-  reconnect_time_wait: 2
-  ping_interval: 120
+  # NATS Cluster URLs (automatic failover)
+  cluster_urls:
+    - "nats://nats-1:4222"
+    - "nats://nats-2:4222"
+    - "nats://nats-3:4222"
+
+  # Legacy single URL (fallback) - comma-separated for cluster
+  url: "nats://nats-1:4222,nats://nats-2:4222,nats://nats-3:4222"
+
+  max_reconnect_attempts: -1  # Infinite reconnection attempts
+  reconnect_time_wait: 2      # seconds between reconnect attempts
+  ping_interval: 120          # seconds for keepalive ping
+
   subjects:
     aggregates: "bars.{symbol}.{timeframe}"  # e.g., bars.EURUSD.5m
 

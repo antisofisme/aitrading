@@ -198,17 +198,34 @@ class AggregatePublisher:
             asyncio.create_task(self._retry_queued_messages())
 
     async def connect(self):
-        """Connect to NATS and PostgreSQL"""
+        """Connect to NATS cluster and PostgreSQL"""
         try:
-            # Connect to NATS
+            # Connect to NATS cluster
             self.nats = NATS()
+
+            # Parse cluster URLs from config (supports both formats)
+            # Format 1: cluster_urls array (preferred)
+            # Format 2: comma-separated url string (legacy)
+            cluster_urls = self.nats_config.get('cluster_urls')
+            if cluster_urls:
+                servers = cluster_urls
+            else:
+                url_config = self.nats_config.get('url', 'nats://localhost:4222')
+                servers = url_config.split(',') if ',' in url_config else [url_config]
+
             await self.nats.connect(
-                servers=[self.nats_config['url']],
+                servers=servers,
                 max_reconnect_attempts=self.nats_config.get('max_reconnect_attempts', -1),
                 reconnect_time_wait=self.nats_config.get('reconnect_time_wait', 2),
-                ping_interval=self.nats_config.get('ping_interval', 120)
+                ping_interval=self.nats_config.get('ping_interval', 120),
+                # Cluster event callbacks
+                reconnected_cb=self._on_reconnect,
+                disconnected_cb=self._on_disconnect,
+                error_cb=self._on_error,
             )
-            logger.info(f"✅ Connected to NATS: {self.nats_config['url']}")
+
+            logger.info(f"✅ Connected to NATS cluster: {servers}")
+            logger.info(f"📡 Active server: {self.nats.connected_url}")
 
             # Connect to PostgreSQL for fallback queue
             if self.db_config:
@@ -228,6 +245,18 @@ class AggregatePublisher:
         except Exception as e:
             logger.error(f"❌ Connection failed: {e}")
             raise
+
+    async def _on_reconnect(self):
+        """Called when reconnected to another NATS node"""
+        logger.info(f"🔄 NATS reconnected to: {self.nats.connected_url}")
+
+    async def _on_disconnect(self):
+        """Called when disconnected from NATS node"""
+        logger.warning(f"⚠️ NATS disconnected")
+
+    async def _on_error(self, error):
+        """Called on NATS connection error"""
+        logger.error(f"❌ NATS error: {error}")
 
     async def publish_aggregate(self, aggregate_data: Dict[str, Any]):
         """

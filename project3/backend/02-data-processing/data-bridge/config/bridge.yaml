@@ -1,12 +1,20 @@
 # Data Bridge Configuration
 # NATS+Kafka → Database Manager → TimescaleDB + DragonflyDB
 
-# NATS Configuration (PRIMARY real-time path)
+# NATS Configuration (PRIMARY real-time path with cluster support)
 nats:
-  url: "nats://suho-nats-server:4222"
-  max_reconnect_attempts: -1  # Infinite
-  reconnect_time_wait: 2      # seconds
-  ping_interval: 120          # seconds
+  # NATS Cluster URLs (automatic failover)
+  cluster_urls:
+    - "nats://nats-1:4222"
+    - "nats://nats-2:4222"
+    - "nats://nats-3:4222"
+
+  # Legacy single URL (fallback)
+  url: "nats://nats-1:4222,nats://nats-2:4222,nats://nats-3:4222"
+
+  max_reconnect_attempts: -1  # Infinite reconnection attempts
+  reconnect_time_wait: 2      # seconds between reconnect attempts
+  ping_interval: 120          # seconds for keepalive ping
 
   subjects:
     ticks: "ticks.>"           # All tick data
