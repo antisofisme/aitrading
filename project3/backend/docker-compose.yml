@@ -398,7 +398,11 @@ services:
         condition: service_healthy
       dragonflydb:
         condition: service_healthy
-      nats:
+      nats-1:
+        condition: service_healthy
+      nats-2:
+        condition: service_healthy
+      nats-3:
         condition: service_healthy
       kafka:
         condition: service_healthy
