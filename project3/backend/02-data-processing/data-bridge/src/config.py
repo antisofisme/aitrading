@@ -120,7 +120,7 @@ class Config:
         Get NATS configuration (merged from Central Hub + YAML)
 
         Priority:
-        1. Central Hub config (connection details)
+        1. Central Hub config (connection details + cluster URLs)
         2. YAML config (subjects, reconnection params)
         """
         yaml_nats = self._config.get('nats', {})
@@ -129,17 +129,29 @@ class Config:
         if self._central_hub_config.get('nats'):
             hub_nats = self._central_hub_config['nats']['connection']
 
-            # Build URL from Central Hub config
-            nats_url = f"nats://{hub_nats['host']}:{hub_nats['port']}"
+            # Use cluster_urls if available (preferred for HA)
+            cluster_urls = hub_nats.get('cluster_urls')
 
-            # Merge: Central Hub connection + YAML subjects/params
-            return {
-                'url': nats_url,  # From Central Hub
-                'max_reconnect_attempts': yaml_nats.get('max_reconnect_attempts', -1),
-                'reconnect_time_wait': yaml_nats.get('reconnect_time_wait', 2),
-                'ping_interval': yaml_nats.get('ping_interval', 120),
-                'subjects': yaml_nats.get('subjects', {})
-            }
+            if cluster_urls:
+                # Use cluster URLs for high availability
+                return {
+                    'cluster_urls': cluster_urls,  # From Central Hub (array)
+                    'url': ','.join(cluster_urls),  # Fallback comma-separated format
+                    'max_reconnect_attempts': yaml_nats.get('max_reconnect_attempts', -1),
+                    'reconnect_time_wait': yaml_nats.get('reconnect_time_wait', 2),
+                    'ping_interval': yaml_nats.get('ping_interval', 120),
+                    'subjects': yaml_nats.get('subjects', {})
+                }
+            else:
+                # Fallback to single host/port (legacy mode)
+                nats_url = f"nats://{hub_nats['host']}:{hub_nats['port']}"
+                return {
+                    'url': nats_url,  # From Central Hub
+                    'max_reconnect_attempts': yaml_nats.get('max_reconnect_attempts', -1),
+                    'reconnect_time_wait': yaml_nats.get('reconnect_time_wait', 2),
+                    'ping_interval': yaml_nats.get('ping_interval', 120),
+                    'subjects': yaml_nats.get('subjects', {})
+                }
 
         # Fallback to YAML only
         return yaml_nats
@@ -217,7 +229,7 @@ class Config:
         - dragonflydb -> dragonfly
         """
         return {
-            'postgresql': self._central_hub_config.get('postgresql') if self._central_hub_config else None,
-            'dragonflydb': self._central_hub_config.get('dragonflydb') if self._central_hub_config else None,
-            'clickhouse': self._central_hub_config.get('clickhouse') if self._central_hub_config else None
+            'postgresql': self._central_hub_config.get('postgresql', {}) if self._central_hub_config else {},
+            'dragonflydb': self._central_hub_config.get('dragonflydb', {}) if self._central_hub_config else {},
+            'clickhouse': self._central_hub_config.get('clickhouse', {}) if self._central_hub_config else {}
         }
