@@ -129,6 +129,17 @@ class CentralHubClient:
                 if response.status_code == 200:
                     logger.debug(f"Heartbeat sent for {self.service_name}")
                     return True
+                elif response.status_code == 404:
+                    # Service not found in registry - auto re-register
+                    logger.warning(f"⚠️ Service not found in Central Hub (404) - attempting re-registration...")
+                    self.registered = False  # Mark as not registered
+                    success = await self.register()
+                    if success:
+                        logger.info(f"✅ Successfully re-registered with Central Hub")
+                        return True
+                    else:
+                        logger.error(f"❌ Re-registration failed")
+                        return False
                 else:
                     logger.warning(f"Heartbeat failed: HTTP {response.status_code}")
                     return False
