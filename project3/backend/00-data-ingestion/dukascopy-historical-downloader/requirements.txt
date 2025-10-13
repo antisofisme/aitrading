@@ -1,0 +1,27 @@
+# Dukascopy Historical Downloader - Dependencies
+
+# HTTP client
+requests==2.31.0
+aiohttp==3.10.10
+aiohttp-socks==0.9.0  # SOCKS proxy support for aiohttp
+
+# Messaging (NATS only for market data - hybrid architecture)
+nats-py==2.7.0
+
+# ClickHouse (for gap detection)
+clickhouse-driver==0.2.9
+
+# Utilities
+pyyaml==6.0.1
+python-dateutil==2.8.2
+pytz==2024.1
+
+# Logging
+python-json-logger==2.0.7
+
+# Central Hub SDK (installed from local path in Dockerfile)
+# httpx will be installed as SDK dependency
+
+# SOCKS proxy support for httpx (required for WARP proxy)
+httpx[socks]==0.27.0
+socksio==1.0.0

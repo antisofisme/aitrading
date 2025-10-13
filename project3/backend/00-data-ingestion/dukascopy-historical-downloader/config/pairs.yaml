@@ -1,0 +1,131 @@
+# Trading Pairs Configuration for Dukascopy Historical Downloader
+
+# Trading pairs (same 14 pairs as Polygon)
+trading_pairs:
+  # Major Pairs (Priority 1)
+  - symbol: "EUR/USD"
+    dukascopy_symbol: "EURUSD"
+    priority: 1
+    description: "Euro vs US Dollar - Most liquid pair"
+
+  - symbol: "GBP/USD"
+    dukascopy_symbol: "GBPUSD"
+    priority: 1
+    description: "British Pound vs US Dollar"
+
+  - symbol: "USD/JPY"
+    dukascopy_symbol: "USDJPY"
+    priority: 1
+    description: "US Dollar vs Japanese Yen"
+
+  - symbol: "USD/CHF"
+    dukascopy_symbol: "USDCHF"
+    priority: 1
+    description: "US Dollar vs Swiss Franc"
+
+  # Cross Pairs (Priority 2)
+  - symbol: "EUR/GBP"
+    dukascopy_symbol: "EURGBP"
+    priority: 2
+    description: "Euro vs British Pound"
+
+  - symbol: "EUR/JPY"
+    dukascopy_symbol: "EURJPY"
+    priority: 2
+    description: "Euro vs Japanese Yen"
+
+  - symbol: "GBP/JPY"
+    dukascopy_symbol: "GBPJPY"
+    priority: 2
+    description: "British Pound vs Japanese Yen"
+
+  # Commodity Currencies (Priority 3)
+  - symbol: "AUD/USD"
+    dukascopy_symbol: "AUDUSD"
+    priority: 3
+    description: "Australian Dollar vs US Dollar"
+
+  - symbol: "NZD/USD"
+    dukascopy_symbol: "NZDUSD"
+    priority: 3
+    description: "New Zealand Dollar vs US Dollar"
+
+  - symbol: "USD/CAD"
+    dukascopy_symbol: "USDCAD"
+    priority: 3
+    description: "US Dollar vs Canadian Dollar"
+
+  # Emerging Market (Priority 4)
+  - symbol: "USD/MXN"
+    dukascopy_symbol: "USDMXN"
+    priority: 4
+    description: "US Dollar vs Mexican Peso"
+
+  # Precious Metals (Priority 1)
+  - symbol: "XAU/USD"
+    dukascopy_symbol: "XAUUSD"
+    priority: 1
+    description: "Gold vs US Dollar"
+
+  - symbol: "XAG/USD"
+    dukascopy_symbol: "XAGUSD"
+    priority: 1
+    description: "Silver vs US Dollar"
+
+  # Volatility Pair (Priority 5)
+  - symbol: "EUR/CHF"
+    dukascopy_symbol: "EURCHF"
+    priority: 5
+    description: "Euro vs Swiss Franc"
+
+# Download configuration
+download:
+  # Date range (using stable 2024 data for testing)
+  start_date: "2024-01-01"
+  end_date: "2024-01-31"  # Test with Jan 2024 first
+
+  # Performance
+  max_concurrent: 5  # Reduce parallel downloads to avoid network issues
+  rate_limit_per_sec: 5  # Max 5 requests/second (more conservative)
+  retry_attempts: 3  # Retry failed downloads
+
+  # Chunk settings (prevent OOM)
+  chunk_months: 1  # Download in 1-month chunks (smaller batches)
+
+# Aggregation settings
+aggregation:
+  timeframe: "1m"
+  use_mid_price: true  # Use (bid+ask)/2 for OHLC
+
+  # Validation
+  validate_bars: true  # Check H >= L, etc.
+  min_ticks_per_minute: 1  # Minimum ticks to create a bar
+
+# Schedule configuration
+schedule:
+  # Initial download (on service startup)
+  initial_download:
+    on_startup: true  # Run full download on startup
+    enabled: true
+
+  # Gap check (maintenance mode)
+  gap_check:
+    enabled: false  # Disable for testing (avoid checking future dates)
+    lookback_days: 90  # Check last 90 days for gaps
+    interval_hours: 24  # Run every 24 hours
+
+# NATS configuration (fallback if Central Hub unavailable)
+nats_config:
+  url: "nats://suho-nats-server:4222"
+  max_reconnect_attempts: -1  # Infinite reconnection
+  reconnect_time_wait: 2  # Seconds between reconnects
+  ping_interval: 120  # Ping every 2 minutes
+
+# ClickHouse configuration (for gap detection in ticks table)
+clickhouse_config:
+  host: "suho-clickhouse"
+  port: 9000
+  user: "suho_analytics"
+  password: "clickhouse_secure_2024"
+  database: "suho_analytics"
+  table: "ticks"  # ClickHouse tick table name

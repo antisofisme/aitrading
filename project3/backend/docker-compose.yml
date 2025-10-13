@@ -309,7 +309,7 @@ services:
     networks:
       - suho-trading-network
     healthcheck:
-      test: ["CMD-SHELL", "kafka-broker-api-versions.sh --bootstrap-server localhost:9092 || exit 1"]
+      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092 || exit 1"]
       interval: 15s
       timeout: 10s
       retries: 5
@@ -401,7 +401,7 @@ services:
       kafka:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:7000/health || exit 1"]
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:7000/health').read()"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -505,6 +505,94 @@ services:
     labels:
       - "com.suho.service=polygon-historical-downloader"
       - "com.suho.type=data-downloader"
+
+  # Cloudflare WARP Proxy - VPN proxy for accessing geo-restricted content
+  warp:
+    image: caomingjun/warp
+    container_name: suho-warp
+    hostname: suho-warp
+    restart: unless-stopped
+    ports:
+      - "1080:1080"  # SOCKS5 proxy port
+    environment:
+      - WARP_SLEEP=2
+      - WARP_LICENSE_KEY=${WARP_LICENSE_KEY:-XrfV4782-W2X39u4G-h49e78ya}
+    cap_add:
+      - MKNOD
+      - AUDIT_WRITE
+      - NET_ADMIN
+    sysctls:
+      - net.ipv6.conf.all.disable_ipv6=0
+      - net.ipv4.conf.all.src_valid_mark=1
+    volumes:
+      - warp_data:/var/lib/cloudflare-warp
+    networks:
+      - suho-trading-network
+    healthcheck:
+      test: ["CMD", "curl", "--socks5-hostname", "127.0.0.1:1080", "-f", "https://cloudflare.com/cdn-cgi/trace"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 45s
+    labels:
+      - "com.suho.service=warp-proxy"
+      - "com.suho.type=vpn-proxy"
+
+  # Dukascopy Historical Downloader - Swiss bank grade tick data → 1m OHLCV → NATS
+  dukascopy-historical-downloader:
+    build:
+      context: .
+      dockerfile: 00-data-ingestion/dukascopy-historical-downloader/Dockerfile
+    container_name: suho-dukascopy-historical
+    hostname: suho-dukascopy-historical
+    restart: on-failure:3  # Restart up to 3 times on failure
+    environment:
+      - INSTANCE_ID=dukascopy-historical-1
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - NATS_URL=nats://nats-1:4222,nats://nats-2:4222,nats://nats-3:4222
+      - CENTRAL_HUB_URL=http://suho-central-hub:7000
+      - CLICKHOUSE_HOST=suho-clickhouse
+      - CLICKHOUSE_PORT=9000
+      - CLICKHOUSE_USER=suho_analytics
+      - CLICKHOUSE_PASSWORD=clickhouse_secure_2024
+      # Proxy settings for WARP (socks5:// for httpx compatibility, not socks5h://)
+      - HTTP_PROXY=socks5://suho-warp:1080
+      - HTTPS_PROXY=socks5://suho-warp:1080
+      - NO_PROXY=suho-central-hub,suho-clickhouse,nats-1,nats-2,nats-3
+    volumes:
+      - dukascopy_historical_logs:/var/log/dukascopy
+      - dukascopy_period_tracker:/data  # Period tracker persistence
+    deploy:
+      resources:
+        limits:
+          memory: 2G  # Streaming processing, lower memory footprint
+        reservations:
+          memory: 512M
+    networks:
+      - suho-trading-network
+    depends_on:
+      warp:
+        condition: service_healthy
+      nats-1:
+        condition: service_healthy
+      nats-2:
+        condition: service_healthy
+      nats-3:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      central-hub:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import sys; sys.exit(0)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    labels:
+      - "com.suho.service=dukascopy-historical-downloader"
+      - "com.suho.type=data-downloader"
+      - "com.suho.source=dukascopy"
 
   # External Data Collector - Economic Calendar & Market Data (MQL5, etc)
   external-data-collector:
@@ -944,6 +1032,21 @@ volumes:
     driver: local
     labels:
       - "com.suho.data=polygon-historical-logs"
+
+  dukascopy_historical_logs:
+    driver: local
+    labels:
+      - "com.suho.data=dukascopy-historical-logs"
+
+  dukascopy_period_tracker:
+    driver: local
+    labels:
+      - "com.suho.data=dukascopy-period-tracker"
+
+  warp_data:
+    driver: local
+    labels:
+      - "com.suho.data=warp-proxy"
 
   external_collector_data:
     driver: local

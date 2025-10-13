@@ -295,42 +295,84 @@ class DataBridge:
 
     async def _save_tick(self, data: dict):
         """
-        Save tick data via Database Manager
+        Save tick data with intelligent routing
 
-        Maps Polygon data → TickData model
+        Routing Logic:
+        - Dukascopy ticks (source == 'dukascopy_historical') → ClickHouse ticks table
+        - Polygon ticks (source == 'polygon_historical') → TimescaleDB market_ticks table
+
+        This ensures:
+        - Dukascopy raw ticks → ClickHouse for long-term storage
+        - Polygon live ticks → TimescaleDB for real-time trading
         """
         try:
-            logger.debug(f"🔧 _save_tick called | symbol={data.get('pair', data.get('symbol'))}")
+            source = data.get('source', data.get('_source', 'unknown'))
+            logger.debug(f"🔧 _save_tick called | symbol={data.get('pair', data.get('symbol'))} | source={source}")
 
-            # Map Polygon data to TickData
-            tick_data = TickData(
-                symbol=data.get('pair', data.get('symbol', '')),
-                timestamp=data.get('t', data.get('timestamp', 0)),
-                timestamp_ms=data.get('t', data.get('timestamp_ms', 0)),
-                bid=data.get('b', data.get('bid', 0)),
-                ask=data.get('a', data.get('ask', 0)),
-                volume=data.get('s', data.get('volume')),
-                source=data.get('_source', 'unknown'),
-                exchange=data.get('x', data.get('exchange')),
-                event_type=data.get('ev', 'quote')
-            )
-
-            logger.debug(f"📦 TickData created: {tick_data.symbol} at {tick_data.timestamp}")
-
-            # Save via Database Manager → TimescaleDB + DragonflyDB cache
-            logger.debug(f"💾 Calling db_router.save_tick()...")
-            await self.db_router.save_tick(tick_data)
-            logger.debug(f"✅ db_router.save_tick() completed")
-
-            self.ticks_saved += 1
-
-            if self.ticks_saved % 100 == 0:
-                logger.info(f"📊 Progress: Saved {self.ticks_saved} ticks to TimescaleDB")
+            # ROUTING DECISION based on source
+            if source == 'dukascopy_historical':
+                # Dukascopy ticks → ClickHouse ticks table
+                await self._save_tick_to_clickhouse(data)
+            else:
+                # Polygon/other ticks → TimescaleDB market_ticks table
+                await self._save_tick_to_timescale(data)
 
         except Exception as e:
             logger.error(f"❌ Error in _save_tick: {e}", exc_info=True)
             logger.error(f"📋 Raw data: {data}")
             raise
+
+    async def _save_tick_to_timescale(self, data: dict):
+        """Save tick data to TimescaleDB via Database Manager"""
+        # Map Polygon data to TickData
+        tick_data = TickData(
+            symbol=data.get('pair', data.get('symbol', '')),
+            timestamp=data.get('t', data.get('timestamp', 0)),
+            timestamp_ms=data.get('t', data.get('timestamp_ms', 0)),
+            bid=data.get('b', data.get('bid', 0)),
+            ask=data.get('a', data.get('ask', 0)),
+            volume=data.get('s', data.get('volume')),
+            source=data.get('_source', 'unknown'),
+            exchange=data.get('x', data.get('exchange')),
+            event_type=data.get('ev', 'quote')
+        )
+
+        logger.debug(f"📦 TickData created: {tick_data.symbol} at {tick_data.timestamp}")
+
+        # Save via Database Manager → TimescaleDB + DragonflyDB cache
+        logger.debug(f"💾 Calling db_router.save_tick()...")
+        await self.db_router.save_tick(tick_data)
+        logger.debug(f"✅ db_router.save_tick() completed")
+
+        self.ticks_saved += 1
+
+        if self.ticks_saved % 100 == 0:
+            logger.info(f"📊 Progress: Saved {self.ticks_saved} ticks to TimescaleDB")
+
+    async def _save_tick_to_clickhouse(self, data: dict):
+        """Save Dukascopy tick data to ClickHouse ticks table"""
+        if not self.clickhouse_writer:
+            logger.warning("⚠️  ClickHouse Writer not initialized, skipping Dukascopy tick")
+            return
+
+        # Prepare tick data for ClickHouse
+        tick_data = {
+            'symbol': data.get('symbol', ''),
+            'timestamp': data.get('timestamp'),
+            'bid': data.get('bid', 0),
+            'ask': data.get('ask', 0),
+            'last': data.get('mid', (data.get('bid', 0) + data.get('ask', 0)) / 2),
+            'volume': data.get('volume', 0),
+            'flags': 0  # Reserved for future use
+        }
+
+        # Add to ClickHouse batch buffer (ticks table)
+        await self.clickhouse_writer.add_tick(tick_data)
+
+        self.ticks_saved += 1
+
+        if self.ticks_saved % 100 == 0:
+            logger.info(f"📊 Progress: Saved {self.ticks_saved} ticks to ClickHouse")
 
     async def _save_candle(self, data: dict):
         """

@@ -62,6 +62,10 @@ class ClickHouseWriter:
         self.aggregate_buffer: List[Dict] = []
         self.last_flush = datetime.now(timezone.utc)
 
+        # Batch buffer for ticks (Dukascopy historical)
+        self.tick_buffer: List[Dict] = []
+        self.last_tick_flush = datetime.now(timezone.utc)
+
         # Circuit breaker (CRITICAL: Prevents cascading failures)
         self.circuit_breaker = CircuitBreaker(
             failure_threshold=5,
@@ -71,6 +75,7 @@ class ClickHouseWriter:
 
         # Statistics
         self.total_aggregates_inserted = 0
+        self.total_ticks_inserted = 0
         self.total_batch_inserts = 0
         self.total_insert_errors = 0
         self.circuit_breaker_trips = 0
@@ -151,6 +156,106 @@ class ClickHouseWriter:
 
         if should_flush_size or should_flush_time:
             await self.flush_aggregates()
+
+    async def add_tick(self, tick_data: Dict):
+        """
+        Add Dukascopy tick to batch buffer
+
+        Args:
+            tick_data: Tick data dictionary with fields:
+                - symbol: Trading pair (e.g., 'EUR/USD')
+                - timestamp: Datetime object
+                - bid: Bid price
+                - ask: Ask price
+                - last: Last/mid price
+                - volume: Volume
+                - flags: Flags (reserved)
+        """
+        self.tick_buffer.append(tick_data)
+
+        # Check if should flush
+        should_flush_size = len(self.tick_buffer) >= self.batch_size
+        should_flush_time = (datetime.now(timezone.utc) - self.last_tick_flush).total_seconds() >= self.batch_timeout
+
+        if should_flush_size or should_flush_time:
+            await self.flush_ticks()
+
+    async def flush_ticks(self):
+        """
+        Flush tick buffer to ClickHouse ticks table
+        """
+        if not self.tick_buffer:
+            return
+
+        try:
+            # Circuit breaker protection
+            def do_insert():
+                # Prepare data for insertion
+                data = []
+                for tick in self.tick_buffer:
+                    # Convert timestamp to UTC timezone-aware datetime if needed
+                    timestamp_dt = tick['timestamp']
+                    if isinstance(timestamp_dt, str):
+                        # Handle string timestamp from Dukascopy (e.g., '2024-01-02 15:36:39.034000')
+                        timestamp_dt = datetime.fromisoformat(timestamp_dt.replace('Z', '+00:00'))
+                        if not timestamp_dt.tzinfo:
+                            timestamp_dt = timestamp_dt.replace(tzinfo=timezone.utc)
+                    elif isinstance(timestamp_dt, (int, float)):
+                        timestamp_dt = datetime.fromtimestamp(timestamp_dt / 1000.0, tz=timezone.utc)
+                    elif hasattr(timestamp_dt, 'tzinfo') and not timestamp_dt.tzinfo:
+                        timestamp_dt = timestamp_dt.replace(tzinfo=timezone.utc)
+
+                    row = [
+                        tick['symbol'],
+                        timestamp_dt,
+                        float(tick.get('bid', 0)),
+                        float(tick.get('ask', 0)),
+                        float(tick.get('last', 0)),
+                        int(tick.get('volume', 0)),
+                        int(tick.get('flags', 0))
+                    ]
+                    data.append(row)
+
+                # Insert batch to ClickHouse ticks table
+                self.client.insert(
+                    'ticks',
+                    data,
+                    column_names=['symbol', 'timestamp', 'bid', 'ask', 'last', 'volume', 'flags']
+                )
+
+            # Execute with circuit breaker protection
+            self.circuit_breaker.call(do_insert)
+
+            count = len(self.tick_buffer)
+            self.total_ticks_inserted += count
+
+            if self.total_ticks_inserted % 10000 == 0:
+                logger.info(f"✅ Inserted {count} ticks to ClickHouse.ticks (total: {self.total_ticks_inserted})")
+
+            # Clear buffer ONLY on success
+            self.tick_buffer.clear()
+            self.last_tick_flush = datetime.now(timezone.utc)
+
+        except CircuitBreakerOpen as e:
+            logger.error(f"🔴 Circuit breaker OPEN for ticks: {e}")
+            logger.error(f"⚠️ Keeping {len(self.tick_buffer)} ticks in buffer (will retry)")
+            raise
+
+        except Exception as e:
+            self.total_insert_errors += 1
+            logger.error(f"❌ Error inserting ticks to ClickHouse: {e}")
+            logger.error(f"Tick buffer size: {len(self.tick_buffer)}")
+
+            if self.tick_buffer:
+                logger.error(f"Sample tick: {self.tick_buffer[0]}")
+
+            # On error, clear if buffer too large (prevent OOM)
+            if len(self.tick_buffer) > self.batch_size * 10:
+                logger.critical(f"⚠️ Tick buffer overflow ({len(self.tick_buffer)} items) - clearing to prevent OOM")
+                self.tick_buffer.clear()
+            else:
+                logger.warning(f"⚠️ Keeping tick buffer for retry (size: {len(self.tick_buffer)})")
+                raise
 
     async def flush_aggregates(self):
         """
