@@ -5,6 +5,7 @@ Used by all data ingestion services to integrate with Central Hub
 import asyncio
 import logging
 import os
+import socket
 import time
 from typing import Dict, List, Optional, Any
 import httpx
@@ -41,6 +42,10 @@ class CentralHubClient:
         self.central_hub_url = os.getenv('CENTRAL_HUB_URL', 'http://suho-central-hub:7000')
         self.heartbeat_interval = int(os.getenv('HEARTBEAT_INTERVAL', '30'))  # seconds
 
+        # Store instance_id for heartbeat (from env, metadata, or auto-detect from hostname)
+        instance_id_from_env = os.getenv('INSTANCE_ID', '').strip()
+        self.instance_id = instance_id_from_env if instance_id_from_env else socket.gethostname()
+
         # State
         self.registered = False
         self.heartbeat_task = None
@@ -67,7 +72,7 @@ class CentralHubClient:
                 "metadata": {
                     **self.metadata,
                     "type": self.service_type,
-                    "instance_id": os.getenv('INSTANCE_ID', f"{self.service_name}-1"),
+                    "instance_id": self.instance_id,  # Use pre-calculated instance_id
                     "start_time": int(time.time() * 1000)
                 },
                 "capabilities": self.capabilities
@@ -115,6 +120,7 @@ class CentralHubClient:
         try:
             heartbeat_data = {
                 "service_name": self.service_name,
+                "instance_id": self.instance_id,  # Include instance_id for multi-instance support
                 "status": "healthy",
                 "timestamp": int(time.time() * 1000),
                 "metrics": metrics or {}

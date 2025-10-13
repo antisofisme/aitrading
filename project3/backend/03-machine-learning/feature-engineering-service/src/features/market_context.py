@@ -1,13 +1,21 @@
 """
-Market Context & Session Features (6 features - 8% importance)
+Market Context & Session Features (12 features - 8% importance)
 
 Features:
 1. is_london_session
 2. is_new_york_session
 3. is_asian_session
 4. liquidity_level
-5. day_of_week
+5. day_of_week (0=Monday, 6=Sunday)
 6. time_of_day_category
+
+Day of Week Indicators (for pattern analysis):
+7. is_monday (week start - gap plays)
+8. is_tuesday
+9. is_wednesday
+10. is_thursday
+11. is_friday (week end - profit taking)
+12. week_position (0.0=start, 1.0=end)
 """
 
 import logging
@@ -62,6 +70,17 @@ class MarketContextFeatures:
 
         # 6. Time of day category
         features['time_of_day_category'] = self._categorize_time_of_day(hour_utc)
+
+        # 7-11. Day of week indicators (one-hot encoding)
+        features['is_monday'] = 1 if day_of_week == 0 else 0
+        features['is_tuesday'] = 1 if day_of_week == 1 else 0
+        features['is_wednesday'] = 1 if day_of_week == 2 else 0
+        features['is_thursday'] = 1 if day_of_week == 3 else 0
+        features['is_friday'] = 1 if day_of_week == 4 else 0
+
+        # 12. Week position (0.0 = Monday start, 1.0 = Friday end)
+        # Useful for detecting end-of-week profit taking or start-of-week gap plays
+        features['week_position'] = self._calculate_week_position(day_of_week, hour_utc)
 
         return features
 
@@ -119,3 +138,35 @@ class MarketContextFeatures:
             return 'ny_open'
         else:
             return 'after_hours'
+
+    def _calculate_week_position(self, day_of_week: int, hour_utc: int) -> float:
+        """
+        Calculate position within the trading week (0.0 to 1.0)
+
+        Args:
+            day_of_week: 0=Monday, 4=Friday, 5-6=Weekend
+            hour_utc: Hour of day (0-23)
+
+        Returns:
+            float: 0.0 = Monday 00:00, 1.0 = Friday 21:00 (NY close)
+
+        Use cases:
+        - Detect end-of-week profit taking (week_position > 0.8)
+        - Detect start-of-week gap plays (week_position < 0.2)
+        - Midweek stability patterns (0.4 < week_position < 0.6)
+        """
+        # Weekend = Friday close position
+        if day_of_week >= 5:
+            return 1.0
+
+        # Calculate normalized position within work week (Mon-Fri)
+        # Total trading hours in week: 5 days × 24 hours = 120 hours
+        total_hours_in_week = 120.0
+
+        # Hours elapsed since Monday 00:00
+        hours_elapsed = (day_of_week * 24) + hour_utc
+
+        # Normalize to 0.0 - 1.0
+        week_position = hours_elapsed / total_hours_in_week
+
+        return round(week_position, 4)

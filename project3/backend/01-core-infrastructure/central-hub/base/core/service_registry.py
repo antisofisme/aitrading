@@ -22,14 +22,23 @@ class ServiceRegistry:
         if not service_name:
             raise ValueError("Service name is required for registration")
 
+        # Get instance_id from metadata or use default
+        metadata = registration_data.get("metadata", {})
+        instance_id = metadata.get("instance_id", f"{service_name}-default")
+
+        # Create unique service key: service_name + instance_id
+        # This allows multiple instances of same service to register separately
+        service_key = f"{service_name}#{instance_id}"
+
         service_info = {
             "name": service_name,
+            "instance_id": instance_id,  # Store instance_id at top level
             "host": registration_data.get("host"),
             "port": registration_data.get("port"),
             "protocol": registration_data.get("protocol", "http"),
             "health_endpoint": registration_data.get("health_endpoint", "/health"),
             "version": registration_data.get("version"),
-            "metadata": registration_data.get("metadata", {}),
+            "metadata": metadata,
             "capabilities": registration_data.get("capabilities", []),
             "tenant_id": registration_data.get("tenant_id"),
             "registered_at": int(time.time() * 1000),
@@ -38,18 +47,18 @@ class ServiceRegistry:
             "url": f"{registration_data.get('protocol', 'http')}://{registration_data.get('host')}:{registration_data.get('port')}"
         }
 
-        # Store service registration
-        self.services[service_name] = service_info
+        # Store service registration using unique key
+        self.services[service_key] = service_info
 
-        # Initialize health tracking
-        self.service_health[service_name] = {
+        # Initialize health tracking using same unique key
+        self.service_health[service_key] = {
             "status": "healthy",
             "last_check": int(time.time() * 1000),
             "response_time_ms": 0,
             "consecutive_failures": 0
         }
 
-        self.logger.info(f"✅ Service registered: {service_name} at {service_info['url']}")
+        self.logger.info(f"✅ Service registered: {service_key} at {service_info['url']}")
 
         return {
             "direct_response": {

@@ -671,13 +671,12 @@ services:
     # Scale to 3 instances for load balancing
     deploy:
       replicas: 3
-    # Note: container_name removed (conflicts with replicas)
-    # Docker will auto-generate names: suho-data-bridge-1, suho-data-bridge-2, suho-data-bridge-3
-    hostname: suho-data-bridge
+    # Note: container_name and hostname removed (conflicts with replicas)
+    # Docker will auto-generate unique names and hostnames: backend-data-bridge-1, backend-data-bridge-2, backend-data-bridge-3
     restart: unless-stopped
     environment:
       - KAFKA_GROUP_ID=data-bridge-group  # Same group for load balancing across instances
-      - INSTANCE_ID=${HOSTNAME}  # Unique per container (auto-set by Docker)
+      # INSTANCE_ID auto-detected by SDK from container hostname (no env var needed)
       - INSTANCE_NUMBER=${REPLICA_NUMBER:-1}  # For metrics tracking
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       # Central Hub URL (for config distribution)

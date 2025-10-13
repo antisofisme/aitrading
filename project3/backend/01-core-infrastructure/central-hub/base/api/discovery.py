@@ -249,33 +249,41 @@ async def deregister_service(service_name: str) -> Dict[str, Any]:
 
 @discovery_router.post("/heartbeat")
 async def service_heartbeat_from_body(request: Request) -> Dict[str, Any]:
-    """Update service heartbeat (service_name in body)"""
+    """Update service heartbeat (service_name + instance_id in body)"""
     from app import central_hub_service
     import logging
     logger = logging.getLogger("central-hub.api.discovery")
 
-    # Read service name from body
+    # Read service name and instance_id from body
     body = await request.json()
     service_name = body.get("service_name")
+    instance_id = body.get("instance_id")
 
     if not service_name:
         raise HTTPException(status_code=400, detail="service_name required in body")
 
+    # Create service_key for lookup (supports multi-instance)
+    if instance_id:
+        service_key = f"{service_name}#{instance_id}"
+    else:
+        # Fallback: try to find any instance of this service
+        service_key = service_name
+
     # DEBUG: Log what we're looking for
-    logger.info(f"🔍 Heartbeat for: {service_name}")
+    logger.info(f"🔍 Heartbeat for: {service_key}")
     logger.info(f"🔍 Services in registry: {list(central_hub_service.service_registry.services.keys()) if central_hub_service.service_registry else 'REGISTRY IS NONE'}")
 
-    if service_name not in central_hub_service.service_registry.services:
-        logger.error(f"❌ Service {service_name} NOT FOUND in registry!")
-        raise HTTPException(status_code=404, detail=f"Service {service_name} not found")
+    if service_key not in central_hub_service.service_registry.services:
+        logger.error(f"❌ Service {service_key} NOT FOUND in registry!")
+        raise HTTPException(status_code=404, detail=f"Service {service_key} not found")
 
-    central_hub_service.service_registry.services[service_name]["last_seen"] = int(time.time() * 1000)
-    central_hub_service.service_registry.services[service_name]["status"] = "active"
+    central_hub_service.service_registry.services[service_key]["last_seen"] = int(time.time() * 1000)
+    central_hub_service.service_registry.services[service_key]["status"] = "active"
 
     return {
         "status": "heartbeat_received",
-        "service": service_name,
-        "last_seen": central_hub_service.service_registry.services[service_name]["last_seen"]
+        "service": service_key,
+        "last_seen": central_hub_service.service_registry.services[service_key]["last_seen"]
     }
 
 
