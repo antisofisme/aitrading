@@ -17,7 +17,12 @@ const cors = require('cors');
 const helmet = require('helmet');
 const compression = require('compression');
 
-const ClientMT5Handler = require('./websocket/client-mt5-handler');
+// ✅ NEW: Import TickPassthroughHandler for tick streaming (no auth)
+const TickPassthroughHandler = require('./websocket/tick-passthrough-handler');
+
+// ❌ COMMENTED: ClientMT5Handler needs contracts module (will fix later for trading EA)
+// const ClientMT5Handler = require('./websocket/client-mt5-handler');
+
 const BidirectionalRouter = require('./routing/bidirectional-router');
 const { SuhoBinaryProtocol } = require('./protocols/suho-binary-protocol');
 const AuthMiddleware = require('./middleware/auth');
@@ -55,29 +60,18 @@ class APIGateway {
         // ✅ NEW: Initialize ServiceTemplate-based service
         this.apiGatewayService = new APIGatewayService(this.options);
 
-        // ✅ NEW: Initialize modular handlers per transfer method
-        this.inputHandlers = {
-            // NATS+Kafka: High-throughput binary data (Client-MT5)
-            clientMT5: new ClientMT5NatsKafkaHandler({
-                enableConversion: false, // TERIMA SAJA, TIDAK CONVERT
-                enableValidation: true,
-                enableRouting: true
-            }),
-            // Webhook: External integrations (Frontend, Telegram)
-            frontend: new FrontendWebhookHandler({
-                enableValidation: true,
-                enableRouting: true,
-                requireAuth: true
-            }),
-            telegram: new TelegramWebhookHandler({
-                enableValidation: true,
-                enableRouting: true,
-                botToken: process.env.TELEGRAM_BOT_TOKEN
-            })
-        };
+        // ✅ NEW: Initialize TickPassthroughHandler for tick streaming (no auth)
+        this.tickPassthroughHandler = null; // Will be initialized in initializeComponents()
+
+        // ❌ COMMENTED: Legacy input handlers need contracts modules (will fix later)
+        // this.inputHandlers = {
+        //     clientMT5: new ClientMT5NatsKafkaHandler(...),
+        //     frontend: new FrontendWebhookHandler(...),
+        //     telegram: new TelegramWebhookHandler(...)
+        // };
 
         // Legacy components (akan di-migrate bertahap)
-        this.clientMT5Handler = null;
+        this.clientMT5Handler = null; // For trading EA (with auth) - not used yet
         this.bidirectionalRouter = null;
         this.binaryProtocol = new SuhoBinaryProtocol();
         this.authMiddleware = new AuthMiddleware({
@@ -187,126 +181,37 @@ class APIGateway {
             res.json(this.getStatistics());
         });
 
-        // ✅ MODULAR: Client-MT5 input handler (binary data dari MT5 terminal)
-        this.app.post('/api/client-mt5/input', express.raw({ type: '*/*', limit: '10mb' }), async (req, res) => {
-            try {
-                // Prepare metadata from headers
-                const metadata = {
-                    contentType: req.headers['content-type'] || 'application/octet-stream',
-                    correlationId: req.correlationId,
-                    userAgent: req.headers['user-agent'],
-                    tenantId: req.headers['x-tenant-id'],
-                    transport: 'http'
-                };
+        // ❌ COMMENTED: Client-MT5 input handler (needs contracts module)
+        // this.app.post('/api/client-mt5/input', express.raw({ type: '*/*', limit: '10mb' }), async (req, res) => {
+        //     try {
+        //         const result = await this.inputHandlers.clientMT5.handleInput(req.body, metadata, context);
+        //         res.status(result.success ? 200 : 400).json(result);
+        //     } catch (error) {
+        //         res.status(500).json({ success: false, error: error.message });
+        //     }
+        // });
+        //
+        // NOTE: For tick streaming, use WebSocket endpoint: ws://localhost:8001/ws/ticks
 
-                // Prepare context
-                const context = {
-                    tenant_id: req.headers['x-tenant-id'] || 'default',
-                    user_id: req.headers['x-user-id'] || 'anonymous',
-                    session_id: req.headers['x-session-id'] || `http_${Date.now()}`
-                };
+        // ❌ COMMENTED: Frontend input handler (needs contracts module)
+        // this.app.post('/api/frontend/input', express.json({ limit: '10mb' }), async (req, res) => {
+        //     try {
+        //         const result = await this.inputHandlers.frontend.handleInput(req.body, metadata, context);
+        //         res.status(result.success ? 200 : 400).json(result);
+        //     } catch (error) {
+        //         res.status(500).json({ success: false, error: error.message });
+        //     }
+        // });
 
-                // Use Client-MT5 specific input handler
-                const result = await this.inputHandlers.clientMT5.handleInput(req.body, metadata, context);
-
-                // Update stats
-                this.stats.binaryMessages++;
-
-                // Send response
-                res.status(result.success ? 200 : 400).json(result);
-
-                console.log('📥 [CENTRALIZED-INPUT] HTTP data processed:', {
-                    tenantId: context.tenant_id,
-                    dataLength: req.body?.length,
-                    processingTime: result.data?.processing_time_ms,
-                    routingTargets: result.routing_targets?.length
-                });
-
-            } catch (error) {
-                console.error('❌ [CENTRALIZED-INPUT] Error:', error);
-                res.status(500).json({
-                    success: false,
-                    error: {
-                        type: 'INTERNAL_ERROR',
-                        message: error.message,
-                        correlationId: req.correlationId
-                    }
-                });
-            }
-        });
-
-        // ✅ MODULAR: Frontend input handler (JSON data dari web/mobile dashboard)
-        this.app.post('/api/frontend/input', express.json({ limit: '10mb' }), async (req, res) => {
-            try {
-                const metadata = {
-                    contentType: req.headers['content-type'] || 'application/json',
-                    correlationId: req.correlationId,
-                    userAgent: req.headers['user-agent'],
-                    endpoint: req.url,
-                    method: req.method,
-                    transport: 'http'
-                };
-
-                const context = {
-                    user_id: req.headers['x-user-id'] || req.user?.id,
-                    session_id: req.headers['x-session-id'] || req.sessionID,
-                    permissions: req.user?.permissions || []
-                };
-
-                // Use Frontend specific input handler
-                const result = await this.inputHandlers.frontend.handleInput(req.body, metadata, context);
-
-                this.stats.jsonMessages++;
-
-                res.status(result.success ? 200 : 400).json(result);
-
-                console.log('🖥️ [FRONTEND-INPUT] HTTP data processed:', {
-                    endpoint: metadata.endpoint,
-                    userId: context.user_id,
-                    processingTime: result.data?.processing_time_ms
-                });
-
-            } catch (error) {
-                console.error('❌ [FRONTEND-INPUT] Error:', error);
-                res.status(500).json({
-                    success: false,
-                    error: { type: 'INTERNAL_ERROR', message: error.message }
-                });
-            }
-        });
-
-        // ✅ MODULAR: Telegram input handler (webhook dari Telegram Bot)
-        this.app.post('/api/telegram/webhook', express.json({ limit: '1mb' }), async (req, res) => {
-            try {
-                const metadata = {
-                    contentType: req.headers['content-type'] || 'application/json',
-                    correlationId: req.correlationId,
-                    userAgent: req.headers['user-agent'],
-                    botToken: req.headers['x-telegram-bot-api-secret-token'],
-                    transport: 'webhook'
-                };
-
-                const context = {
-                    telegram_user_id: this.getTelegramUserId(req.body),
-                    chat_id: this.getTelegramChatId(req.body)
-                };
-
-                // Use Telegram specific input handler
-                const result = await this.inputHandlers.telegram.handleInput(req.body, metadata, context);
-
-                res.status(result.success ? 200 : 400).json({ ok: result.success });
-
-                console.log('💬 [TELEGRAM-INPUT] Webhook processed:', {
-                    updateId: req.body.update_id,
-                    userId: context.telegram_user_id,
-                    processingTime: result.data?.processing_time_ms
-                });
-
-            } catch (error) {
-                console.error('❌ [TELEGRAM-INPUT] Error:', error);
-                res.status(500).json({ ok: false });
-            }
-        });
+        // ❌ COMMENTED: Telegram input handler (needs contracts module)
+        // this.app.post('/api/telegram/webhook', express.json({ limit: '1mb' }), async (req, res) => {
+        //     try {
+        //         const result = await this.inputHandlers.telegram.handleInput(req.body, metadata, context);
+        //         res.status(result.success ? 200 : 400).json({ ok: result.success });
+        //     } catch (error) {
+        //         res.status(500).json({ ok: false });
+        //     }
+        // });
 
         // Binary protocol test endpoint - Updated to use ServiceTemplate
         this.app.post('/test/binary', async (req, res) => {
@@ -623,9 +528,16 @@ class APIGateway {
             // Initialize transport after router is created
             logger.info('Initializing NATS+Kafka transport...');
 
-            // Initialize Client-MT5 WebSocket handler
-            this.clientMT5Handler = new ClientMT5Handler({
-                binaryProtocolEnabled: true
+            // ❌ COMMENTED: ClientMT5Handler needs contracts module (for trading EA with auth)
+            // this.clientMT5Handler = new ClientMT5Handler({
+            //     binaryProtocolEnabled: true
+            // });
+
+            // ✅ NEW: Initialize TickPassthroughHandler for tick streaming (no auth)
+            this.tickPassthroughHandler = new TickPassthroughHandler({
+                port: 8001, // Tick streaming port
+                pingInterval: 30000,
+                logger: logger
             });
 
             this.setupComponentIntegration();
@@ -641,15 +553,26 @@ class APIGateway {
      * Setup integration between components using corrected input/output flow
      */
     setupComponentIntegration() {
-        // Handle INPUT messages from Client-MT5
-        this.clientMT5Handler.on('input_message', ({ sourceInput, message, metadata }) => {
-            this.bidirectionalRouter.routeInput(sourceInput, message, metadata);
-        });
+        // ✅ NEW: Setup TickPassthroughHandler integration with NATS
+        if (this.tickPassthroughHandler && this.bidirectionalRouter) {
+            const natsClient = this.bidirectionalRouter.natsKafkaClient;
+            this.tickPassthroughHandler.setNatsClient(natsClient);
+            logger.info('TickPassthroughHandler connected to NATS client');
+        }
 
-        // Handle OUTPUT messages to Client-MT5
-        this.bidirectionalRouter.on('to-client-mt5-execution', ({ userId, channel, message, metadata }) => {
-            this.clientMT5Handler.sendToClient(userId, channel, message);
-        });
+        // ❌ COMMENTED: ClientMT5Handler integration (needs contracts module)
+        // this.clientMT5Handler.on('input_message', ({ sourceInput, message, metadata }) => {
+        //     this.bidirectionalRouter.routeInput(sourceInput, message, metadata);
+        // });
+        //
+        // this.bidirectionalRouter.on('to-client-mt5-execution', ({ userId, channel, message, metadata }) => {
+        //     this.clientMT5Handler.sendToClient(userId, channel, message);
+        // });
+        //
+        // this.clientMT5Handler.on('user_disconnected', ({ userId }) => {
+        //     console.log(`[API-GATEWAY] User ${userId} disconnected`);
+        //     this.stats.connectionCount--;
+        // });
 
         // Handle OUTPUT messages to Frontend WebSocket
         this.bidirectionalRouter.on('to-frontend-websocket', ({ message, metadata }) => {
@@ -689,12 +612,6 @@ class APIGateway {
         // Handle OUTPUT messages to Data Bridge (binary passthrough)
         this.bidirectionalRouter.on('to-data-bridge', ({ message, metadata }) => {
             this.sendToDataBridge(message, metadata);
-        });
-
-        // Monitor user connections
-        this.clientMT5Handler.on('user_disconnected', ({ userId }) => {
-            console.log(`[API-GATEWAY] User ${userId} disconnected`);
-            this.stats.connectionCount--;
         });
 
         // Log routing operations
@@ -889,24 +806,30 @@ class APIGateway {
                 });
             });
 
-            // Start heartbeat monitoring for Client-MT5
-            if (this.clientMT5Handler) {
-                this.clientMT5Handler.startHeartbeatMonitoring();
+            // ✅ NEW: Initialize WebSocket server for TickPassthroughHandler
+            if (this.tickPassthroughHandler) {
+                this.tickPassthroughHandler.initialize(this.server);
+                logger.info('TickPassthroughHandler WebSocket server initialized on port 8001');
             }
+
+            // ❌ COMMENTED: ClientMT5Handler heartbeat monitoring
+            // if (this.clientMT5Handler) {
+            //     this.clientMT5Handler.startHeartbeatMonitoring();
+            // }
 
             console.log('🚀 Suho AI Trading API Gateway Started Successfully!');
             console.log('='.repeat(70));
             console.log(`📡 HTTP API Server: http://localhost:${this.options.port}`);
-            console.log(`🎯 Trading WebSocket: ws://localhost:8001/ws/trading`);
-            console.log(`📊 Price Stream WebSocket: ws://localhost:8002/ws/price-stream`);
-            console.log(`🛡️  Binary Protocol: Suho v2.1 (Client-MT5 Compatible)`);
+            console.log(`📊 Tick Stream WebSocket: ws://localhost:8001/ws/ticks (NO AUTH)`);
+            console.log(`🎯 Trading WebSocket: ws://localhost:8002/ws/trading (WITH AUTH) - Coming soon`);
+            console.log(`🛡️  Binary Protocol: Suho v2.1 (32 bytes per tick)`);
             console.log(`🏢 Multi-tenant: Enabled (tenant_id required)`);
             console.log(`🔄 Shared TransferManager: NATS+Kafka, gRPC, HTTP`);
             console.log(`📋 ServiceTemplate: Implemented`);
             console.log(`🌐 Environment: ${this.options.env}`);
             console.log(`⚡ Central Hub: ${this.options.centralHubUrl}`);
             console.log('='.repeat(70));
-            console.log('✅ Ready to handle Client-MT5 with SERVICE_ARCHITECTURE.md patterns!');
+            console.log('✅ Ready to receive tick data from MT5 via WebSocket!');
 
         } catch (error) {
             console.error('❌ Failed to start API Gateway:', error);
@@ -934,9 +857,15 @@ class APIGateway {
             }
 
             // Close legacy components
-            if (this.clientMT5Handler) {
-                this.clientMT5Handler.shutdown();
+            if (this.tickPassthroughHandler) {
+                await this.tickPassthroughHandler.shutdown();
+                console.log('✅ TickPassthroughHandler shutdown complete');
             }
+
+            // ❌ COMMENTED: ClientMT5Handler shutdown
+            // if (this.clientMT5Handler) {
+            //     this.clientMT5Handler.shutdown();
+            // }
 
             if (this.bidirectionalRouter) {
                 this.bidirectionalRouter.shutdown();
