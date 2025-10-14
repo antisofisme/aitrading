@@ -10,12 +10,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for better caching (this layer only rebuilds if requirements.txt changes)
-COPY requirements.txt .
+COPY 01-core-infrastructure/central-hub/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
-COPY base/ ./base/
-COPY shared/ ./shared/
+COPY 01-core-infrastructure/central-hub/base/ ./base/
+COPY 01-core-infrastructure/central-hub/shared/ ./shared/
 
 # Create logs directory
 RUN mkdir -p /app/logs

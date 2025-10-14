@@ -9,8 +9,8 @@
 - **Configuration Management** - Static & hot-reload configurations
 - **Database Integration Hub** - Centralized database connection management
 - **Health Monitoring** - Real-time monitoring semua services dan infrastructure
-- **Contract Validation** - API contract enforcement dan routing
-- **Message Transport** - Multi-protocol communication (HTTP, gRPC, NATS, Kafka)
+- **Messaging SDK** - Unified messaging layer (NATS, Kafka, HTTP)
+- **Multi-protocol Communication** - Service coordination via REST API
 
 ## 🏗️ Architecture
 
@@ -44,7 +44,7 @@ central-hub/
 │
 ├── docs/                        # 📚 Comprehensive documentation
 │   ├── SHARED_ARCHITECTURE.md   #    Shared folder detailed guide
-│   ├── CONTRACTS_GUIDE.md       #    API contracts documentation
+│   ├── REFACTORING_2025_10.md   #    October 2025 refactoring guide
 │   └── API_DOCUMENTATION.md     #    Complete API reference
 │
 ├── base/                        # 🔧 Core implementation
@@ -71,11 +71,13 @@ central-hub/
 │   │   └── service_config_template.py # Service config templates
 │   └── components/              #    Shared utility components
 │
-├── contracts/                   # 📝 API contracts & validation
-│   ├── http-rest/               #    REST API contracts
-│   ├── grpc/                    #    gRPC service contracts
-│   ├── nats-kafka/              #    Message broker contracts
-│   └── internal/                #    Internal service contracts
+├── sdk/                         # 📦 Client SDKs
+│   └── python/                  #    Python SDK
+│       └── central_hub_sdk/     #    Central Hub SDK
+│           ├── client.py        #      Service registration client
+│           ├── database/        #      Multi-database SDK
+│           ├── messaging/       #      Unified messaging SDK
+│           └── schemas/         #      Database schemas
 │
 └── logs/                        # 📊 Application logs
 ```
@@ -254,7 +256,7 @@ volumes:
   # Hot-reload support
   - ./shared:/app/shared:rw
   - ./base:/app/base:rw
-  - ./contracts:/app/contracts:rw
+  - ./sdk:/app/sdk:rw
   # Component cache
   - central-hub-components:/app/shared/.component_cache
 ```
@@ -289,10 +291,14 @@ export COMPONENT_WATCH_ENABLED=true
 ```
 
 ### Adding New Services
-1. Update `shared/hot-reload/` with service config
-2. Add contract definitions in `contracts/`
-3. Register service via `/discovery/register`
-4. Verify via `/discovery/services`
+1. Install Central Hub SDK: `pip install -e sdk/python`
+2. Use CentralHubClient for registration:
+   ```python
+   from central_hub_sdk import CentralHubClient
+   client = CentralHubClient("my-service", "data-collector")
+   await client.register()
+   ```
+3. Verify via `/discovery/services`
 
 ## 📈 Performance
 

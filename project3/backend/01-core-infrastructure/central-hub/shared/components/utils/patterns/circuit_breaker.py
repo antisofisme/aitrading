@@ -224,9 +224,9 @@ class CircuitBreaker:
         self.logger.info(f"Circuit breaker {self.name} manually reset")
 
 
-class StandardCircuitBreaker:
+class CircuitBreakerManager:
     """
-    Standard circuit breaker manager untuk semua services
+    Circuit breaker manager untuk semua services
     Manages multiple circuit breakers for different external services
     """
 

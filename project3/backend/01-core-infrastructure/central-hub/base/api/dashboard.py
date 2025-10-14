@@ -19,7 +19,10 @@ async def get_system_health() -> Dict[str, Any]:
     from app import central_hub_service
 
     try:
-        system_health = await central_hub_service.health_aggregator.get_system_health()
+        if not central_hub_service.monitoring_manager:
+            raise HTTPException(status_code=503, detail="Monitoring manager not initialized")
+
+        system_health = await central_hub_service.monitoring_manager.health_aggregator.get_system_health()
         return system_health.to_dict()
 
     except Exception as e:
@@ -35,7 +38,10 @@ async def get_summary() -> Dict[str, Any]:
     from app import central_hub_service
 
     try:
-        summary = await central_hub_service.health_aggregator.get_summary()
+        if not central_hub_service.monitoring_manager:
+            raise HTTPException(status_code=503, detail="Monitoring manager not initialized")
+
+        summary = await central_hub_service.monitoring_manager.health_aggregator.get_summary()
         return summary
 
     except Exception as e:
@@ -51,7 +57,10 @@ async def get_dependency_graph() -> Dict[str, Any]:
     from app import central_hub_service
 
     try:
-        graph_data = central_hub_service.dependency_graph.get_graph_data()
+        if not central_hub_service.monitoring_manager:
+            raise HTTPException(status_code=503, detail="Monitoring manager not initialized")
+
+        graph_data = central_hub_service.monitoring_manager.dependency_graph.get_graph_data()
         return graph_data
 
     except Exception as e:
@@ -67,13 +76,16 @@ async def get_service_dependencies(service: str) -> Dict[str, Any]:
     from app import central_hub_service
 
     try:
-        chain = central_hub_service.dependency_graph.get_dependency_chain(service)
+        if not central_hub_service.monitoring_manager:
+            raise HTTPException(status_code=503, detail="Monitoring manager not initialized")
+
+        chain = central_hub_service.monitoring_manager.dependency_graph.get_dependency_chain(service)
 
         if not chain:
             raise HTTPException(status_code=404, detail=f"Service {service} not found")
 
         # Add current status for each dependency
-        infrastructure_status = central_hub_service.infrastructure_monitor.get_all_status()
+        infrastructure_status = central_hub_service.monitoring_manager.infrastructure_monitor.get_all_status()
 
         for dep in chain.get('requires', []):
             infra_name = dep['name']
@@ -104,7 +116,10 @@ async def get_impact_analysis() -> Dict[str, Any]:
     from app import central_hub_service
 
     try:
-        system_health = await central_hub_service.health_aggregator.get_system_health()
+        if not central_hub_service.monitoring_manager:
+            raise HTTPException(status_code=503, detail="Monitoring manager not initialized")
+
+        system_health = await central_hub_service.monitoring_manager.health_aggregator.get_system_health()
 
         return {
             "impact_analysis": system_health.impact_analysis,
@@ -124,8 +139,11 @@ async def get_aggregated_metrics() -> Dict[str, Any]:
     from app import central_hub_service
 
     try:
+        if not central_hub_service.monitoring_manager or not central_hub_service.coordination_manager:
+            raise HTTPException(status_code=503, detail="Managers not initialized")
+
         # Get infrastructure metrics
-        infrastructure_status = central_hub_service.infrastructure_monitor.get_all_status()
+        infrastructure_status = central_hub_service.monitoring_manager.infrastructure_monitor.get_all_status()
 
         response_times = []
         for infra in infrastructure_status.values():
@@ -138,7 +156,7 @@ async def get_aggregated_metrics() -> Dict[str, Any]:
                 })
 
         # Get service metrics
-        service_registry = central_hub_service.service_registry.get_registry()
+        service_registry = central_hub_service.coordination_manager.service_registry.get_registry()
         service_metrics = []
 
         for name, info in service_registry.items():
@@ -150,7 +168,7 @@ async def get_aggregated_metrics() -> Dict[str, Any]:
             })
 
         # Get alert stats
-        alert_stats = central_hub_service.alert_manager.get_alert_stats()
+        alert_stats = central_hub_service.monitoring_manager.alert_manager.get_alert_stats()
 
         return {
             'infrastructure': {
@@ -176,10 +194,13 @@ async def get_alerts(
     from app import central_hub_service
 
     try:
+        if not central_hub_service.monitoring_manager:
+            raise HTTPException(status_code=503, detail="Monitoring manager not initialized")
+
         if active_only:
-            alerts = central_hub_service.alert_manager.get_active_alerts()
+            alerts = central_hub_service.monitoring_manager.alert_manager.get_active_alerts()
         else:
-            alerts = central_hub_service.alert_manager.get_alert_history(limit=limit)
+            alerts = central_hub_service.monitoring_manager.alert_manager.get_alert_history(limit=limit)
 
         return {
             "alerts": alerts,
@@ -198,7 +219,10 @@ async def acknowledge_alert(component: str) -> Dict[str, Any]:
     from app import central_hub_service
 
     try:
-        success = central_hub_service.alert_manager.acknowledge_alert(component)
+        if not central_hub_service.monitoring_manager:
+            raise HTTPException(status_code=503, detail="Monitoring manager not initialized")
+
+        success = central_hub_service.monitoring_manager.alert_manager.acknowledge_alert(component)
 
         if not success:
             raise HTTPException(status_code=404, detail=f"No active alert for {component}")
@@ -223,8 +247,11 @@ async def get_dashboard_status() -> Dict[str, Any]:
     from app import central_hub_service
 
     try:
-        summary = await central_hub_service.health_aggregator.get_summary()
-        alert_stats = central_hub_service.alert_manager.get_alert_stats()
+        if not central_hub_service.monitoring_manager:
+            raise HTTPException(status_code=503, detail="Monitoring manager not initialized")
+
+        summary = await central_hub_service.monitoring_manager.health_aggregator.get_summary()
+        alert_stats = central_hub_service.monitoring_manager.alert_manager.get_alert_stats()
 
         return {
             "dashboard": "operational",

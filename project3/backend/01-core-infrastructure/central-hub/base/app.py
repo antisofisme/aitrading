@@ -16,7 +16,7 @@ from typing import Dict, Any, Optional, List
 sys.path.insert(0, str(Path(__file__).parent.parent / "shared"))
 
 # Standard imports
-from fastapi import FastAPI, HTTPException, Request, BackgroundTasks
+from fastapi import FastAPI, HTTPException, Request, BackgroundTasks, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 import uvicorn
@@ -33,42 +33,27 @@ from grpc import aio as grpc_aio
 
 # Real shared components
 from components.utils.base_service import BaseService, ServiceConfig
-from components.utils.patterns.database_manager import StandardDatabaseManager
-from components.utils.patterns.cache_manager import StandardCacheManager, CacheConfig
-from components.utils.log_utils.error_dna.analyzer import ErrorDNA
 
-# Core modules
-from core.service_registry import ServiceRegistry
-from core.health_monitor import HealthMonitor
-from core.config_manager import ConfigManager
-from core.coordination_router import CoordinationRouter
+# Manager modules (God Object refactoring)
+from managers import ConnectionManager, MonitoringManager, CoordinationManager
 
 # API modules
 from api.discovery import discovery_router
 from api.health import health_router
 from api.config import config_router
 from api.metrics import metrics_router
-
-# Middleware
-from middleware.contract_validation import ContractValidationMiddleware
-
-# Contract integration
-from components.utils.contract_bridge import ContractValidationBridge, TransportMethodSelector, ContractProcessorIntegration
-
-# Implementation modules
-from impl.coordination.service_coordinator import ServiceCoordinator
-from impl.workflow.workflow_engine import WorkflowEngine
-from impl.scheduling.task_scheduler import TaskScheduler
-
-# Infrastructure monitoring (NEW)
-from core.infrastructure_monitor import InfrastructureMonitor
-from core.dependency_graph import DependencyGraph
-from core.health_aggregator import HealthAggregator
-from core.alert_manager import AlertManager
-
-# Infrastructure monitoring API
 from api.infrastructure import infrastructure_router
 from api.dashboard import dashboard_router
+
+# Middleware
+from middleware import (
+    ContractValidationMiddleware,
+    TenantContextMiddleware,
+    BasicAuthMiddleware
+)
+
+# Contract integration
+from components.utils.contract_bridge import ContractProcessorIntegration
 
 # Configure logging
 logging.basicConfig(
@@ -80,8 +65,13 @@ logger = logging.getLogger("central-hub")
 
 class CentralHubService(BaseService):
     """
-    Full Central Hub Service Implementation
-    Real production-ready coordination hub
+    Central Hub Service Implementation
+    Production-ready coordination hub with focused managers
+
+    God Object refactored into 3 focused managers:
+    - ConnectionManager: Database, cache, messaging connections
+    - MonitoringManager: Health, infrastructure, alerts
+    - CoordinationManager: Service registry, routing, workflows
     """
 
     def __init__(self):
@@ -94,317 +84,49 @@ class CentralHubService(BaseService):
         )
         super().__init__(config)
 
-        # Real integrations
-        self.db_manager: Optional[StandardDatabaseManager] = None
-        self.cache_manager: Optional[StandardCacheManager] = None
-        self.error_analyzer: Optional[ErrorDNA] = None
+        # Focused managers (God Object refactoring)
+        self.connection_manager: Optional[ConnectionManager] = None
+        self.monitoring_manager: Optional[MonitoringManager] = None
+        self.coordination_manager: Optional[CoordinationManager] = None
 
-        # Transport connections
-        self.nats_client: Optional[nats.NATS] = None
-        self.kafka_producer: Optional[Producer] = None
-        self.redis_client: Optional[redis.Redis] = None
-
-        # Core modules
-        self.service_registry: Optional[ServiceRegistry] = None
-        self.health_monitor: Optional[HealthMonitor] = None
-        self.config_manager: Optional[ConfigManager] = None
-        self.coordination_router: Optional[CoordinationRouter] = None
-
-        # Implementation modules
-        self.service_coordinator: Optional[ServiceCoordinator] = None
-        self.workflow_engine: Optional[WorkflowEngine] = None
-        self.task_scheduler: Optional[TaskScheduler] = None
-
-        # Contract integration
+        # Contract integration (separate concern)
         self.contract_processor: Optional[ContractProcessorIntegration] = None
 
-        # Infrastructure monitoring (NEW)
-        self.infrastructure_monitor = None
-        self.dependency_graph = None
-        self.health_aggregator = None
-        self.alert_manager = None
-
     async def startup(self):
-        """Initialize all real connections and components"""
+        """Initialize all connections and components via focused managers"""
         try:
-            self.logger.info("🚀 Starting Central Hub Full Implementation...")
+            self.logger.info("🚀 Starting Central Hub with focused manager architecture...")
 
-            # 1. Initialize real database connection
-            await self._initialize_database()
+            # 1. Initialize Connection Manager (database, cache, messaging)
+            self.connection_manager = ConnectionManager(self.service_name)
+            await self.connection_manager.initialize()
 
-            # 2. Initialize real cache (Redis)
-            await self._initialize_cache()
+            # 2. Initialize Coordination Manager (registry, routing, workflows)
+            self.coordination_manager = CoordinationManager(
+                db_manager=self.connection_manager.db_manager
+            )
+            await self.coordination_manager.initialize()
 
-            # 3. Initialize real transport methods
-            await self._initialize_transports()
+            # 3. Initialize Monitoring Manager (health, infrastructure, alerts)
+            self.monitoring_manager = MonitoringManager(
+                service_registry=self.coordination_manager.service_registry,
+                db_manager=self.connection_manager.db_manager,
+                cache_manager=self.connection_manager.cache_manager
+            )
+            await self.monitoring_manager.initialize()
 
-            # 4. Initialize core modules
-            await self._initialize_core_modules()
-
-            # 5. Initialize implementation modules
-            await self._initialize_impl_modules()
-
-            # 6. Initialize infrastructure monitoring (NEW)
-            await self._initialize_infrastructure_monitoring()
-
-            # 7. Initialize contract integration (DISABLED FOR TESTING)
+            # 4. Initialize contract integration (DISABLED FOR TESTING)
             # await self._initialize_contracts()
 
-            # 8. Start background services
+            # 5. Start background services
             await self._start_background_services()
 
-            self.logger.info("✅ Central Hub fully initialized with all real integrations!")
+            self.logger.info("✅ Central Hub fully initialized with focused manager architecture!")
 
         except Exception as e:
             self.logger.error(f"❌ Central Hub startup failed: {str(e)}")
             raise
 
-    async def _initialize_database(self):
-        """Initialize real PostgreSQL database connection"""
-        try:
-            # Real database configuration
-            from components.utils.patterns.database_manager import DatabaseConfig
-
-            db_config = DatabaseConfig(
-                host=os.getenv("POSTGRES_HOST", "localhost"),
-                port=int(os.getenv("POSTGRES_PORT", 5432)),
-                database=os.getenv("POSTGRES_DB", "central_hub"),
-                username=os.getenv("POSTGRES_USER", "central_hub"),
-                password=os.getenv("POSTGRES_PASSWORD")
-            )
-
-            self.db_manager = StandardDatabaseManager(self.service_name)
-            await self.db_manager.add_connection("default", "postgresql", db_config)
-
-            # Create real service registry table
-            await self._create_database_schema()
-
-            self.logger.info("✅ Real PostgreSQL database connected")
-
-        except Exception as e:
-            self.logger.error(f"❌ Database connection FAILED: {str(e)}")
-            self.logger.error("❌ Central Hub cannot start without database - shutting down")
-            raise RuntimeError(f"Database connection required but failed: {str(e)}")
-
-    async def _create_database_schema(self):
-        """Create real database schema for Central Hub"""
-        schema_sql = """
-        CREATE TABLE IF NOT EXISTS service_registry (
-            id SERIAL PRIMARY KEY,
-            service_name VARCHAR(255) UNIQUE NOT NULL,
-            host VARCHAR(255) NOT NULL,
-            port INTEGER NOT NULL,
-            protocol VARCHAR(50) NOT NULL DEFAULT 'http',
-            health_endpoint VARCHAR(255) NOT NULL DEFAULT '/health',
-            version VARCHAR(100),
-            metadata JSONB,
-            status VARCHAR(50) NOT NULL DEFAULT 'active',
-            registered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            transport_preferences JSONB,
-            contract_validated BOOLEAN DEFAULT FALSE
-        );
-
-        CREATE TABLE IF NOT EXISTS health_metrics (
-            id SERIAL PRIMARY KEY,
-            service_name VARCHAR(255) NOT NULL,
-            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            status VARCHAR(50) NOT NULL,
-            response_time_ms FLOAT,
-            cpu_usage FLOAT,
-            memory_usage FLOAT,
-            error_rate FLOAT,
-            metadata JSONB
-        );
-
-        CREATE TABLE IF NOT EXISTS coordination_history (
-            id SERIAL PRIMARY KEY,
-            correlation_id VARCHAR(255) NOT NULL,
-            source_service VARCHAR(255) NOT NULL,
-            target_service VARCHAR(255) NOT NULL,
-            operation VARCHAR(255) NOT NULL,
-            status VARCHAR(50) NOT NULL,
-            started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            completed_at TIMESTAMP,
-            execution_time_ms FLOAT,
-            result_data JSONB,
-            error_message TEXT
-        );
-
-        CREATE INDEX IF NOT EXISTS idx_service_registry_name ON service_registry(service_name);
-        CREATE INDEX IF NOT EXISTS idx_health_metrics_service ON health_metrics(service_name, timestamp);
-        CREATE INDEX IF NOT EXISTS idx_coordination_correlation ON coordination_history(correlation_id);
-        """
-
-        if self.db_manager:
-            await self.db_manager.execute(schema_sql)
-            self.logger.info("✅ Database schema created")
-
-    async def _initialize_cache(self):
-        """Initialize real Redis cache connection"""
-        try:
-            # DragonflyDB configuration (Redis-compatible)
-            dragonfly_config = CacheConfig(
-                backend="redis",
-                host=os.getenv("DRAGONFLY_HOST", "localhost"),
-                port=int(os.getenv("DRAGONFLY_PORT", 6379)),
-                password=os.getenv("DRAGONFLY_PASSWORD"),
-                db=0,
-                default_ttl=300
-            )
-
-            self.cache_manager = StandardCacheManager(self.service_name)
-            await self.cache_manager.add_backend("dragonfly", dragonfly_config)
-
-            # Test DragonflyDB connection
-            await self.cache_manager.set("startup_test", {"timestamp": time.time()}, ttl=60)
-            test_result = await self.cache_manager.get("startup_test")
-
-            if test_result:
-                self.logger.info("✅ DragonflyDB cache connected and tested")
-            else:
-                raise Exception("DragonflyDB connection test failed")
-
-        except Exception as e:
-            self.logger.error(f"❌ Cache connection FAILED: {str(e)}")
-            self.logger.error("❌ Central Hub cannot start without cache - shutting down")
-            raise RuntimeError(f"Cache connection required but failed: {str(e)}")
-
-    async def _initialize_transports(self):
-        """Initialize real transport method connections"""
-        # Try NATS connection
-        try:
-            nats_url = os.getenv("NATS_URL", "nats://nats-server:4222")
-
-            # Parse NATS URLs - support both single URL and cluster (comma-separated) formats
-            if "," in nats_url:
-                # Cluster mode: split comma-separated URLs into a list
-                nats_servers = [url.strip() for url in nats_url.split(",")]
-                self.logger.info(f"🔗 Connecting to NATS cluster: {nats_servers}")
-                self.nats_client = await asyncio.wait_for(
-                    nats.connect(servers=nats_servers),
-                    timeout=5.0
-                )
-                self.logger.info(f"✅ Real NATS cluster connected to {len(nats_servers)} servers: {', '.join(nats_servers)}")
-            else:
-                # Single server mode
-                self.logger.info(f"🔗 Connecting to NATS server: {nats_url}")
-                self.nats_client = await asyncio.wait_for(
-                    nats.connect(servers=[nats_url]),
-                    timeout=5.0
-                )
-                self.logger.info(f"✅ Real NATS connected to {nats_url}")
-        except Exception as e:
-            self.logger.error(f"❌ NATS connection FAILED: {str(e)}")
-            self.logger.error("❌ Central Hub cannot start without NATS - shutting down")
-            raise RuntimeError(f"NATS connection required but failed: {str(e)}")
-
-        # Try Kafka producer
-        try:
-            kafka_config = {
-                'bootstrap.servers': os.getenv("KAFKA_BROKERS", "kafka:9092"),
-                'client.id': f'central-hub-{os.getpid()}'
-            }
-            self.kafka_producer = Producer(kafka_config)
-            self.logger.info("✅ Real Kafka producer initialized")
-        except Exception as e:
-            self.logger.error(f"❌ Kafka connection FAILED: {str(e)}")
-            self.logger.error("❌ Central Hub cannot start without Kafka - shutting down")
-            raise RuntimeError(f"Kafka connection required but failed: {str(e)}")
-
-        # Try DragonflyDB client
-        try:
-            dragonfly_password = os.getenv('DRAGONFLY_PASSWORD')
-            dragonfly_host = os.getenv('DRAGONFLY_HOST', 'dragonflydb')
-            dragonfly_port = os.getenv('DRAGONFLY_PORT', 6379)
-            dragonfly_url = f"redis://:{dragonfly_password}@{dragonfly_host}:{dragonfly_port}"
-            self.redis_client = redis.from_url(dragonfly_url)
-            await asyncio.wait_for(self.redis_client.ping(), timeout=5.0)
-            self.logger.info("✅ DragonflyDB pub/sub client connected")
-        except Exception as e:
-            self.logger.error(f"❌ Redis/DragonflyDB connection FAILED: {str(e)}")
-            self.logger.error("❌ Central Hub cannot start without Redis/DragonflyDB - shutting down")
-            raise RuntimeError(f"Redis/DragonflyDB connection required but failed: {str(e)}")
-
-    async def _initialize_core_modules(self):
-        """Initialize core Central Hub modules with real implementations"""
-        # Real service registry with database backend
-        self.service_registry = ServiceRegistry()
-
-        # Real health monitor with actual health checks
-        self.health_monitor = HealthMonitor(
-            service_registry=self.service_registry,
-            db_manager=self.db_manager,
-            cache_manager=self.cache_manager
-        )
-
-        # Real configuration manager with persistence
-        self.config_manager = ConfigManager()
-
-        # Real coordination router with transport selection
-        self.coordination_router = CoordinationRouter()
-
-        self.logger.info("✅ Core modules initialized with real implementations")
-
-    async def _initialize_impl_modules(self):
-        """Initialize implementation modules"""
-        # Real service coordinator with database persistence
-        self.service_coordinator = ServiceCoordinator(
-            service_registry=self.service_registry.get_registry() if self.service_registry else {},
-            db_manager=self.db_manager
-        )
-
-        # Real workflow engine with persistent state
-        self.workflow_engine = WorkflowEngine(
-            service_registry=self.service_registry.get_registry() if self.service_registry else {}
-        )
-
-        # Real task scheduler with persistent schedules
-        self.task_scheduler = TaskScheduler(
-            service_registry=self.service_registry.get_registry() if self.service_registry else {}
-        )
-
-        self.logger.info("✅ Implementation modules initialized")
-
-    async def _initialize_infrastructure_monitoring(self):
-        """Initialize infrastructure monitoring system"""
-        try:
-            self.logger.info("🔧 Initializing infrastructure monitoring...")
-
-            # Initialize infrastructure monitor
-            self.infrastructure_monitor = InfrastructureMonitor()
-            await self.infrastructure_monitor.initialize()
-
-            # Initialize dependency graph
-            self.dependency_graph = DependencyGraph()
-            await self.dependency_graph.initialize()
-
-            # Initialize alert manager
-            self.alert_manager = AlertManager()
-            await self.alert_manager.initialize()
-
-            # Initialize health aggregator
-            self.health_aggregator = HealthAggregator(
-                self.infrastructure_monitor,
-                self.service_registry,
-                self.dependency_graph
-            )
-
-            # Connect alert callback
-            self.infrastructure_monitor.set_alert_callback(
-                self.alert_manager.trigger_alert
-            )
-
-            # Start infrastructure monitoring
-            await self.infrastructure_monitor.start_monitoring()
-
-            self.logger.info("✅ Infrastructure monitoring initialized and started")
-
-        except Exception as e:
-            self.logger.error(f"❌ Infrastructure monitoring initialization failed: {str(e)}")
-            self.logger.error(f"❌ Traceback: {traceback.format_exc()}")
-            # Non-critical - Central Hub can run without infrastructure monitoring
-            self.logger.warning("⚠️ Continuing without infrastructure monitoring")
 
     async def _initialize_contracts(self):
         """Initialize real contract validation integration"""
@@ -418,47 +140,33 @@ class CentralHubService(BaseService):
             raise RuntimeError(f"Contract validation required but failed: {str(e)}")
 
     async def _start_background_services(self):
-        """Start real background services"""
-        if self.health_monitor:
-            asyncio.create_task(self.health_monitor.start_monitoring())
+        """Start background services via managers"""
+        # Start monitoring services
+        if self.monitoring_manager:
+            await self.monitoring_manager.start_monitoring()
 
-        if self.task_scheduler:
-            asyncio.create_task(self.task_scheduler.start_scheduler())
+        # Start coordination services
+        if self.coordination_manager:
+            await self.coordination_manager.start_services()
 
         self.logger.info("✅ Background services started")
 
     async def shutdown(self):
-        """Graceful shutdown of all real connections"""
+        """Graceful shutdown via managers"""
         try:
             self.logger.info("🛑 Shutting down Central Hub...")
 
-            # Stop background services
-            if self.task_scheduler:
-                await self.task_scheduler.stop_scheduler()
+            # Stop monitoring services
+            if self.monitoring_manager:
+                await self.monitoring_manager.stop_monitoring()
 
-            if self.health_monitor:
-                await self.health_monitor.stop_monitoring()
+            # Stop coordination services
+            if self.coordination_manager:
+                await self.coordination_manager.stop_services()
 
-            # Stop infrastructure monitoring
-            if self.infrastructure_monitor:
-                await self.infrastructure_monitor.stop_monitoring()
-
-            # Close transport connections
-            if self.nats_client:
-                await self.nats_client.close()
-
-            if self.kafka_producer:
-                self.kafka_producer.flush()
-
-            if self.redis_client:
-                await self.redis_client.close()
-
-            # Close database connections
-            if self.db_manager:
-                await self.db_manager.disconnect()
-
-            if self.cache_manager:
-                await self.cache_manager.disconnect()
+            # Close all connections
+            if self.connection_manager:
+                await self.connection_manager.shutdown()
 
             self.logger.info("✅ Central Hub shutdown complete")
 
@@ -474,50 +182,38 @@ class CentralHubService(BaseService):
         await self.shutdown()
 
     async def custom_health_checks(self) -> Dict[str, Any]:
-        """Custom health checks for Central Hub"""
+        """Custom health checks via managers"""
         health_status = {
-            "database": "unknown",
-            "cache": "unknown",
-            "transports": {},
-            "core_modules": {},
-            "contract_processor": "unknown"
+            "connections": "unknown",
+            "monitoring": "unknown",
+            "coordination": "unknown",
+            "contract_processor": "unknown",
+            "overall_status": "unknown"
         }
 
-        # Database health
-        if self.db_manager:
+        # Connection Manager health
+        if self.connection_manager:
             try:
-                # Simple database health check
-                health_status["database"] = "healthy"
+                conn_health = await self.connection_manager.health_check()
+                health_status["connections"] = conn_health
             except Exception:
-                health_status["database"] = "unhealthy"
+                health_status["connections"] = "unhealthy"
 
-        # Cache health
-        if self.cache_manager:
+        # Monitoring Manager health
+        if self.monitoring_manager:
             try:
-                cache_health = await self.cache_manager.health_check()
-                health_status["cache"] = cache_health.get("overall_status", "unknown")
+                mon_health = await self.monitoring_manager.health_check()
+                health_status["monitoring"] = mon_health
             except Exception:
-                health_status["cache"] = "unhealthy"
+                health_status["monitoring"] = "unhealthy"
 
-        # Transport health
-        for transport_name in ["nats", "kafka", "redis"]:
-            client = getattr(self, f"{transport_name}_client", None)
-            if client:
-                health_status["transports"][transport_name] = "connected"
-            else:
-                health_status["transports"][transport_name] = "disconnected"
-
-        # Core modules health
-        for module_name in ["service_registry", "health_monitor", "config_manager", "coordination_router"]:
-            module = getattr(self, module_name, None)
-            if module and hasattr(module, "health_check"):
-                try:
-                    module_health = await module.health_check()
-                    health_status["core_modules"][module_name] = module_health.get("status", "unknown")
-                except Exception:
-                    health_status["core_modules"][module_name] = "unhealthy"
-            else:
-                health_status["core_modules"][module_name] = "not_initialized"
+        # Coordination Manager health
+        if self.coordination_manager:
+            try:
+                coord_health = await self.coordination_manager.health_check()
+                health_status["coordination"] = coord_health
+            except Exception:
+                health_status["coordination"] = "unhealthy"
 
         # Contract processor health
         if self.contract_processor:
@@ -526,6 +222,14 @@ class CentralHubService(BaseService):
                 health_status["contract_processor"] = contract_health.get("status", "unknown")
             except Exception:
                 health_status["contract_processor"] = "unhealthy"
+
+        # Overall status
+        overall_healthy = all(
+            isinstance(status, dict) and status.get("overall_status") in ["healthy", "not_initialized"]
+            for key, status in health_status.items()
+            if key != "overall_status" and key != "contract_processor"
+        )
+        health_status["overall_status"] = "healthy" if overall_healthy else "degraded"
 
         return health_status
 
@@ -549,16 +253,40 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Add multi-tenant support middleware (add tenant_id to request state)
+app.add_middleware(TenantContextMiddleware)
+
+# Add authentication middleware (validate X-API-Key header)
+# Set DISABLE_AUTH=true environment variable to disable for development
+app.add_middleware(BasicAuthMiddleware)
+
 # Add contract validation middleware
 app.add_middleware(ContractValidationMiddleware, enable_validation=True)
 
-# Add routers with /api prefix to match SDK expectations
-app.include_router(discovery_router, prefix="/api/discovery", tags=["Service Discovery"])
-app.include_router(health_router, prefix="/api/health", tags=["Health Monitoring"])
-app.include_router(config_router, prefix="/api/config", tags=["Configuration"])
-app.include_router(metrics_router, prefix="/api/metrics", tags=["Metrics"])
-app.include_router(infrastructure_router, prefix="/api/infrastructure", tags=["Infrastructure Monitoring"])
-app.include_router(dashboard_router, prefix="/api/dashboard", tags=["Dashboard"])
+# ==================== API VERSIONING ====================
+# Create v1 API router
+v1_router = APIRouter(prefix="/api/v1")
+
+# Include all API routers under v1
+v1_router.include_router(discovery_router, prefix="/discovery", tags=["Service Discovery - v1"])
+v1_router.include_router(health_router, prefix="/health", tags=["Health Monitoring - v1"])
+v1_router.include_router(config_router, prefix="/config", tags=["Configuration - v1"])
+v1_router.include_router(metrics_router, prefix="/metrics", tags=["Metrics - v1"])
+v1_router.include_router(infrastructure_router, prefix="/infrastructure", tags=["Infrastructure Monitoring - v1"])
+v1_router.include_router(dashboard_router, prefix="/dashboard", tags=["Dashboard - v1"])
+
+# Include v1 router in app
+app.include_router(v1_router)
+
+# ==================== BACKWARD COMPATIBILITY ====================
+# Keep old /api/* paths for backward compatibility (DEPRECATED)
+# These will be removed in future versions
+app.include_router(discovery_router, prefix="/api/discovery", tags=["Service Discovery (DEPRECATED - Use /api/v1/discovery)"])
+app.include_router(health_router, prefix="/api/health", tags=["Health Monitoring (DEPRECATED - Use /api/v1/health)"])
+app.include_router(config_router, prefix="/api/config", tags=["Configuration (DEPRECATED - Use /api/v1/config)"])
+app.include_router(metrics_router, prefix="/api/metrics", tags=["Metrics (DEPRECATED - Use /api/v1/metrics)"])
+app.include_router(infrastructure_router, prefix="/api/infrastructure", tags=["Infrastructure Monitoring (DEPRECATED - Use /api/v1/infrastructure)"])
+app.include_router(dashboard_router, prefix="/api/dashboard", tags=["Dashboard (DEPRECATED - Use /api/v1/dashboard)"])
 
 # Component sync endpoints - MOVED to component-manager-service
 # These endpoints are now handled by the standalone Component Manager Service
@@ -568,7 +296,7 @@ app.include_router(dashboard_router, prefix="/api/dashboard", tags=["Dashboard"]
 async def startup_event():
     await central_hub_service.startup()
     # Make config_manager available to API endpoints via app state
-    app.state.config_manager = central_hub_service.config_manager
+    app.state.config_manager = central_hub_service.coordination_manager.config_manager if central_hub_service.coordination_manager else None
 
 @app.on_event("shutdown")
 async def shutdown_event():
@@ -605,16 +333,16 @@ async def root():
             "health_monitoring"
         ],
         "transports": {
-            "nats": central_hub_service.nats_client is not None,
-            "kafka": central_hub_service.kafka_producer is not None,
-            "redis": central_hub_service.redis_client is not None,
+            "nats": central_hub_service.connection_manager.nats_client is not None if central_hub_service.connection_manager else False,
+            "kafka": central_hub_service.connection_manager.kafka_producer is not None if central_hub_service.connection_manager else False,
+            "redis": central_hub_service.connection_manager.redis_client is not None if central_hub_service.connection_manager else False,
             "grpc": True,  # gRPC server capabilities
             "http": True
         },
-        "database": central_hub_service.db_manager is not None,
-        "cache": central_hub_service.cache_manager is not None,
+        "database": central_hub_service.connection_manager.db_manager is not None if central_hub_service.connection_manager else False,
+        "cache": central_hub_service.connection_manager.cache_manager is not None if central_hub_service.connection_manager else False,
         "contracts": central_hub_service.contract_processor is not None,
-        "registered_services": len(central_hub_service.service_registry.get_registry()) if central_hub_service.service_registry else 0,
+        "registered_services": central_hub_service.coordination_manager.get_service_count() if central_hub_service.coordination_manager else 0,
         "timestamp": int(time.time() * 1000)
     }
 
@@ -622,10 +350,10 @@ async def root():
 @app.post("/coordination/workflow")
 async def start_workflow(workflow_name: str, input_data: Dict[str, Any] = None):
     """Start a real workflow execution"""
-    if not central_hub_service.workflow_engine:
+    if not central_hub_service.coordination_manager or not central_hub_service.coordination_manager.workflow_engine:
         raise HTTPException(status_code=503, detail="Workflow engine not available")
 
-    workflow_id = await central_hub_service.workflow_engine.start_workflow(
+    workflow_id = await central_hub_service.coordination_manager.workflow_engine.start_workflow(
         workflow_name, input_data or {}
     )
 
@@ -639,10 +367,10 @@ async def start_workflow(workflow_name: str, input_data: Dict[str, Any] = None):
 @app.get("/coordination/workflow/{workflow_id}")
 async def get_workflow_status(workflow_id: str):
     """Get real workflow execution status"""
-    if not central_hub_service.workflow_engine:
+    if not central_hub_service.coordination_manager or not central_hub_service.coordination_manager.workflow_engine:
         raise HTTPException(status_code=503, detail="Workflow engine not available")
 
-    status = central_hub_service.workflow_engine.get_workflow_status(workflow_id)
+    status = central_hub_service.coordination_manager.workflow_engine.get_workflow_status(workflow_id)
     if not status:
         raise HTTPException(status_code=404, detail="Workflow not found")
 
@@ -657,7 +385,7 @@ async def coordinate_service_request(
     correlation_id: Optional[str] = None
 ):
     """Real service coordination"""
-    if not central_hub_service.service_coordinator:
+    if not central_hub_service.coordination_manager or not central_hub_service.coordination_manager.service_coordinator:
         raise HTTPException(status_code=503, detail="Service coordinator not available")
 
     from impl.coordination.service_coordinator import ServiceCoordinationRequest
@@ -671,7 +399,7 @@ async def coordinate_service_request(
         correlation_id=correlation_id or str(uuid.uuid4())
     )
 
-    result = await central_hub_service.service_coordinator.coordinate_service_request(request)
+    result = await central_hub_service.coordination_manager.service_coordinator.coordinate_service_request(request)
     return result.__dict__
 
 if __name__ == "__main__":
