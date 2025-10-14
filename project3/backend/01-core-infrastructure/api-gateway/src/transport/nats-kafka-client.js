@@ -28,9 +28,18 @@ class NATSKafkaClient extends EventEmitter {
         // ✅ CONFIG FLOW: Central Hub → APIGatewayService → BidirectionalRouter → NATSKafkaClient
         // Config is fetched from Central Hub in APIGatewayService.initializeCore()
         // Fallback to env vars only if config not provided by caller
+
+        // Parse NATS servers (supports cluster)
+        let natsServers = ['nats://suho-nats-server:4222'];  // Default fallback
+        if (config.nats?.servers) {
+            natsServers = Array.isArray(config.nats.servers) ? config.nats.servers : [config.nats.servers];
+        } else if (process.env.NATS_URL) {
+            natsServers = [process.env.NATS_URL];
+        }
+
         this.config = {
             nats: {
-                servers: config.nats?.servers || (process.env.NATS_URL ? [process.env.NATS_URL] : ['nats://suho-nats-server:4222']),
+                servers: natsServers,
                 reconnectTimeWait: 250,
                 maxReconnectAttempts: -1,
                 pingInterval: 30000,

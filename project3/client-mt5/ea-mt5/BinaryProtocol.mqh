@@ -28,19 +28,24 @@ enum ENUM_MESSAGE_TYPE
 };
 
 //+------------------------------------------------------------------+
-//| Symbol ID enumeration                                           |
+//| Symbol ID enumeration - 14 trading pairs for live service      |
 //+------------------------------------------------------------------+
 enum ENUM_SYMBOL_ID
 {
-    SYMBOL_EURUSD = 1,
-    SYMBOL_GBPUSD = 2,
-    SYMBOL_USDJPY = 3,
-    SYMBOL_USDCHF = 4,
-    SYMBOL_AUDUSD = 5,
-    SYMBOL_USDCAD = 6,
-    SYMBOL_NZDUSD = 7,
-    SYMBOL_XAUUSD = 8,
-    SYMBOL_XAGUSD = 9,
+    SYMBOL_EURUSD = 1,   // EUR/USD
+    SYMBOL_GBPUSD = 2,   // GBP/USD
+    SYMBOL_USDJPY = 3,   // USD/JPY
+    SYMBOL_USDCHF = 4,   // USD/CHF
+    SYMBOL_AUDUSD = 5,   // AUD/USD
+    SYMBOL_USDCAD = 6,   // USD/CAD
+    SYMBOL_NZDUSD = 7,   // NZD/USD
+    SYMBOL_EURGBP = 8,   // EUR/GBP
+    SYMBOL_EURJPY = 9,   // EUR/JPY
+    SYMBOL_GBPJPY = 10,  // GBP/JPY
+    SYMBOL_AUDJPY = 11,  // AUD/JPY
+    SYMBOL_NZDJPY = 12,  // NZD/JPY
+    SYMBOL_CHFJPY = 13,  // CHF/JPY
+    SYMBOL_XAUUSD = 14,  // XAU/USD (Gold)
     SYMBOL_UNKNOWN = 255
 };
 
@@ -62,8 +67,13 @@ public:
         if(symbol == "AUDUSD") return SYMBOL_AUDUSD;
         if(symbol == "USDCAD") return SYMBOL_USDCAD;
         if(symbol == "NZDUSD") return SYMBOL_NZDUSD;
+        if(symbol == "EURGBP") return SYMBOL_EURGBP;
+        if(symbol == "EURJPY") return SYMBOL_EURJPY;
+        if(symbol == "GBPJPY") return SYMBOL_GBPJPY;
+        if(symbol == "AUDJPY") return SYMBOL_AUDJPY;
+        if(symbol == "NZDJPY") return SYMBOL_NZDJPY;
+        if(symbol == "CHFJPY") return SYMBOL_CHFJPY;
         if(symbol == "XAUUSD") return SYMBOL_XAUUSD;
-        if(symbol == "XAGUSD") return SYMBOL_XAGUSD;
         return SYMBOL_UNKNOWN;
     }
 
@@ -81,8 +91,13 @@ public:
             case SYMBOL_AUDUSD: return "AUDUSD";
             case SYMBOL_USDCAD: return "USDCAD";
             case SYMBOL_NZDUSD: return "NZDUSD";
+            case SYMBOL_EURGBP: return "EURGBP";
+            case SYMBOL_EURJPY: return "EURJPY";
+            case SYMBOL_GBPJPY: return "GBPJPY";
+            case SYMBOL_AUDJPY: return "AUDJPY";
+            case SYMBOL_NZDJPY: return "NZDJPY";
+            case SYMBOL_CHFJPY: return "CHFJPY";
             case SYMBOL_XAUUSD: return "XAUUSD";
-            case SYMBOL_XAGUSD: return "XAGUSD";
             default: return "UNKNOWN";
         }
     }
@@ -171,6 +186,37 @@ public:
                ((ulong)(uchar)buffer[pos + 5] << 40) |
                ((ulong)(uchar)buffer[pos + 6] << 48) |
                ((ulong)(uchar)buffer[pos + 7] << 56);
+    }
+
+    //+------------------------------------------------------------------+
+    //| Create single tick binary packet (for real-time WebSocket)     |
+    //+------------------------------------------------------------------+
+    static int CreateSingleTickPacket(string symbol, MqlTick &tick, char &buffer[])
+    {
+        int totalSize = HEADER_SIZE + PRICE_DATA_SIZE;
+        ArrayResize(buffer, totalSize);
+        ArrayInitialize(buffer, 0);
+
+        int pos = 0;
+
+        // Write header (16 bytes)
+        WriteUInt32(buffer, pos, BINARY_MAGIC); pos += 4;          // Magic number
+        WriteUInt16(buffer, pos, BINARY_VERSION); pos += 2;       // Version
+        buffer[pos++] = (char)MSG_PRICE_STREAM;                   // Message type
+        buffer[pos++] = (char)1;                                  // Single tick (count = 1)
+        WriteUInt64(buffer, pos, (ulong)tick.time_msc); pos += 8; // Timestamp from tick
+
+        // Write price data (16 bytes)
+        WriteUInt32(buffer, pos, GetSymbolID(symbol)); pos += 4;        // Symbol ID
+        WriteUInt32(buffer, pos, PriceToFixedPoint(tick.bid)); pos += 4; // Bid
+        WriteUInt32(buffer, pos, PriceToFixedPoint(tick.ask)); pos += 4; // Ask
+
+        // Calculate spread and flags
+        int spread = (int)((tick.ask - tick.bid) / SymbolInfoDouble(symbol, SYMBOL_POINT));
+        uint flags = (spread & 0xFFFF) | (1 << 16); // Server ID = 1
+        WriteUInt32(buffer, pos, flags); pos += 4;                      // Flags
+
+        return totalSize;
     }
 
     //+------------------------------------------------------------------+

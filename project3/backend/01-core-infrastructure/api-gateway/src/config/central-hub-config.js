@@ -1,18 +1,29 @@
 /**
  * Central Hub Configuration Loader
- * Replaces legacy ConfigService with official Central Hub SDK
+ * Uses Central Hub Client for Node.js services
  */
 
-const CentralHubClient = require('@suho/central-hub-sdk').CentralHubClient;
+const CentralHubClient = require('./central-hub-client');
 
 class CentralHubConfigLoader {
     constructor() {
         this.centralHub = new CentralHubClient({
             serviceName: 'api-gateway',
-            baseURL: process.env.CENTRAL_HUB_URL || 'http://suho-central-hub:7000',
-            timeout: 10000,
-            retryAttempts: 5,
-            retryDelay: 2000
+            serviceType: 'gateway',
+            version: '2.0.0',
+            centralHubUrl: process.env.CENTRAL_HUB_URL || 'http://suho-central-hub:7000',
+            capabilities: [
+                'http-api',
+                'websocket',
+                'bidirectional-routing',
+                'binary-protocol',
+                'nats-messaging',
+                'kafka-messaging',
+                'client-mt5-support'
+            ],
+            metadata: {
+                websocket_port: process.env.WS_PORT || 8001
+            }
         });
 
         this.config = {
@@ -26,13 +37,14 @@ class CentralHubConfigLoader {
 
     /**
      * Initialize Central Hub connection and fetch all configs
+     * Also starts heartbeat mechanism
      */
     async initialize() {
         try {
             console.log('🚀 Initializing Central Hub integration...');
 
-            // 1. Register service with Central Hub
-            await this.registerService();
+            // 1. Register service with Central Hub and start heartbeat
+            await this.centralHub.start(() => this.getServiceMetrics());
 
             // 2. Fetch database configurations
             await this.fetchDatabaseConfigs();
@@ -52,35 +64,15 @@ class CentralHubConfigLoader {
     }
 
     /**
-     * Register API Gateway with Central Hub
+     * Get service metrics for heartbeat
+     * @returns {Object} Service metrics
      */
-    async registerService() {
-        const serviceInfo = {
-            name: 'api-gateway',
-            host: process.env.HOSTNAME || 'suho-api-gateway',
-            port: parseInt(process.env.PORT) || 8000,
-            protocol: 'http',
-            health_endpoint: '/health',
-            version: '2.0.0',
-            metadata: {
-                type: 'gateway',
-                instance_id: process.env.INSTANCE_ID || 'api-gateway-1',
-                start_time: Date.now(),
-                websocket_port: process.env.WS_PORT || 8001
-            },
-            capabilities: [
-                'http-api',
-                'websocket',
-                'bidirectional-routing',
-                'binary-protocol',
-                'nats-messaging',
-                'kafka-messaging',
-                'client-mt5-support'
-            ]
+    getServiceMetrics() {
+        return {
+            uptime: process.uptime(),
+            memory: process.memoryUsage(),
+            connections: 0  // Will be updated by actual service
         };
-
-        await this.centralHub.register(serviceInfo);
-        console.log('✅ API Gateway registered with Central Hub');
     }
 
     /**
@@ -143,11 +135,24 @@ class CentralHubConfigLoader {
     }
 
     /**
-     * Build NATS connection URL
+     * Build NATS connection URLs (supports cluster)
      */
     buildNatsUrl(config) {
         const conn = config.connection;
-        return `nats://${conn.host}:${conn.port}`;
+
+        // Support cluster_urls for NATS cluster
+        if (conn.cluster_urls && Array.isArray(conn.cluster_urls)) {
+            return {
+                servers: conn.cluster_urls,
+                cluster: true
+            };
+        }
+
+        // Fallback to single server
+        return {
+            servers: [`nats://${conn.host}:${conn.port}`],
+            cluster: false
+        };
     }
 
     /**
@@ -203,11 +208,11 @@ class CentralHubConfigLoader {
     }
 
     /**
-     * Report health to Central Hub
+     * Report health to Central Hub (via heartbeat)
      */
     async reportHealth(healthData) {
-        if (this.centralHub.isHealthy()) {
-            await this.centralHub.reportHealth(healthData);
+        if (this.centralHub.isRegistered()) {
+            await this.centralHub.sendHeartbeat(healthData);
         }
     }
 
@@ -223,7 +228,7 @@ class CentralHubConfigLoader {
      */
     async shutdown() {
         console.log('🛑 Shutting down Central Hub integration...');
-        await this.centralHub.unregister();
+        await this.centralHub.stop();
         console.log('✅ Central Hub integration shutdown complete');
     }
 }

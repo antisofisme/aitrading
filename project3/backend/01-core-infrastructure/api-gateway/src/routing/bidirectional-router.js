@@ -206,9 +206,25 @@ class BidirectionalRouter extends EventEmitter {
         // ✅ USE CONFIG FROM CENTRAL HUB (via APIGatewayService)
         // Config is fetched in APIGatewayService.initializeCore() from Central Hub
         // Fallback to environment variables only if config not provided
-        const natsUrl = this.config?.transfer?.nats_url ||
-                        process.env.NATS_URL ||
-                        'nats://suho-nats-server:4222';
+
+        // NATS cluster URLs (supports cluster from Central Hub)
+        let natsServers;
+        if (this.config?.messaging?.nats?.servers) {
+            // From Central Hub config (cluster_urls array)
+            natsServers = Array.isArray(this.config.messaging.nats.servers)
+                ? this.config.messaging.nats.servers
+                : [this.config.messaging.nats.servers];
+        } else if (process.env.NATS_URL) {
+            // From environment variable
+            natsServers = [process.env.NATS_URL];
+        } else {
+            // Fallback to NATS cluster (correct hostnames)
+            natsServers = [
+                'nats://nats-1:4222',
+                'nats://nats-2:4222',
+                'nats://nats-3:4222'
+            ];
+        }
 
         const kafkaBrokers = this.config?.transfer?.kafka_brokers ?
             (typeof this.config.transfer.kafka_brokers === 'string'
@@ -220,13 +236,13 @@ class BidirectionalRouter extends EventEmitter {
                     : [process.env.KAFKA_BROKERS])
                 : ['suho-kafka:9092']);
 
-        console.log(`[ROUTER] Using NATS from config: ${natsUrl}`);
-        console.log(`[ROUTER] Using Kafka from config: ${kafkaBrokers}`);
+        console.log(`[ROUTER] Using NATS servers:`, natsServers);
+        console.log(`[ROUTER] Using Kafka brokers:`, kafkaBrokers);
 
-        // Initialize NATS+Kafka transport
+        // Initialize NATS+Kafka transport with cluster support
         this.natsKafkaClient = new NATSKafkaClient({
             nats: {
-                servers: Array.isArray(natsUrl) ? natsUrl : [natsUrl],
+                servers: natsServers,
                 reconnectTimeWait: parseInt(process.env.NATS_RECONNECT_TIME_WAIT) || 250,
                 maxReconnectAttempts: parseInt(process.env.NATS_MAX_RECONNECT_ATTEMPTS) || -1,
                 pingInterval: parseInt(process.env.NATS_PING_INTERVAL) || 30000

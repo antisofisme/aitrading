@@ -27,10 +27,7 @@ const logger = require('./utils/logger');
 const CentralHubConfigLoader = require('./config/central-hub-config');
 const { APIGatewayService } = require('./core/APIGatewayService');
 
-// Import modular handlers organized by transfer method (corrected structure)
-const { ClientMT5NatsKafkaHandler } = require('../contracts/webhook/from-client-mt5');
-const { FrontendWebhookHandler } = require('../contracts/webhook/from-frontend');
-const { TelegramWebhookHandler } = require('../contracts/webhook/from-telegram');
+// Note: contracts.archived folder - not used for WebSocket tick passthrough
 
 /**
  * API Gateway Application - Updated to use ServiceTemplate
@@ -490,6 +487,97 @@ class APIGateway {
             }
         });
 
+        // ✅ NEW: Tick data ingestion endpoint for MT5 EA
+        this.app.post('/api/v1/ticks/batch', express.json({ limit: '5mb' }), async (req, res) => {
+            try {
+                const { broker, account, source, ticks, timestamp } = req.body;
+
+                // Validate request
+                if (!ticks || !Array.isArray(ticks) || ticks.length === 0) {
+                    return res.status(400).json({
+                        error: 'Invalid request',
+                        message: 'ticks array is required and must not be empty'
+                    });
+                }
+
+                // Validate broker and account
+                if (!broker || !account) {
+                    return res.status(400).json({
+                        error: 'Invalid request',
+                        message: 'broker and account are required'
+                    });
+                }
+
+                const startTime = Date.now();
+
+                // Publish ticks to NATS (will be routed to data-bridge)
+                const natsClient = this.bidirectionalRouter?.natsKafkaClient;
+                let publishedCount = 0;
+
+                if (natsClient && natsClient.status?.nats?.connected) {
+                    for (const tick of ticks) {
+                        const subject = `market.ticks.${tick.symbol}`;
+                        const tickData = {
+                            symbol: tick.symbol,
+                            timestamp: tick.timestamp,
+                            bid: tick.bid,
+                            ask: tick.ask,
+                            last: tick.last || 0,
+                            volume: tick.volume || 0,
+                            broker: broker,
+                            account: account,
+                            source: source || 'mt5_ea'
+                        };
+
+                        try {
+                            await natsClient.publishViaNATS(subject, { data: tickData });
+                            publishedCount++;
+                        } catch (error) {
+                            logger.error('Failed to publish tick to NATS', {
+                                symbol: tick.symbol,
+                                error: error.message
+                            });
+                        }
+                    }
+                }
+
+                const processingTime = Date.now() - startTime;
+
+                // Update stats
+                this.stats.requestCount++;
+
+                logger.info('Tick batch processed', {
+                    broker,
+                    account,
+                    ticksReceived: ticks.length,
+                    ticksPublished: publishedCount,
+                    processingTime,
+                    correlationId: req.correlationId
+                });
+
+                res.json({
+                    status: 'ok',
+                    ticks_received: ticks.length,
+                    ticks_published: publishedCount,
+                    processing_time_ms: processingTime,
+                    timestamp: Date.now(),
+                    correlationId: req.correlationId
+                });
+
+            } catch (error) {
+                logger.error('Tick batch processing error', {
+                    error: error.message,
+                    correlationId: req.correlationId
+                });
+
+                res.status(500).json({
+                    status: 'error',
+                    error: error.message,
+                    correlationId: req.correlationId
+                });
+            }
+        });
+
         // Default route
         this.app.get('/', (req, res) => {
             res.json({
@@ -501,12 +589,14 @@ class APIGateway {
                     'Dual WebSocket Architecture',
                     'Protocol Buffer ↔ Binary conversion',
                     'Bidirectional routing',
-                    'Real-time performance monitoring'
+                    'Real-time performance monitoring',
+                    'MT5 EA Tick Ingestion'
                 ],
                 endpoints: {
                     health: '/health',
                     stats: '/stats',
                     websocket_info: '/websocket/info',
+                    tick_ingestion: '/api/v1/ticks/batch',
                     trading_ws: 'ws://localhost:8001/ws/trading',
                     price_stream_ws: 'ws://localhost:8002/ws/price-stream'
                 },
