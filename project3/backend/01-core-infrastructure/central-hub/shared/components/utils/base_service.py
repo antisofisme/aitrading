@@ -11,12 +11,12 @@ from dataclasses import dataclass
 from datetime import datetime
 from abc import ABC, abstractmethod
 
-from .patterns.database_manager import StandardDatabaseManager
-from .patterns.cache_manager import StandardCacheManager
-from .patterns.config_manager import StandardConfigManager
+from .patterns.database import DatabaseManager
+from .patterns.cache import CacheManager
+from .patterns.config import ConfigManager
 from .patterns.tracing import RequestTracer
-from .patterns.circuit_breaker import StandardCircuitBreaker
-from .patterns.response_formatter import StandardResponse
+from .patterns.circuit_breaker import CircuitBreakerManager
+from .patterns.response import StandardResponse
 
 
 @dataclass
@@ -66,19 +66,19 @@ class BaseService(ABC):
         """Initialize standard service components"""
 
         # Database manager
-        self.db = StandardDatabaseManager(
+        self.db = DatabaseManager(
             service_name=self.service_name,
             max_connections=self.config.max_connections
         )
 
         # Cache manager
-        self.cache = StandardCacheManager(
+        self.cache = CacheManager(
             service_name=self.service_name,
             default_ttl=self.config.cache_ttl_default
         )
 
         # Configuration manager
-        self.config_manager = StandardConfigManager(
+        self.config_manager = ConfigManager(
             service_name=self.service_name,
             environment=self.config.environment
         )
@@ -91,7 +91,7 @@ class BaseService(ABC):
 
         # Circuit breaker
         if self.config.enable_circuit_breaker:
-            self.circuit_breaker = StandardCircuitBreaker(
+            self.circuit_breaker = CircuitBreakerManager(
                 service_name=self.service_name
             )
 
