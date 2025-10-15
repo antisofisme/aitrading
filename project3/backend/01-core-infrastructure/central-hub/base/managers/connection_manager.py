@@ -99,6 +99,28 @@ class ConnectionManager:
     async def _create_database_schema(self):
         """Create real database schema for Central Hub with multi-tenant support"""
         schema_sql = """
+        -- Migration: Add tenant_id column to existing tables if not exists
+        DO $$
+        BEGIN
+            -- Add tenant_id to service_registry if not exists
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                          WHERE table_name='service_registry' AND column_name='tenant_id') THEN
+                ALTER TABLE service_registry ADD COLUMN tenant_id VARCHAR(100) NOT NULL DEFAULT 'system';
+            END IF;
+
+            -- Add tenant_id to health_metrics if not exists
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                          WHERE table_name='health_metrics' AND column_name='tenant_id') THEN
+                ALTER TABLE health_metrics ADD COLUMN tenant_id VARCHAR(100) NOT NULL DEFAULT 'system';
+            END IF;
+
+            -- Add tenant_id to coordination_history if not exists
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                          WHERE table_name='coordination_history' AND column_name='tenant_id') THEN
+                ALTER TABLE coordination_history ADD COLUMN tenant_id VARCHAR(100) NOT NULL DEFAULT 'system';
+            END IF;
+        END $$;
+
         -- Service Registry with tenant isolation
         CREATE TABLE IF NOT EXISTS service_registry (
             id SERIAL PRIMARY KEY,
