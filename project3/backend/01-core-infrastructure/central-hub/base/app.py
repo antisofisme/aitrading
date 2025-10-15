@@ -55,10 +55,10 @@ from middleware import (
 # Contract integration
 from components.utils.contract_bridge import ContractProcessorIntegration
 
-# Configure logging
+# Configure logging with newline format
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    format='%(asctime)s - %(name)s\n%(levelname)s - %(message)s'
 )
 logger = logging.getLogger("central-hub")
 

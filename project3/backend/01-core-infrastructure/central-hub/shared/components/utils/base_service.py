@@ -96,13 +96,13 @@ class BaseService(ABC):
             )
 
     def _setup_logging(self) -> python_logging.Logger:
-        """Setup structured logging"""
+        """Setup structured logging with newline format"""
         logger = python_logging.getLogger(self.service_name)
         logger.setLevel(python_logging.INFO)
 
-        # Structured formatter
+        # Structured formatter with newline for better readability
         formatter = python_logging.Formatter(
-            '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+            '%(asctime)s - %(name)s\n%(levelname)s - %(message)s'
         )
 
         handler = python_logging.StreamHandler()
