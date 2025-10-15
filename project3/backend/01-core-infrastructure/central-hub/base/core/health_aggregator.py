@@ -16,9 +16,10 @@ class HealthAggregator:
     - Provide aggregated health reports
     """
 
-    def __init__(self, health_monitor, infrastructure_monitor):
-        self.health_monitor = health_monitor
+    def __init__(self, infrastructure_monitor, service_registry, dependency_graph):
         self.infrastructure_monitor = infrastructure_monitor
+        self.service_registry = service_registry
+        self.dependency_graph = dependency_graph
         self.logger = logging.getLogger("central-hub.health-aggregator")
 
     async def initialize(self):
