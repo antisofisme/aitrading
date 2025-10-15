@@ -118,6 +118,69 @@ class PingHealthChecker:
             )
 
 
+class RedisHealthChecker:
+    """Redis PING health checker"""
+
+    @staticmethod
+    async def check(host: str, port: int, password: str = None, timeout: int = 5, **kwargs) -> HealthCheckResult:
+        """Check health via Redis PING"""
+        import asyncio
+        import redis.asyncio as redis
+        start_time = time.time()
+        try:
+            # Create Redis client
+            redis_url = f"redis://:{password}@{host}:{port}" if password else f"redis://{host}:{port}"
+            client = redis.from_url(redis_url)
+
+            # Send PING command
+            await asyncio.wait_for(client.ping(), timeout=timeout)
+            await client.close()
+
+            response_time_ms = (time.time() - start_time) * 1000
+            return HealthCheckResult(
+                healthy=True,
+                response_time_ms=response_time_ms
+            )
+        except Exception as e:
+            response_time_ms = (time.time() - start_time) * 1000
+            return HealthCheckResult(
+                healthy=False,
+                response_time_ms=response_time_ms,
+                error=str(e)
+            )
+
+
+class KafkaHealthChecker:
+    """Kafka Admin health checker"""
+
+    @staticmethod
+    async def check(host: str, port: int, timeout: int = 5, **kwargs) -> HealthCheckResult:
+        """Check health via Kafka Admin API"""
+        import asyncio
+        start_time = time.time()
+        try:
+            # Use TCP check as simple health check for Kafka
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_connection(host, port),
+                timeout=timeout
+            )
+            writer.close()
+            await writer.wait_closed()
+
+            response_time_ms = (time.time() - start_time) * 1000
+            return HealthCheckResult(
+                healthy=True,
+                response_time_ms=response_time_ms
+            )
+        except Exception as e:
+            response_time_ms = (time.time() - start_time) * 1000
+            return HealthCheckResult(
+                healthy=False,
+                response_time_ms=response_time_ms,
+                error=str(e)
+            )
+
+
 class HealthCheckerFactory:
     """Factory for getting appropriate health checker"""
 
@@ -125,6 +188,8 @@ class HealthCheckerFactory:
         "http": HTTPHealthChecker,
         "tcp": TCPHealthChecker,
         "ping": PingHealthChecker,
+        "redis_ping": RedisHealthChecker,
+        "kafka_admin": KafkaHealthChecker,
     }
 
     @classmethod
