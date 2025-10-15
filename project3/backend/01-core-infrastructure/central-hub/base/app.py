@@ -103,6 +103,7 @@ class CentralHubService(BaseService):
 
             # 2. Initialize Coordination Manager (registry, routing, workflows)
             self.coordination_manager = CoordinationManager(
+                service_name=self.service_name,
                 db_manager=self.connection_manager.db_manager
             )
             await self.coordination_manager.initialize()

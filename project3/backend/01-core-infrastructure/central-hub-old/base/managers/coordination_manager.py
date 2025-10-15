@@ -38,7 +38,8 @@ class CoordinationManager:
     - Configuration management
     """
 
-    def __init__(self, db_manager):
+    def __init__(self, service_name: str, db_manager):
+        self.service_name = service_name
         self.db_manager = db_manager
 
         # Core coordination components
@@ -61,7 +62,7 @@ class CoordinationManager:
             logger.info("✅ Service registry initialized")
 
             # 2. Initialize configuration manager
-            self.config_manager = ConfigManager()
+            self.config_manager = ConfigManager(service_name=self.service_name)
             logger.info("✅ Configuration manager initialized")
 
             # 3. Initialize coordination router
