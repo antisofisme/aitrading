@@ -4,34 +4,60 @@ Health Checkers Factory - Provides different health check implementations
 
 import logging
 import httpx
+import time
 from typing import Dict, Any
+import sys
+from pathlib import Path
+
+# Add shared to path
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "shared"))
+
+from models.infrastructure_model import HealthCheckResult
 
 
 class HTTPHealthChecker:
     """HTTP-based health checker"""
 
     @staticmethod
-    async def check(host: str, port: int, endpoint: str = "/health", timeout: int = 5) -> Dict[str, Any]:
+    async def check(host: str, port: int, endpoint: str = "/health", timeout: int = 5) -> HealthCheckResult:
         """Check health via HTTP"""
         url = f"http://{host}:{port}{endpoint}"
+        start_time = time.time()
         try:
             async with httpx.AsyncClient(timeout=timeout) as client:
                 response = await client.get(url)
+                response_time_ms = (time.time() - start_time) * 1000
+
                 if response.status_code == 200:
-                    return {"status": "healthy", "code": 200}
+                    return HealthCheckResult(
+                        healthy=True,
+                        response_time_ms=response_time_ms,
+                        details={"code": 200}
+                    )
                 else:
-                    return {"status": "unhealthy", "code": response.status_code}
+                    return HealthCheckResult(
+                        healthy=False,
+                        response_time_ms=response_time_ms,
+                        error=f"HTTP {response.status_code}",
+                        details={"code": response.status_code}
+                    )
         except Exception as e:
-            return {"status": "unhealthy", "error": str(e)}
+            response_time_ms = (time.time() - start_time) * 1000
+            return HealthCheckResult(
+                healthy=False,
+                response_time_ms=response_time_ms,
+                error=str(e)
+            )
 
 
 class TCPHealthChecker:
     """TCP-based health checker"""
 
     @staticmethod
-    async def check(host: str, port: int, timeout: int = 5) -> Dict[str, Any]:
+    async def check(host: str, port: int, timeout: int = 5, **kwargs) -> HealthCheckResult:
         """Check health via TCP connection"""
         import asyncio
+        start_time = time.time()
         try:
             # Try to open TCP connection
             reader, writer = await asyncio.wait_for(
@@ -40,18 +66,28 @@ class TCPHealthChecker:
             )
             writer.close()
             await writer.wait_closed()
-            return {"status": "healthy"}
+            response_time_ms = (time.time() - start_time) * 1000
+            return HealthCheckResult(
+                healthy=True,
+                response_time_ms=response_time_ms
+            )
         except Exception as e:
-            return {"status": "unhealthy", "error": str(e)}
+            response_time_ms = (time.time() - start_time) * 1000
+            return HealthCheckResult(
+                healthy=False,
+                response_time_ms=response_time_ms,
+                error=str(e)
+            )
 
 
 class PingHealthChecker:
     """Ping-based health checker"""
 
     @staticmethod
-    async def check(host: str, **kwargs) -> Dict[str, Any]:
+    async def check(host: str, **kwargs) -> HealthCheckResult:
         """Check health via ping"""
         import asyncio
+        start_time = time.time()
         try:
             # Use system ping command
             process = await asyncio.create_subprocess_exec(
@@ -60,12 +96,26 @@ class PingHealthChecker:
                 stderr=asyncio.subprocess.PIPE
             )
             await process.communicate()
+            response_time_ms = (time.time() - start_time) * 1000
+
             if process.returncode == 0:
-                return {"status": "healthy"}
+                return HealthCheckResult(
+                    healthy=True,
+                    response_time_ms=response_time_ms
+                )
             else:
-                return {"status": "unhealthy", "error": "ping failed"}
+                return HealthCheckResult(
+                    healthy=False,
+                    response_time_ms=response_time_ms,
+                    error="ping failed"
+                )
         except Exception as e:
-            return {"status": "unhealthy", "error": str(e)}
+            response_time_ms = (time.time() - start_time) * 1000
+            return HealthCheckResult(
+                healthy=False,
+                response_time_ms=response_time_ms,
+                error=str(e)
+            )
 
 
 class HealthCheckerFactory:

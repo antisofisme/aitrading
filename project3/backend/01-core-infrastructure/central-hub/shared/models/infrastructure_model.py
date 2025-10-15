@@ -161,6 +161,15 @@ class SystemHealth:
 
 
 @dataclass
+class HealthCheckResult:
+    """Health check result"""
+    healthy: bool
+    response_time_ms: Optional[float] = None
+    error: Optional[str] = None
+    details: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
 class Alert:
     """Alert message"""
     id: str
