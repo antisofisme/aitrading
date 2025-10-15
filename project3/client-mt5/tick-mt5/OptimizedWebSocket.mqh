@@ -198,36 +198,69 @@ public:
             "User-Agent: MT5-OptimizedWebSocket/1.0\r\n" +
             "\r\n";
 
+        Print("📤 Sending WebSocket handshake (", StringLen(handshake), " bytes)");
+
         // Send handshake
         uchar data[];
         StringToCharArray(handshake, data, 0, StringLen(handshake));
 
         int sent = SocketSend(m_socket, data, ArraySize(data));
-        return (sent == ArraySize(data));
+
+        if(sent == ArraySize(data)) {
+            Print("✅ Handshake sent successfully (", sent, " bytes)");
+            return true;
+        } else {
+            Print("❌ Handshake send failed (sent ", sent, " of ", ArraySize(data), " bytes)");
+            return false;
+        }
     }
 
     //+------------------------------------------------------------------+
     //| Receive WebSocket handshake response                            |
     //+------------------------------------------------------------------+
     bool ReceiveHandshake() {
+        // Read response (may include HTTP headers + WebSocket frames)
         uchar response[];
-        ArrayResize(response, 4096);
+        ArrayResize(response, 8192); // Larger buffer for safety
 
         uint timeout = 5000; // 5 seconds
         int received = SocketRead(m_socket, response, ArraySize(response), timeout);
 
-        if(received <= 0) return false;
-
-        // Convert to string
-        string response_str = CharArrayToString(response, 0, received);
-
-        // Check if upgrade succeeded
-        if(StringFind(response_str, "101 Switching Protocols") < 0) {
-            Print("❌ WebSocket upgrade failed");
-            Print("Response: ", response_str);
+        if(received <= 0) {
+            Print("❌ No handshake response received (timeout or disconnected)");
             return false;
         }
 
+        Print("📥 Received ", received, " bytes in handshake response");
+
+        // Find end of HTTP headers (\r\n\r\n)
+        int headers_end = -1;
+        for(int i = 0; i < received - 3; i++) {
+            if(response[i] == 13 && response[i+1] == 10 &&   // \r\n
+               response[i+2] == 13 && response[i+3] == 10) {  // \r\n
+                headers_end = i + 4;
+                break;
+            }
+        }
+
+        if(headers_end < 0) {
+            Print("❌ Could not find end of HTTP headers (\\r\\n\\r\\n)");
+            return false;
+        }
+
+        // Convert only HTTP headers to string (ignore WebSocket frames after)
+        string response_str = CharArrayToString(response, 0, headers_end);
+
+        // Debug: Print first 300 characters
+        Print("🔍 Headers (", headers_end, " bytes): ", StringSubstr(response_str, 0, MathMin(300, StringLen(response_str))));
+
+        // Check if upgrade succeeded
+        if(StringFind(response_str, "101 Switching Protocols") < 0) {
+            Print("❌ WebSocket upgrade failed - '101 Switching Protocols' not found");
+            return false;
+        }
+
+        Print("✅ WebSocket handshake successful!");
         return true;
     }
 

@@ -1,0 +1,37 @@
+# MT5 Bridge Requirements
+# Python dependencies untuk MT5 Bridge application
+
+# MT5 Integration
+MetaTrader5>=5.0.4682
+pandas==2.1.4
+numpy==1.24.3
+
+# WebSocket Communication  
+websockets==12.0
+aiohttp==3.9.1
+asyncio-mqtt==0.16.1
+
+# Configuration & Logging
+pydantic==2.5.2
+python-dotenv==1.0.0
+pydantic-settings==2.1.0
+loguru==0.7.2
+clickhouse-connect==0.7.19
+
+# Data Processing
+pytz==2023.3
+datetime
+json5==0.9.14
+
+# Error Handling & Monitoring
+tenacity==8.2.3
+psutil==5.9.6
+
+# Redpanda/Kafka Integration
+kafka-python==2.0.2
+confluent-kafka==2.3.0
+aiokafka==0.10.0
+
+# Optional: For advanced features
+requests==2.31.0
+schedule==1.2.0

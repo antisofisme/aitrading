@@ -1,0 +1,68 @@
+# Docker Compose with Persistent External Volumes
+# Data akan disimpan di external drive/partition, tidak hilang saat Docker reinstall
+
+version: '3.8'
+
+# OVERRIDE default volumes to use bind mounts ke external storage
+volumes:
+  # Database storage - mount ke external drive
+  postgresql_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /mnt/e/suho-data/postgresql  # Ganti dengan path external drive Anda
+
+  clickhouse_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /mnt/e/suho-data/clickhouse
+
+  dragonflydb_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /mnt/e/suho-data/dragonflydb
+
+  # Message broker storage
+  nats-1-data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /mnt/e/suho-data/nats-1
+
+  nats-2-data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /mnt/e/suho-data/nats-2
+
+  nats-3-data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /mnt/e/suho-data/nats-3
+
+  kafka_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /mnt/e/suho-data/kafka
+
+  zookeeper_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /mnt/e/suho-data/zookeeper
+
+# Extend services dari docker-compose.yml
+services:
+  # No changes needed - services will use the volumes above

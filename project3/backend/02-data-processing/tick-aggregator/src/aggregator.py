@@ -192,17 +192,17 @@ class TickAggregator:
         query = """
             SELECT
                 symbol,
-                timestamp,
+                time as timestamp,
                 bid,
                 ask,
                 mid,
                 spread,
-                EXTRACT(EPOCH FROM timestamp)::BIGINT * 1000 as timestamp_ms
+                EXTRACT(EPOCH FROM time)::BIGINT * 1000 as timestamp_ms
             FROM market_ticks
             WHERE symbol = ANY($1)
-              AND timestamp >= $2
-              AND timestamp < $3
-            ORDER BY symbol, timestamp ASC
+              AND time >= $2
+              AND time < $3
+            ORDER BY symbol, time ASC
         """
 
         candles = []

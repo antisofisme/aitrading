@@ -97,21 +97,49 @@ node websocket-server.js
 
 ---
 
-## Step 3: Run MT5 Tick Collector
+## Step 3: Enable MT5 Socket Permissions (CRITICAL!)
 
-### 3.1 Attach EA to Chart
+### 3.0 Enable Socket Access
+
+**⚠️ CRITICAL:** MT5 blocks all network socket connections by default!
+
+1. Open MT5 → **Tools** → **Options** (Ctrl+O)
+2. Go to **Expert Advisors** tab
+3. **✅ Enable:**
+   - [x] **Allow DLL imports**
+   - [x] **Allow WebRequest for listed URL**
+4. In "Allow WebRequest" section, click **Add** and add:
+   ```
+   http://localhost
+   https://localhost
+   ```
+5. Click **OK**
+6. **Restart MT5** completely
+
+**Without this, you'll get:**
+```
+❌ Failed to connect to localhost:8001
+```
+
+See `MT5_SOCKET_FIX.md` for detailed troubleshooting.
+
+---
+
+## Step 4: Run MT5 Tick Collector
+
+### 4.1 Attach EA to Chart
 
 1. Buka **MT5 Terminal**
 2. Open any chart (symbol doesn't matter - collector streams all 14 pairs)
 3. Drag `SuhoWebSocketStreamer` dari **Navigator > Experts** ke chart
 4. Dialog akan muncul dengan parameters
 
-### 3.2 Configure Parameters
+### 4.2 Configure Parameters
 
-**⚠️ PENTING:** Gunakan WSL IP, bukan localhost!
+**⚠️ PENTING:** Gunakan WSL IP address (bukan localhost!)
 
 ```
-WebSocket URL: ws://172.24.56.226:8003/ws/ticks  ← GUNAKAN INI!
+WebSocket URL: ws://172.24.56.226:8000/ws/ticks  ← GUNAKAN INI!
 Broker Name: FBS                                  (ganti sesuai broker Anda)
 Account ID: 101632934                             (ganti dengan account Anda)
 Use Async: false                                  (false = real-time)
@@ -119,14 +147,16 @@ Ping Interval: 30                                 (seconds)
 Enable Logs: true                                 (untuk debugging)
 ```
 
-**Why WSL IP?**
-- Server runs in **WSL (Linux)**: `172.24.56.226:8003`
-- MT5 runs in **Windows**: Can't use `localhost`
-- Must use WSL IP to connect across environments
+**Why WSL IP (172.24.56.226)?**
+- Backend runs in **Docker on WSL2** (Linux subsystem)
+- MT5 runs in **Windows** (different network namespace)
+- Must use WSL IP address to connect across environments
+- `localhost` or `127.0.0.1` won't work (different network stacks)
+- Check current WSL IP: `wsl hostname -I` in PowerShell
 
 Klik **OK** untuk start.
 
-### 3.3 Expected Output di MT5 Terminal
+### 4.3 Expected Output di MT5 Terminal
 
 ```
 ═══════════════════════════════════════════════════════════
@@ -160,7 +190,7 @@ Klik **OK** untuk start.
 
 ---
 
-## Step 4: Monitor Test Server
+## Step 5: Monitor Test Server
 
 ### 4.1 Console Output (websocket-server.js)
 
@@ -208,7 +238,7 @@ Expected response:
 
 ---
 
-## Step 5: Validation Checklist
+## Step 6: Validation Checklist
 
 ### ✅ MT5 Side
 - [ ] EA compiled successfully (0 errors)
@@ -237,12 +267,25 @@ Expected response:
 
 ## Common Issues
 
-### Issue 1: MT5 Can't Connect to WebSocket
+### Issue 1: MT5 Can't Connect to WebSocket ⚠️ MOST COMMON!
 **Symptoms**: "Failed to connect to WebSocket server"
 
-**Solutions**:
-1. Check if test server is running (`node websocket-server.js`)
-2. Verify port 8001 is not blocked by firewall
+**Root Cause**: MT5 blocks all socket connections by default!
+
+**✅ Solution:**
+1. Open MT5 → **Tools** → **Options** (Ctrl+O)
+2. **Expert Advisors** tab
+3. **Enable:**
+   - [x] Allow DLL imports
+   - [x] Allow WebRequest for listed URL
+4. Add to whitelist:
+   - `http://localhost`
+   - `https://localhost`
+5. **Restart MT5**
+
+**Other checks:**
+1. Check if test server is running (`docker ps | grep api-gateway`)
+2. Verify port 8001 accessible: `curl http://localhost:8001/health`
 3. Use `ws://localhost:8001/ws/ticks` (not `wss://` for local test)
 
 ### Issue 2: Symbols Not Available
