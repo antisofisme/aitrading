@@ -3,7 +3,7 @@ Health Checkers Factory - Provides different health check implementations
 """
 
 import logging
-import aiohttp
+import httpx
 from typing import Dict, Any
 
 
@@ -15,12 +15,12 @@ class HTTPHealthChecker:
         """Check health via HTTP"""
         url = f"http://{host}:{port}{endpoint}"
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, timeout=aiohttp.ClientTimeout(total=timeout)) as response:
-                    if response.status == 200:
-                        return {"status": "healthy", "code": 200}
-                    else:
-                        return {"status": "unhealthy", "code": response.status}
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                response = await client.get(url)
+                if response.status_code == 200:
+                    return {"status": "healthy", "code": 200}
+                else:
+                    return {"status": "unhealthy", "code": response.status_code}
         except Exception as e:
             return {"status": "unhealthy", "error": str(e)}
 
