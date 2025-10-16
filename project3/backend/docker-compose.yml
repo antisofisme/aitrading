@@ -559,7 +559,7 @@ services:
       - "com.suho.service=warp-proxy"
       - "com.suho.type=vpn-proxy"
 
-  # Dukascopy Historical Downloader - Swiss bank grade tick data → 1m OHLCV → NATS
+  # Dukascopy Historical Downloader - Swiss bank grade tick data → raw ticks → NATS
   dukascopy-historical-downloader:
     build:
       context: .
@@ -568,18 +568,26 @@ services:
     hostname: suho-dukascopy-historical
     restart: on-failure:3  # Restart up to 3 times on failure
     environment:
+      # Service identity
       - INSTANCE_ID=dukascopy-historical-1
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
+
+      # Messaging (environment variables pattern)
       - NATS_URL=nats://nats-1:4222,nats://nats-2:4222,nats://nats-3:4222
-      - CENTRAL_HUB_URL=http://suho-central-hub:7000
+
+      # ClickHouse (for gap detection)
       - CLICKHOUSE_HOST=suho-clickhouse
       - CLICKHOUSE_PORT=9000
       - CLICKHOUSE_USER=suho_analytics
       - CLICKHOUSE_PASSWORD=clickhouse_secure_2024
+
       # Proxy settings for WARP (socks5:// for httpx compatibility, not socks5h://)
       - HTTP_PROXY=socks5://suho-warp:1080
       - HTTPS_PROXY=socks5://suho-warp:1080
-      - NO_PROXY=suho-central-hub,suho-clickhouse,nats-1,nats-2,nats-3
+      - NO_PROXY=suho-clickhouse,nats-1,nats-2,nats-3
+
+      # Python
+      - PYTHONUNBUFFERED=1
     volumes:
       - dukascopy_historical_logs:/var/log/dukascopy
       - dukascopy_period_tracker:/data  # Period tracker persistence
@@ -601,8 +609,6 @@ services:
       nats-3:
         condition: service_healthy
       clickhouse:
-        condition: service_healthy
-      central-hub:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "python3", "-c", "import sys; sys.exit(0)"]
