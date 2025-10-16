@@ -1,21 +1,13 @@
 """
 Configuration loader for Dukascopy Historical Downloader
-Fetches NATS config from Central Hub
+Refactored to use environment variables (Central Hub v2.0 pattern)
 """
 import os
 import yaml
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List
 from dataclasses import dataclass
-
-# Import Central Hub SDK
-try:
-    from central_hub_sdk import CentralHubClient
-    SDK_AVAILABLE = True
-except ImportError:
-    SDK_AVAILABLE = False
-    logging.warning("Central Hub SDK not available, using fallback config")
 
 logger = logging.getLogger(__name__)
 
@@ -33,10 +25,7 @@ class Config:
     """
     Configuration manager for Dukascopy downloader
 
-    Priority:
-    1. Central Hub (NATS config)
-    2. YAML config (pairs, download settings)
-    3. Environment variables
+    Uses environment variables following Central Hub v2.0 pattern
     """
 
     def __init__(self, config_path: str = "/app/config/pairs.yaml"):
@@ -47,41 +36,23 @@ class Config:
         self.instance_id = os.getenv("INSTANCE_ID", "dukascopy-historical-1")
         self.log_level = os.getenv("LOG_LEVEL", "INFO")
 
-        # Central Hub client (will be initialized async)
-        self.central_hub: Optional[CentralHubClient] = None
-        self._nats_config_from_hub: Optional[Dict] = None
+        # Load messaging configs from environment variables
+        self._load_env_configs()
 
-    async def fetch_nats_config_from_central_hub(self):
-        """
-        Fetch NATS configuration from Central Hub
-        This method should be called async after instantiation
-        """
-        if not SDK_AVAILABLE:
-            logger.warning("⚠️  Central Hub SDK not available, using YAML config")
-            return
+    def _load_env_configs(self):
+        """Load NATS configuration from environment variables"""
+        logger.info("📡 Loading configuration from environment variables...")
 
-        try:
-            # Note: central_hub is already initialized in main.py
-            if not self.central_hub:
-                logger.warning("⚠️  Central Hub client not initialized")
-                return
-
-            logger.info("📡 Fetching NATS config from Central Hub...")
-
-            # Fetch NATS config
-            self._nats_config_from_hub = await self.central_hub.get_messaging_config('nats')
-
-            # Log cluster info
-            conn = self._nats_config_from_hub['connection']
-            cluster_urls = conn.get('cluster_urls')
-            if cluster_urls:
-                logger.info(f"✅ NATS config loaded from Central Hub: {len(cluster_urls)} nodes")
-            else:
-                logger.info(f"✅ NATS config loaded from Central Hub: {conn['host']}:{conn['port']}")
-
-        except Exception as e:
-            logger.warning(f"⚠️  Failed to fetch NATS config from Central Hub: {e}")
-            logger.warning("⚠️  Falling back to YAML configuration")
+        # NATS config
+        nats_url = os.getenv('NATS_URL', 'nats://localhost:4222')
+        if ',' in nats_url:
+            # Cluster mode
+            self._nats_cluster_urls = [url.strip() for url in nats_url.split(',')]
+            logger.info(f"✅ NATS cluster: {len(self._nats_cluster_urls)} nodes")
+        else:
+            # Single server
+            self._nats_cluster_urls = [nats_url]
+            logger.info(f"✅ NATS single server: {nats_url}")
 
     def _load_config(self) -> Dict:
         """Load YAML configuration"""
@@ -123,34 +94,27 @@ class Config:
     @property
     def nats_config(self) -> Dict:
         """
-        Get NATS configuration
-        Priority: 1. Central Hub, 2. YAML config
+        Get NATS configuration from environment variables
+
+        Returns:
+            Dict with 'url' and connection parameters
         """
-        # If config fetched from Central Hub, use it
-        if self._nats_config_from_hub:
-            conn = self._nats_config_from_hub['connection']
-
-            # Use cluster_urls if available (preferred for HA)
-            cluster_urls = conn.get('cluster_urls')
-            if cluster_urls:
-                # Return comma-separated cluster URLs for high availability
-                return {
-                    'url': ','.join(cluster_urls),
-                    'max_reconnect_attempts': -1,
-                    'reconnect_time_wait': 2,
-                    'ping_interval': 120
-                }
-            else:
-                # Fallback to single host/port (legacy mode)
-                return {
-                    'url': f"nats://{conn['host']}:{conn['port']}",
-                    'max_reconnect_attempts': -1,
-                    'reconnect_time_wait': 2,
-                    'ping_interval': 120
-                }
-
-        # Fallback to YAML config
-        return self._config.get('nats_config', {})
+        if len(self._nats_cluster_urls) > 1:
+            # Cluster mode
+            return {
+                'url': ','.join(self._nats_cluster_urls),
+                'max_reconnect_attempts': -1,
+                'reconnect_time_wait': 2,
+                'ping_interval': 120
+            }
+        else:
+            # Single server
+            return {
+                'url': self._nats_cluster_urls[0],
+                'max_reconnect_attempts': -1,
+                'reconnect_time_wait': 2,
+                'ping_interval': 120
+            }
 
     @property
     def clickhouse_config(self) -> Dict:

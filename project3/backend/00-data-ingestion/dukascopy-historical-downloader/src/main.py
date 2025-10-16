@@ -1,6 +1,7 @@
 """
 Dukascopy Historical Downloader - Main Service
 Downloads historical tick data from Dukascopy, aggregates to 1m bars, and publishes to NATS
+Refactored to use environment variables (Central Hub v2.0 pattern)
 """
 import asyncio
 import logging
@@ -17,14 +18,6 @@ from decoder import DukascopyDecoder
 from publisher import NATSPublisher
 from gap_detector import GapDetector
 from period_tracker import PeriodTracker
-
-# Import Central Hub SDK
-try:
-    from central_hub_sdk import CentralHubClient, ProgressLogger
-    SDK_AVAILABLE = True
-except ImportError:
-    SDK_AVAILABLE = False
-    logging.warning("Central Hub SDK not available")
 
 # Configure logging
 logging.basicConfig(
@@ -63,48 +56,21 @@ class DukascopyHistoricalDownloader:
         self.gap_detector: GapDetector = None
         self.period_tracker = PeriodTracker(storage_path="/data/period_tracker.json")
 
-        # Central Hub client
-        self.central_hub: CentralHubClient = None
+        # Statistics
+        self.stats = {
+            "total_ticks_downloaded": 0,
+            "total_ticks_published": 0,
+            "dates_processed": 0,
+            "errors": 0
+        }
 
     async def initialize(self):
         """Initialize all components"""
         logger.info("=" * 80)
         logger.info("Dukascopy Historical Downloader - Starting")
         logger.info("=" * 80)
-
-        # Initialize Central Hub client
-        if SDK_AVAILABLE:
-            try:
-                self.central_hub = CentralHubClient(
-                    service_name="dukascopy-historical-downloader",
-                    service_type="data-downloader",
-                    version="1.0.0",
-                    capabilities=[
-                        "historical-tick-download",
-                        "binary-decoding",
-                        "nats-publishing"
-                    ],
-                    metadata={
-                        "source": "dukascopy.com",
-                        "mode": "historical",
-                        "data_types": ["tick"],
-                        "quality": "swiss_bank_grade",
-                        "note": "Raw tick data - aggregation done by tick-aggregator service"
-                    }
-                )
-
-                await self.central_hub.register()
-                logger.info("✅ Central Hub registration successful")
-
-                # Link config to Central Hub
-                self.config.central_hub = self.central_hub
-
-                # Fetch NATS config from Central Hub
-                await self.config.fetch_nats_config_from_central_hub()
-
-            except Exception as e:
-                logger.warning(f"⚠️  Central Hub registration failed: {e}")
-                logger.warning("⚠️  Continuing without Central Hub")
+        logger.info(f"Instance ID: {self.config.instance_id}")
+        logger.info(f"Log Level: {self.config.log_level}")
 
         # Initialize downloader
         await self.downloader.connect()
@@ -147,18 +113,6 @@ class DukascopyHistoricalDownloader:
 
         logger.info(f"📊 Found {len(missing_dates)} missing dates for {symbol}")
 
-        # Initialize progress logger
-        progress = None
-        if self.central_hub and self.central_hub.registered:
-            progress = ProgressLogger(
-                task_name=f"Downloading {symbol} ({len(missing_dates)} dates)",
-                total_items=len(missing_dates),
-                service_name="dukascopy-downloader",
-                milestones=[25, 50, 75, 100],
-                heartbeat_interval=60
-            )
-            progress.start()
-
         # Download each missing date
         total_ticks = 0
         for i, date_str in enumerate(missing_dates):
@@ -182,34 +136,27 @@ class DukascopyHistoricalDownloader:
                     # Mark as downloaded
                     self.period_tracker.mark_downloaded(dukascopy_symbol, date)
 
+                    # Update statistics
+                    self.stats["total_ticks_downloaded"] += len(ticks)
+                    self.stats["total_ticks_published"] += len(ticks)
+                    self.stats["dates_processed"] += 1
+
                     logger.info(f"✅ Processed {date_str}: {len(ticks)} ticks")
 
-                # Update progress
-                if progress:
-                    progress.update(
-                        current=i + 1,
-                        additional_info={
-                            'date': date_str,
-                            'ticks_published': total_ticks
-                        }
+                # Log progress every 10 dates
+                progress_pct = ((i + 1) / len(missing_dates)) * 100
+                if (i + 1) % 10 == 0 or (i + 1) == len(missing_dates):
+                    logger.info(
+                        f"📊 {symbol} progress: {i + 1}/{len(missing_dates)} dates "
+                        f"({progress_pct:.1f}%) - {total_ticks:,} ticks"
                     )
-
-                # Send heartbeat every 10 dates
-                if (i + 1) % 10 == 0:
-                    await self._send_heartbeat(symbol, i + 1, len(missing_dates), total_ticks)
 
             except Exception as e:
                 logger.error(f"❌ Error processing {date_str}: {e}")
+                self.stats["errors"] += 1
                 continue
 
-        # Complete progress
-        if progress:
-            progress.complete(summary={
-                'total_dates': len(missing_dates),
-                'total_ticks': total_ticks
-            })
-
-        logger.info(f"✅ Completed {symbol}: {total_ticks} ticks published")
+        logger.info(f"✅ Completed {symbol}: {total_ticks:,} ticks published")
 
     async def _download_and_process_date(
         self,
@@ -264,23 +211,6 @@ class DukascopyHistoricalDownloader:
 
         return all_ticks
 
-    async def _send_heartbeat(self, symbol: str, current: int, total: int, ticks_published: int):
-        """Send heartbeat to Central Hub"""
-        if not self.central_hub or not self.central_hub.registered:
-            return
-
-        try:
-            await self.central_hub.send_heartbeat(metrics={
-                'status': 'downloading',
-                'current_symbol': symbol,
-                'progress': f"{current}/{total}",
-                'progress_pct': round(current / total * 100, 2),
-                'ticks_published': ticks_published,
-                **self.downloader.get_stats(),
-                **self.publisher.get_stats()
-            })
-        except Exception as e:
-            logger.warning(f"Heartbeat failed: {e}")
 
     async def run_initial_download(self):
         """
@@ -348,8 +278,14 @@ class DukascopyHistoricalDownloader:
         if self.gap_detector:
             self.gap_detector.close()
 
-        if self.central_hub and self.central_hub.registered:
-            await self.central_hub.deregister()
+        # Log final statistics
+        logger.info("=" * 80)
+        logger.info("📊 FINAL STATISTICS:")
+        logger.info(f"   Ticks downloaded: {self.stats['total_ticks_downloaded']:,}")
+        logger.info(f"   Ticks published: {self.stats['total_ticks_published']:,}")
+        logger.info(f"   Dates processed: {self.stats['dates_processed']:,}")
+        logger.info(f"   Errors: {self.stats['errors']}")
+        logger.info("=" * 80)
 
         logger.info("✅ Cleanup complete")
 
