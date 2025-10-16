@@ -12,13 +12,14 @@ service:
   instance_id: "aggregator-1"
   log_level: "INFO"
 
-# Database Configuration (will be overridden by Central Hub)
+# Database Configuration (DEPRECATED - config loaded from environment variables)
+# These values are not used; kept for backward compatibility
 database:
-  host: "${TIMESCALEDB_HOST}"
-  port: ${TIMESCALEDB_PORT}
-  database: "${TIMESCALEDB_DB}"
-  user: "${TIMESCALEDB_USER}"
-  password: "${TIMESCALEDB_PASSWORD}"
+  host: "${POSTGRES_HOST}"
+  port: ${POSTGRES_PORT}
+  database: "${POSTGRES_DB}"
+  user: "${POSTGRES_USER}"
+  password: "${POSTGRES_PASSWORD}"
   pool_size: 5
   tenant_id: "system"  # Application-level tenant
 

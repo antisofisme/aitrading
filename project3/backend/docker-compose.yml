@@ -763,28 +763,38 @@ services:
   # Tick Aggregator - TimescaleDB Ticks → Aggregated Candles with Indicators → NATS
   tick-aggregator:
     build:
-      context: .  # Root context for SDK access
+      context: .  # Root context for shared components access
       dockerfile: 02-data-processing/tick-aggregator/Dockerfile
     container_name: suho-tick-aggregator
     hostname: suho-tick-aggregator
     restart: unless-stopped
     environment:
+      # Service identity
       - INSTANCE_ID=tick-aggregator-1
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      # TimescaleDB connection
-      - TIMESCALEDB_HOST=${TIMESCALEDB_HOST}
-      - TIMESCALEDB_PORT=${TIMESCALEDB_PORT}
-      - TIMESCALEDB_DB=${TIMESCALEDB_DB}
-      - TIMESCALEDB_USER=${TIMESCALEDB_USER}
-      - TIMESCALEDB_PASSWORD=${TIMESCALEDB_PASSWORD}
+
+      # PostgreSQL/TimescaleDB connection (standardized naming)
+      - POSTGRES_HOST=suho-postgresql
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=suho_trading
+      - POSTGRES_USER=suho_admin
+      - POSTGRES_PASSWORD=suho_secure_password_2024
+
       # ClickHouse for gap detection (native client needs port 9000, not HTTP 8123)
-      - CLICKHOUSE_HOST=${CLICKHOUSE_HOST:-suho-clickhouse}
+      - CLICKHOUSE_HOST=suho-clickhouse
       - CLICKHOUSE_PORT=9000  # Native protocol port (NOT HTTP 8123)
-      - CLICKHOUSE_DATABASE=${CLICKHOUSE_DATABASE:-suho_analytics}
-      - CLICKHOUSE_USER=${CLICKHOUSE_USER:-suho_analytics}
-      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD}
-      # NATS for publishing aggregates
+      - CLICKHOUSE_DATABASE=suho_analytics
+      - CLICKHOUSE_USER=suho_analytics
+      - CLICKHOUSE_PASSWORD=clickhouse_secure_2024
+
+      # NATS cluster for publishing aggregates
       - NATS_URL=nats://nats-1:4222,nats://nats-2:4222,nats://nats-3:4222
+
+      # Kafka for publishing aggregates (optional)
+      - KAFKA_BROKERS=suho-kafka:9092
+
+      # Python
+      - PYTHONUNBUFFERED=1
     volumes:
       - ./02-data-processing/tick-aggregator/config:/app/config:ro
       - ./01-core-infrastructure/central-hub/shared:/app/shared:ro
@@ -802,7 +812,7 @@ services:
         condition: service_healthy
       nats-3:
         condition: service_healthy
-      central-hub:
+      kafka:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "python3", "/app/src/healthcheck.py"]

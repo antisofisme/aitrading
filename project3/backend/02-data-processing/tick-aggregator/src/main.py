@@ -53,9 +53,6 @@ from live_gap_monitor import LiveGapMonitor
 from historical_processor import HistoricalProcessor
 from historical_gap_monitor import HistoricalGapMonitor
 
-# Central Hub SDK
-from central_hub_sdk import ProgressLogger
-
 # Setup logging
 logging.basicConfig(
     level=logging.INFO,
@@ -116,9 +113,6 @@ class TickAggregatorServiceV2:
         """Initialize and start all 4 components"""
         try:
             logger.info("🚀 Starting Tick Aggregator Service V2...")
-
-            # Initialize Central Hub
-            await self.config.initialize_central_hub()
 
             # STEP 1: Initialize shared components
             await self._initialize_shared_components()
@@ -365,22 +359,24 @@ class TickAggregatorServiceV2:
         logger.info("✅ Scheduler configured with 4 cron jobs (all with max_instances=1 and coalesce=True)")
 
     async def _heartbeat_loop(self):
-        """Send periodic heartbeat with metrics from all 4 components"""
+        """Log periodic heartbeat with metrics from all 4 components"""
         interval = 60  # Every 60 seconds
 
         while self.is_running:
             try:
                 await asyncio.sleep(interval)
 
-                if hasattr(self.config, 'central_hub') and self.config.central_hub:
-                    # Collect metrics from all components
-                    metrics = self._collect_metrics()
+                # Collect and log metrics from all components
+                metrics = self._collect_metrics()
 
-                    try:
-                        await self.config.central_hub.send_heartbeat(metrics=metrics)
-                        logger.debug("💓 Heartbeat sent (all components)")
-                    except Exception as hb_err:
-                        logger.warning(f"⚠️ Heartbeat failed: {hb_err}")
+                # Standard logging (every 60 seconds)
+                logger.info(
+                    f"💓 Heartbeat | "
+                    f"Live: {metrics['summary']['total_live_candles']:,} candles | "
+                    f"Historical: {metrics['summary']['total_historical_candles']:,} candles | "
+                    f"Gaps Filled: {metrics['summary']['total_gaps_filled']:,} | "
+                    f"Uptime: {metrics['uptime_seconds']:.0f}s"
+                )
 
             except asyncio.CancelledError:
                 break
