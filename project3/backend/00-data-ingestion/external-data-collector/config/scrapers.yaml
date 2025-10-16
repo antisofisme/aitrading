@@ -103,8 +103,9 @@ storage:
 
 messaging:
   # NATS configuration (real-time distribution)
+  # DISABLED: External data is low-frequency, use Kafka for persistence
   nats:
-    enabled: true  # ✅ ENABLED for real-time data
+    enabled: false  # ❌ DISABLED - Use Kafka for persistence
     host: suho-nats-server
     port: 4222
     topics:
@@ -115,9 +116,10 @@ messaging:
       # sentiment: market.external.sentiment
       # cot_report: market.external.cot_report
 
-  # Kafka configuration (persistence + backup)
+  # Kafka configuration (persistence + replay)
+  # PRIMARY: External data needs persistence and replay capability
   kafka:
-    enabled: true  # ✅ ENABLED for persistence
+    enabled: true  # ✅ PRIMARY - Persistent storage with replay
     bootstrap_servers: suho-kafka:9092
     topics:
       # Default: market.external.{data_type}
