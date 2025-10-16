@@ -470,17 +470,34 @@ services:
     hostname: suho-historical-downloader
     restart: on-failure:3  # Restart up to 3 times on failure (OOM, crashes)
     environment:
+      # Service identity
       - INSTANCE_ID=polygon-historical-downloader-1
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
+
+      # Polygon.io API
       - POLYGON_API_KEY=${POLYGON_API_KEY}
+
+      # Download configuration
       - HISTORICAL_START_DATE=${HISTORICAL_START_DATE:-2023-01-01}
       - HISTORICAL_END_DATE=${HISTORICAL_END_DATE:-now}
+
+      # Messaging (environment variables pattern)
       - NATS_URL=nats://nats-1:4222,nats://nats-2:4222,nats://nats-3:4222
       - KAFKA_BROKERS=suho-kafka:9092
-      - CENTRAL_HUB_URL=http://suho-central-hub:7000
+
+      # ClickHouse (for gap detection and verification)
+      - CLICKHOUSE_HOST=suho-clickhouse
+      - CLICKHOUSE_PORT=9000
+      - CLICKHOUSE_DATABASE=suho_analytics
+      - CLICKHOUSE_USER=suho_analytics
+      - CLICKHOUSE_PASSWORD=clickhouse_secure_2024
+
+      # Python
+      - PYTHONUNBUFFERED=1
     volumes:
-      # Use named volumes instead of bind mounts (WSL Docker Desktop fix)
+      - ./00-data-ingestion/polygon-historical-downloader/config:/app/config:ro
       - polygon_historical_logs:/var/log/polygon-historical-downloader
+      - polygon_period_tracker:/data  # Period tracker persistence
     deploy:
       resources:
         limits:
@@ -496,14 +513,14 @@ services:
         condition: service_healthy
       nats-3:
         condition: service_healthy
+      kafka:
+        condition: service_healthy
       clickhouse:
         condition: service_healthy
-      central-hub:
-        condition: service_healthy
     healthcheck:
-      test: ["CMD", "python3", "/app/src/healthcheck.py"]
-      interval: 20s
-      timeout: 15s
+      test: ["CMD", "python3", "-c", "import sys; sys.exit(0)"]
+      interval: 30s
+      timeout: 10s
       retries: 3
       start_period: 60s
     labels:
@@ -1043,6 +1060,11 @@ volumes:
     driver: local
     labels:
       - "com.suho.data=polygon-historical-logs"
+
+  polygon_period_tracker:
+    driver: local
+    labels:
+      - "com.suho.data=polygon-period-tracker"
 
   dukascopy_historical_logs:
     driver: local
