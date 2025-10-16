@@ -1,212 +1,189 @@
 """
-ClickHouse Schema Definitions
-OLAP database for analytics and aggregations
+ClickHouse Schema Type Hints
+Type definitions for validation only - NOT for schema creation
+
+⚠️ IMPORTANT: Schema Definition Source of Truth
+   Full schema definitions are in SQL files:
+   central-hub/shared/schemas/clickhouse/*.sql
+
+   Those SQL files include:
+   - Complete table definitions
+   - Indexes and materialized views
+   - TTL policies
+   - Comments and documentation
+
+   This Python module ONLY provides:
+   - Type hints for validation
+   - Column definitions for type checking
+   - NOT for CREATE TABLE statements
+
+   Schema creation is handled by:
+   - ClickHouse Docker init scripts (/docker-entrypoint-initdb.d/)
+   - SQL files are automatically executed on first start
 """
-from typing import Dict, List, Any
-
-
-def get_clickhouse_schemas() -> List[Dict[str, Any]]:
-    """Get all ClickHouse table schemas"""
-    return [
-        TICKS_SCHEMA,
-        AGGREGATES_SCHEMA,
-        EXTERNAL_ECONOMIC_CALENDAR_SCHEMA,
-        EXTERNAL_FRED_ECONOMIC_SCHEMA,
-    ]
+from typing import TypedDict, Literal, Optional
+from datetime import datetime
+from decimal import Decimal
 
 
 # ============================================================================
-# TICKS TABLE (Replicated from TimescaleDB for fast analytics)
+# TYPE DEFINITIONS FOR VALIDATION
 # ============================================================================
 
-TICKS_SCHEMA = {
-    "name": "ticks",
-    "description": "Replicated tick data for analytics",
-    "version": "1.0",
-    "engine": "MergeTree",
-    "partition_by": "(symbol, toYYYYMM(timestamp))",
-    "order_by": "(symbol, timestamp)",
-    "ttl": "toDateTime(timestamp) + INTERVAL 90 DAY",
-    "columns": {
-        "symbol": "String",
-        "timestamp": "DateTime64(3, 'UTC')",
-        "timestamp_ms": "UInt64",
-        "bid": "Decimal(18, 5)",
-        "ask": "Decimal(18, 5)",
-        "mid": "Decimal(18, 5)",
-        "spread": "Decimal(10, 5)",
-        "source": "String",
-        "event_type": "String DEFAULT 'quote'",
-        "ingested_at": "DateTime64(3, 'UTC') DEFAULT now64(3)",
-    },
-    "settings": {
-        "index_granularity": 8192
-    }
-}
+class TickData(TypedDict):
+    """
+    Type hints for ticks table - for validation only
+
+    Full schema: central-hub/shared/schemas/clickhouse/01_ticks.sql
+    """
+    symbol: str
+    timestamp: datetime
+    timestamp_ms: int
+    bid: Decimal
+    ask: Decimal
+    mid: Decimal
+    spread: Decimal
+    exchange: int
+    source: Literal["polygon_websocket", "polygon_historical", "dukascopy_historical", "live_websocket"]
+    event_type: str
+    use_case: Optional[str]
+    ingested_at: datetime
 
 
-# ============================================================================
-# AGGREGATES TABLE (OHLCV Candles)
-# ============================================================================
+class AggregateData(TypedDict):
+    """
+    Type hints for aggregates table - for validation only
 
-AGGREGATES_SCHEMA = {
-    "name": "aggregates",
-    "description": "OHLCV candles with indicators",
-    "version": "1.0",
-    "engine": "MergeTree",
-    "partition_by": "(symbol, toYYYYMM(timestamp))",
-    "order_by": "(symbol, timeframe, timestamp)",
-    "ttl": "toDateTime(timestamp) + INTERVAL 3650 DAY",  # 10 years
-    "columns": {
-        "symbol": "String",
-        "timeframe": "String",
-        "timestamp": "DateTime64(3, 'UTC')",
-        "timestamp_ms": "UInt64",
-        "open": "Decimal(18, 5)",
-        "high": "Decimal(18, 5)",
-        "low": "Decimal(18, 5)",
-        "close": "Decimal(18, 5)",
-        "volume": "UInt64",
-        "vwap": "Decimal(18, 5) DEFAULT 0",
-        "range_pips": "Decimal(10, 5)",
-        "body_pips": "Decimal(10, 5)",
-        "start_time": "DateTime64(3, 'UTC')",
-        "end_time": "DateTime64(3, 'UTC')",
-        "source": "String",
-        "event_type": "String DEFAULT 'ohlcv'",
-        "indicators": "String DEFAULT ''",  # JSON string
-        "ingested_at": "DateTime64(3, 'UTC') DEFAULT now64(3)",
-    },
-    "settings": {
-        "index_granularity": 8192
-    }
-}
+    Full schema: central-hub/shared/schemas/clickhouse/02_aggregates.sql
+    """
+    symbol: str
+    timeframe: str
+    timestamp: datetime
+    timestamp_ms: int
+    open: Decimal
+    high: Decimal
+    low: Decimal
+    close: Decimal
+    volume: int
+    vwap: Decimal
+    range_pips: Decimal
+    body_pips: Decimal
+    start_time: datetime
+    end_time: datetime
+    source: str
+    event_type: str
+    indicators: str
+    ingested_at: datetime
 
 
-# ============================================================================
-# EXTERNAL ECONOMIC CALENDAR
-# ============================================================================
+class EconomicCalendarData(TypedDict):
+    """
+    Type hints for external_economic_calendar table
 
-EXTERNAL_ECONOMIC_CALENDAR_SCHEMA = {
-    "name": "external_economic_calendar",
-    "description": "Economic events and calendar",
-    "version": "1.0",
-    "engine": "MergeTree",
-    "partition_by": "toYYYYMM(event_time)",
-    "order_by": "(event_time, currency, event_name)",
-    "ttl": "event_time + INTERVAL 1825 DAY",  # 5 years
-    "columns": {
-        "event_time": "DateTime64(3, 'UTC')",
-        "currency": "String",
-        "event_name": "String",
-        "impact": "String",
-        "forecast": "Nullable(Decimal(18, 5))",
-        "actual": "Nullable(Decimal(18, 5))",
-        "previous": "Nullable(Decimal(18, 5))",
-        "source": "String",
-        "ingested_at": "DateTime64(3, 'UTC') DEFAULT now64(3)",
-    },
-    "settings": {
-        "index_granularity": 8192
-    }
-}
+    Full schema: central-hub/shared/schemas/clickhouse/03_external_economic_calendar.sql
+    """
+    event_time: datetime
+    currency: str
+    event_name: str
+    impact: str
+    forecast: Optional[Decimal]
+    actual: Optional[Decimal]
+    previous: Optional[Decimal]
+    source: str
+    ingested_at: datetime
+
+
+class FredEconomicData(TypedDict):
+    """
+    Type hints for external_fred_economic table
+
+    Full schema: central-hub/shared/schemas/clickhouse/04_external_fred_economic.sql
+    """
+    series_id: str
+    observation_date: datetime
+    value: Decimal
+    series_title: str
+    series_category: str
+    source: str
+    ingested_at: datetime
 
 
 # ============================================================================
-# EXTERNAL FRED ECONOMIC DATA
+# VALIDATION HELPERS
 # ============================================================================
 
-EXTERNAL_FRED_ECONOMIC_SCHEMA = {
-    "name": "external_fred_economic",
-    "description": "Federal Reserve economic data",
-    "version": "1.0",
-    "engine": "MergeTree",
-    "partition_by": "toYYYYMM(observation_date)",
-    "order_by": "(series_id, observation_date)",
-    "ttl": "observation_date + INTERVAL 3650 DAY",  # 10 years
-    "columns": {
-        "series_id": "String",
-        "observation_date": "Date",
-        "value": "Decimal(18, 5)",
-        "series_title": "String",
-        "series_category": "String",
-        "source": "String DEFAULT 'FRED'",
-        "ingested_at": "DateTime64(3, 'UTC') DEFAULT now64(3)",
-    },
-    "settings": {
-        "index_granularity": 8192
-    }
-}
+def validate_tick_data(data: dict) -> bool:
+    """
+    Validate tick data structure before insert
+
+    Args:
+        data: Dictionary with tick data
+
+    Returns:
+        bool: True if valid
+
+    Raises:
+        ValueError: If validation fails
+    """
+    required_fields = ["symbol", "timestamp", "bid", "ask", "source"]
+
+    for field in required_fields:
+        if field not in data:
+            raise ValueError(f"Missing required field: {field}")
+
+    return True
+
+
+def validate_aggregate_data(data: dict) -> bool:
+    """
+    Validate aggregate data structure before insert
+
+    Args:
+        data: Dictionary with aggregate data
+
+    Returns:
+        bool: True if valid
+
+    Raises:
+        ValueError: If validation fails
+    """
+    required_fields = ["symbol", "timeframe", "timestamp", "open", "high", "low", "close", "volume", "source"]
+
+    for field in required_fields:
+        if field not in data:
+            raise ValueError(f"Missing required field: {field}")
+
+    # Validate OHLC logic
+    if not (data["low"] <= data["open"] <= data["high"] and
+            data["low"] <= data["close"] <= data["high"]):
+        raise ValueError(f"Invalid OHLC: H={data['high']}, L={data['low']}, O={data['open']}, C={data['close']}")
+
+    return True
 
 
 # ============================================================================
-# SQL GENERATION FUNCTIONS
+# TABLE NAMES (Constants)
 # ============================================================================
 
-def generate_create_table_sql(schema: Dict[str, Any]) -> str:
-    """Generate ClickHouse CREATE TABLE SQL"""
-    table_name = schema["name"]
-    columns = schema["columns"]
-    engine = schema.get("engine", "MergeTree")
-    partition_by = schema.get("partition_by", "")
-    order_by = schema.get("order_by", "")
-    ttl = schema.get("ttl", "")
-    settings = schema.get("settings", {})
-
-    # Generate column definitions
-    col_defs = []
-    for col_name, col_type in columns.items():
-        col_defs.append(f"    {col_name} {col_type}")
-
-    # Build SQL
-    sql = f"""
--- {schema.get('description', table_name)}
-CREATE TABLE IF NOT EXISTS {table_name} (
-{',\n'.join(col_defs)}
-)
-ENGINE = {engine}()
-"""
-
-    # Add partitioning
-    if partition_by:
-        sql += f"PARTITION BY {partition_by}\n"
-
-    # Add ordering
-    if order_by:
-        sql += f"ORDER BY {order_by}\n"
-
-    # Add TTL
-    if ttl:
-        sql += f"TTL {ttl}\n"
-
-    # Add settings
-    if settings:
-        settings_str = ", ".join(f"{k} = {v}" for k, v in settings.items())
-        sql += f"SETTINGS {settings_str}"
-
-    sql += ";\n"
-
-    return sql
+TABLE_TICKS = "ticks"
+TABLE_AGGREGATES = "aggregates"
+TABLE_ECONOMIC_CALENDAR = "external_economic_calendar"
+TABLE_FRED_ECONOMIC = "external_fred_economic"
+TABLE_CRYPTO_SENTIMENT = "external_crypto_sentiment"
+TABLE_FEAR_GREED_INDEX = "external_fear_greed_index"
+TABLE_COMMODITY_PRICES = "external_commodity_prices"
+TABLE_MARKET_SESSIONS = "external_market_sessions"
 
 
-def get_all_clickhouse_sql() -> str:
-    """Generate SQL for all ClickHouse tables"""
-    schemas = get_clickhouse_schemas()
-    sql_parts = []
-
-    # Add header
-    sql_parts.append("""
--- ===========================================================================
--- ClickHouse Schema - Auto-generated from Python definitions
--- Generated: 2025-10-14
--- Version: 2.0
--- ===========================================================================
-
-""")
-
-    # Generate SQL for each table
-    for schema in schemas:
-        sql_parts.append(generate_create_table_sql(schema))
-        sql_parts.append("\n")
-
-    return "\n".join(sql_parts)
+__all__ = [
+    "TickData",
+    "AggregateData",
+    "EconomicCalendarData",
+    "FredEconomicData",
+    "validate_tick_data",
+    "validate_aggregate_data",
+    "TABLE_TICKS",
+    "TABLE_AGGREGATES",
+    "TABLE_ECONOMIC_CALENDAR",
+    "TABLE_FRED_ECONOMIC",
+]
