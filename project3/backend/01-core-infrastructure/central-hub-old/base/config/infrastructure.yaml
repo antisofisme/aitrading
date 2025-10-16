@@ -56,7 +56,7 @@ databases:
 
 # Messaging Infrastructure
 messaging:
-  nats:
+  nats-1:
     host: nats-1
     port: 4222
     management_port: 8222
@@ -69,7 +69,37 @@ messaging:
       interval: 30
     dependencies: []
     critical: true
-    description: "Primary message broker (NATS cluster primary node)"
+    description: "NATS cluster node 1"
+
+  nats-2:
+    host: nats-2
+    port: 4222
+    management_port: 8222
+    type: nats
+    health_check:
+      method: http
+      endpoint: /healthz
+      port: 8222
+      timeout: 5
+      interval: 30
+    dependencies: []
+    critical: true
+    description: "NATS cluster node 2"
+
+  nats-3:
+    host: nats-3
+    port: 4222
+    management_port: 8222
+    type: nats
+    health_check:
+      method: http
+      endpoint: /healthz
+      port: 8222
+      timeout: 5
+      interval: 30
+    dependencies: []
+    critical: true
+    description: "NATS cluster node 3"
 
   kafka:
     host: suho-kafka
