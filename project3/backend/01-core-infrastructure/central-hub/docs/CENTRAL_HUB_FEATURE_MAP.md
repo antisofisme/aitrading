@@ -1440,120 +1440,165 @@ await router.send(UseCase.REAL_TIME_EVENTS, "topic", data)
 
 ---
 
-#### **3. SDK Schemas (v2.0)** ✅
+#### **3. SDK Schemas (v2.0)** ✅ **SIMPLIFIED**
 
 **Lokasi:** `/sdk/python/central_hub_sdk/schemas/`
 
-**Konsep:** Python-based schema definitions, auto-generate SQL!
+**⚠️ ARCHITECTURE CHANGE (v2.0):**
+This module is now **VALIDATION ONLY**. Schema creation moved to SQL files.
 
-**⚠️ TIDAK ADA DI SHARED COMPONENTS!**
+**New Approach:**
+```
+📁 Source of Truth: SQL Files
+central-hub/shared/schemas/
+  ├── clickhouse/*.sql      # ClickHouse table definitions
+  └── timescaledb/*.sql     # TimescaleDB table definitions
+          ↓
+  Docker Native Init
+          ↓
+  /docker-entrypoint-initdb.d/
+  → Auto-execute .sql on first start
+          ↓
+      Tables Created!
+```
+
+**Python Schemas Role:** TYPE HINTS & VALIDATION ONLY
 
 **Files:**
 ```python
-timescale_schema.py    # PostgreSQL/TimescaleDB schemas
-clickhouse_schema.py   # ClickHouse OLAP schemas
+clickhouse_schema.py   # ClickHouse TypedDict definitions
 dragonfly_schema.py    # DragonflyDB cache patterns
-arangodb_schema.py     # ArangoDB graph schemas
-weaviate_schema.py     # Weaviate vector schemas
+# timescale_schema.py  # Legacy (deprecated)
+# arangodb_schema.py   # Legacy (deprecated)
+# weaviate_schema.py   # Legacy (deprecated)
 ```
 
-**Kelebihan:**
-- ✅ Single source of truth (1 Python file = all table schemas)
-- ✅ Type safe (Python type hints + IDE autocomplete)
-- ✅ Auto-generate SQL dari Python dicts
-- ✅ Version control friendly (easy git diff)
-- ✅ Reusable constants & functions
-- ✅ Dynamic schema definition (loops, conditionals)
-
-**Example - TimescaleDB Schema:**
+**Example - ClickHouse Type Hints:**
 ```python
-# Define schema in Python
-MARKET_TICKS_SCHEMA = {
-    "name": "market_ticks",
-    "description": "Real-time market tick data",
-    "version": "1.0",
+from typing import TypedDict, Literal, Optional
+from datetime import datetime
+from decimal import Decimal
 
-    # TimescaleDB specific
-    "hypertable": {
-        "time_column": "timestamp",
-        "chunk_interval": "1 day"
-    },
+# Type hints for validation (NOT for CREATE TABLE)
+class TickData(TypedDict):
+    """
+    Type hints for ticks table - for validation only
 
-    # Columns
-    "columns": {
-        "timestamp": "TIMESTAMPTZ NOT NULL",
-        "symbol": "VARCHAR(20) NOT NULL",
-        "bid": "DECIMAL(18, 5)",
-        "ask": "DECIMAL(18, 5)",
-        "volume": "BIGINT DEFAULT 0"
-    },
+    Full schema: central-hub/shared/schemas/clickhouse/01_ticks.sql
+    """
+    symbol: str
+    timestamp: datetime
+    timestamp_ms: int
+    bid: Decimal
+    ask: Decimal
+    mid: Decimal
+    spread: Decimal
+    exchange: int
+    source: Literal["polygon_websocket", "polygon_historical", "dukascopy_historical"]
+    event_type: str
+    use_case: Optional[str]
+    ingested_at: datetime
 
-    # Primary key
-    "primary_key": ["timestamp", "symbol"],
+# Validation helper
+def validate_tick_data(data: dict) -> bool:
+    """Validate tick data structure before insert"""
+    required_fields = ["symbol", "timestamp", "bid", "ask", "source"]
 
-    # Indexes
-    "indexes": [
-        {
-            "name": "idx_symbol_time",
-            "columns": ["symbol", "timestamp DESC"],
-            "method": "BTREE"
-        }
-    ]
-}
+    for field in required_fields:
+        if field not in data:
+            raise ValueError(f"Missing required field: {field}")
 
-# Auto-generate SQL
-from central_hub_sdk.schemas.timescale_schema import generate_full_schema_sql
+    return True
 
-sql = generate_full_schema_sql(MARKET_TICKS_SCHEMA)
-print(sql)
-
-# Output:
-# CREATE TABLE IF NOT EXISTS market_ticks (
-#     timestamp TIMESTAMPTZ NOT NULL,
-#     symbol VARCHAR(20) NOT NULL,
-#     bid DECIMAL(18, 5),
-#     ask DECIMAL(18, 5),
-#     volume BIGINT DEFAULT 0,
-#     PRIMARY KEY (timestamp, symbol)
-# );
-# SELECT create_hypertable('market_ticks', 'timestamp', chunk_time_interval => INTERVAL '1 day');
-# CREATE INDEX IF NOT EXISTS idx_symbol_time ON market_ticks (symbol, timestamp DESC) USING BTREE;
+# Usage
+tick: TickData = {...}  # Type hints for IDE
+validate_tick_data(tick)  # Optional validation
 ```
 
-**Workflow:**
+**Simplified Workflow:**
 ```python
-# 1. Import schemas
+# 1. Import type hints (validation only)
 from central_hub_sdk.schemas import (
-    get_timescale_schemas,
-    get_clickhouse_schemas,
-    get_dragonfly_schemas
+    TickData,
+    AggregateData,
+    validate_tick_data,
+    validate_aggregate_data,
+    TABLE_TICKS,
+    TABLE_AGGREGATES
 )
 
-# 2. Get all schemas
-all_timescale_schemas = get_timescale_schemas()
-# Returns: [MARKET_TICKS_SCHEMA, MARKET_CANDLES_SCHEMA, ...]
-
-# 3. Auto-migrate with SchemaMigrator
-from central_hub_sdk import DatabaseRouter, SchemaMigrator
+# 2. Use DatabaseRouter (schemas already created by SQL files)
+from central_hub_sdk.database import DatabaseRouter
 
 router = DatabaseRouter(config)
 await router.initialize()
 
-migrator = SchemaMigrator(router, use_python_schemas=True)
+# 3. Tables already exist! Just insert data
+clickhouse = router.get_manager(db_type=DatabaseType.CLICKHOUSE)
+await clickhouse.execute(f"INSERT INTO {TABLE_TICKS} ...")
+
+# 4. Optional: Use SchemaMigrator for version tracking (OPTIONAL)
+# ⚠️ ONLY for production - development uses native init
+from central_hub_sdk.database import SchemaMigrator
+
+migrator = SchemaMigrator(router, schema_base_path="/path/to/schemas")
 await migrator.initialize_all_schemas()
-# All schemas auto-created!
+# Note: This is OPTIONAL - native init is simpler for development
 ```
 
+**Schema Development Workflow:**
+```bash
+# 1. Fresh start (creates schemas automatically)
+docker-compose down -v
+docker-compose up
+# → SQL files auto-executed by database containers!
+
+# 2. Normal restart (data retained)
+docker-compose restart clickhouse
+
+# 3. Update schema
+# → Edit SQL files directly (single source of truth)
+# → Restart container or use migration tool
+```
+
+**Key Principles:**
+
+1. **SQL Files = Source of Truth**
+   - Location: `central-hub/shared/schemas/clickhouse/*.sql`
+   - Contains: Complete CREATE TABLE, indexes, materialized views, TTL policies
+   - Automatically executed by Docker on first start
+
+2. **Python Schemas = Type Hints Only**
+   - For validation (optional)
+   - For IDE autocomplete
+   - NOT for CREATE TABLE statements
+
+3. **Native Init = Schema Creation**
+   - ClickHouse: `/docker-entrypoint-initdb.d/` auto-executes SQL files
+   - TimescaleDB: `/docker-entrypoint-initdb.d/` auto-executes SQL files
+   - Simple, reliable, no Python code needed
+
+4. **SchemaMigrator = OPTIONAL**
+   - Use ONLY when:
+     - You need version tracking across deployments
+     - You need programmatic rollback support
+     - Native init scripts are not sufficient
+   - For development: Native init is simpler
+
 **Kapan Pakai:**
-- ✅ Service butuh complex database schemas
-- ✅ Service butuh schema versioning
-- ✅ Service butuh auto schema migration
-- ✅ Team wants type-safe schema definitions
-- ✅ Project needs centralized schema management
+- ✅ Service butuh type hints untuk validation
+- ✅ Service butuh IDE autocomplete untuk data models
+- ✅ Service butuh runtime data validation
+- ✅ Production deployment butuh version tracking → use SchemaMigrator
 
 **Kapan TIDAK Pakai:**
-- ❌ Service hanya butuh simple tables → tulis SQL manual
-- ❌ Schema jarang berubah → static SQL files cukup
+- ❌ Service butuh CREATE TABLE → tulis SQL files di `shared/schemas/`
+- ❌ Development setup → use native database init (`/docker-entrypoint-initdb.d/`)
+- ❌ Simple scripts tanpa type checking → SQL query langsung cukup
+
+**Documentation:**
+- 📖 Complete guide: `central-hub/shared/schemas/README.md`
+- 📖 SQL files: `central-hub/shared/schemas/clickhouse/*.sql`
 
 ---
 
@@ -1564,9 +1609,13 @@ await migrator.initialize_all_schemas()
 | **CentralHubClient** | ❌ DEPRECATED | Config fetching (use env vars) |
 | **HeartbeatLogger** | ❌ DEPRECATED | Logging (use standard logging) |
 | **ProgressLogger** | ❌ DEPRECATED | Progress tracking (use logging) |
-| **Database v2.0** | ✅ PRODUCTION | Multi-database + auto migration |
+| **Database v2.0** | ✅ PRODUCTION | Multi-database connection routing |
 | **Messaging v2.0** | ✅ PRODUCTION | Advanced messaging patterns |
-| **Schemas v2.0** | ✅ PRODUCTION | Python-based schemas |
+| **Schemas v2.0** | ⚠️ VALIDATION ONLY | Type hints & validation (NOT for CREATE TABLE) |
+
+**Schema Creation:**
+- **Development**: Use SQL files + Docker native init (`/docker-entrypoint-initdb.d/`)
+- **Production**: Use SQL files + SchemaMigrator (optional, for version tracking)
 
 ---
 
@@ -1579,7 +1628,8 @@ Need database access?
 ├─ Multiple database types (ClickHouse, Arango, Weaviate)?
 │  └─ ✅ Use SDK Database v2.0
 └─ Need auto schema migration?
-   └─ ✅ Use SDK Database v2.0 + Schemas v2.0
+   └─ ⚠️ Use SQL files + native init (development)
+   └─ ⚠️ Use SQL files + SchemaMigrator (production, optional)
 
 Need messaging?
 ├─ Simple NATS pub/sub?
@@ -1590,10 +1640,13 @@ Need messaging?
    └─ ✅ Use SDK Messaging v2.0
 
 Need schema management?
-├─ Simple tables, static schemas?
-│  └─ ✅ Write SQL manually
-└─ Complex schemas, versioning, migrations?
-   └─ ✅ Use SDK Schemas v2.0
+├─ CREATE TABLE / schema definition?
+│  └─ ✅ Write SQL files in shared/schemas/*.sql
+│  └─ ✅ Mount to /docker-entrypoint-initdb.d/ (auto-execute)
+├─ Type hints & validation?
+│  └─ ✅ Use SDK Schemas v2.0 (TypedDict definitions)
+└─ Production version tracking?
+   └─ ⚠️ Use SchemaMigrator (OPTIONAL - native init simpler)
 ```
 
 ---
