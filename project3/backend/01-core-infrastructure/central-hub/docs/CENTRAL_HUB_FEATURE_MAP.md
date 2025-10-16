@@ -1,8 +1,8 @@
 # 📊 CENTRAL HUB - COMPLETE FEATURE MAP & ARCHITECTURE
 
-**Version:** 2.0 (Post-Refactoring)
-**Last Updated:** 2025-10-16 (Updated after data-bridge refactoring)
-**Architecture:** God Object → 3 Focused Managers
+**Version:** 2.1 (Service Registry Removed)
+**Last Updated:** 2025-10-16 (Service registry removed, Docker Compose static topology)
+**Architecture:** God Object → 3 Focused Managers (Service Registry deprecated)
 
 ---
 
@@ -25,9 +25,11 @@ central-hub/
 
 **Lokasi:** `/base/`
 
-### **1. MANAGERS (3 Focused Managers - Post Refactoring)**
+### **1. MANAGERS (3 Focused Managers - Post Refactoring v2.1)**
 
 **Lokasi:** `/base/managers/`
+
+**⚠️ UPDATE (2025-10-16):** ServiceRegistry component removed from CoordinationManager. Docker Compose uses static topology with environment variables instead of dynamic service discovery.
 
 #### **a. ConnectionManager**
 **File:** `connection_manager.py`
@@ -86,19 +88,19 @@ KAFKA_BROKERS=suho-kafka:9092
 #### **c. CoordinationManager**
 **File:** `coordination_manager.py`
 
-**Konsep:** Service registry, routing, dan workflow orchestration
+**Konsep:** Dependency management dan workflow orchestration
 
 **Fitur:**
-- Service registration & discovery (via ServiceRegistry)
 - Dependency management (via DependencyGraph)
 - Workflow coordination (via CoordinationRouter)
 - Service routing & load balancing
 - Contract validation
 
 **Components:**
-- `ServiceRegistry` - Database-backed service registry
 - `DependencyGraph` - Dependency tracking & topological sorting
 - `CoordinationRouter` - Workflow routing logic
+
+**Note:** Service registry functionality removed (2025-10-16). Docker Compose uses static topology with environment variables instead of dynamic service discovery.
 
 **Dipakai oleh:** Central Hub internal only
 
@@ -108,28 +110,20 @@ KAFKA_BROKERS=suho-kafka:9092
 
 **Lokasi:** `/base/core/`
 
-#### **a. Service Registry**
+#### **a. Service Registry** ❌ **REMOVED**
 **File:** `service_registry.py`
 
-**Konsep:** PostgreSQL-backed registry untuk semua running services
+**Status:** DEPRECATED & REMOVED (2025-10-16)
 
-**Fitur:**
-- Register/unregister services
-- Service heartbeat tracking (last_seen)
-- Multi-tenant isolation (tenant_id column)
-- Contract validation
-- Transport preferences (NATS/Kafka/HTTP)
-- Service metadata & versioning
+**Reason:** Not needed for Docker Compose static topology. Services use environment variables and Docker DNS resolution instead of dynamic service discovery.
 
-**Database Table:**
-```sql
-service_registry (
-    id, tenant_id, service_name, host, port,
-    protocol, health_endpoint, version, metadata,
-    status, registered_at, last_seen,
-    transport_preferences, contract_validated
-)
-```
+**Migration Path:**
+- Docker Compose: Use `service_name` in docker-compose.yml (automatic DNS resolution)
+- Configuration: Use environment variables (12-factor app pattern)
+- Health checks: Each service implements own health endpoint
+- Discovery: Services know each other's hostnames via Docker DNS
+
+**Database Table:** REMOVED (table dropped from database)
 
 ---
 
@@ -250,7 +244,7 @@ class InfrastructureStatus(str, Enum):
 | `GET /api/v1/infrastructure/{name}` | `infrastructure.py` | Specific component health |
 | `GET /api/v1/metrics` | `metrics.py` | System metrics |
 | `GET /api/v1/services` | `discovery.py` | List registered services |
-| `POST /api/v1/services/register` | `discovery.py` | Register new service |
+| `POST /api/v1/services/register` | `discovery.py` | ❌ DEPRECATED - Register new service |
 | `GET /api/v1/config/{key}` | `config.py` | Get configuration |
 | `GET /dashboard` | `dashboard.py` | Web UI dashboard |
 
@@ -1878,10 +1872,10 @@ from components.utils.patterns import CacheManager
 ### **Central Hub Menyediakan:**
 
 #### **1. Centralized Services** (hanya di Central Hub):
-- ✅ Service registry & discovery (PostgreSQL-backed)
+- ❌ Service registry & discovery (REMOVED 2025-10-16 - Use Docker DNS)
 - ✅ Infrastructure monitoring (11 components, 30s intervals)
 - ✅ Health aggregation & alerting (multi-channel)
-- ✅ Workflow coordination & routing
+- ✅ Workflow coordination & routing (without service registry)
 - ✅ REST API untuk monitoring & management
 - ✅ Web dashboard
 

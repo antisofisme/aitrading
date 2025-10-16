@@ -99,9 +99,10 @@ class CoordinationManager:
         try:
             logger.info("▶️ Starting coordination services...")
 
-            # Start task scheduler
+            # Start task scheduler as background task (non-blocking)
             if self.task_scheduler:
-                await self.task_scheduler.start_scheduler()
+                import asyncio
+                self.scheduler_task = asyncio.create_task(self.task_scheduler.start_scheduler())
                 logger.info("✅ Task scheduler started")
 
             logger.info("✅ Coordination services started")
@@ -117,6 +118,15 @@ class CoordinationManager:
             # Stop task scheduler
             if self.task_scheduler:
                 await self.task_scheduler.stop_scheduler()
+
+                # Cancel background task if running
+                if hasattr(self, 'scheduler_task') and self.scheduler_task and not self.scheduler_task.done():
+                    self.scheduler_task.cancel()
+                    try:
+                        await self.scheduler_task
+                    except asyncio.CancelledError:
+                        pass
+
                 logger.info("✅ Task scheduler stopped")
 
             logger.info("✅ Coordination services stopped")

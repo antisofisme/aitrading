@@ -97,48 +97,21 @@ class ConnectionManager:
             raise RuntimeError(f"Database connection required but failed: {str(e)}")
 
     async def _create_database_schema(self):
-        """Create real database schema for Central Hub with multi-tenant support"""
+        """Create real database schema for Central Hub with multi-tenant support
+
+        ⚠️ UPDATED 2025-10-16: service_registry and coordination_history tables removed
+        Reason: Not needed for Docker Compose static topology
+        """
         schema_sql = """
-        -- Migration: Add tenant_id column to existing tables if not exists
+        -- Migration: Add tenant_id column to health_metrics if not exists
         DO $$
         BEGIN
-            -- Add tenant_id to service_registry if not exists
-            IF NOT EXISTS (SELECT 1 FROM information_schema.columns
-                          WHERE table_name='service_registry' AND column_name='tenant_id') THEN
-                ALTER TABLE service_registry ADD COLUMN tenant_id VARCHAR(100) NOT NULL DEFAULT 'system';
-            END IF;
-
             -- Add tenant_id to health_metrics if not exists
             IF NOT EXISTS (SELECT 1 FROM information_schema.columns
                           WHERE table_name='health_metrics' AND column_name='tenant_id') THEN
                 ALTER TABLE health_metrics ADD COLUMN tenant_id VARCHAR(100) NOT NULL DEFAULT 'system';
             END IF;
-
-            -- Add tenant_id to coordination_history if not exists
-            IF NOT EXISTS (SELECT 1 FROM information_schema.columns
-                          WHERE table_name='coordination_history' AND column_name='tenant_id') THEN
-                ALTER TABLE coordination_history ADD COLUMN tenant_id VARCHAR(100) NOT NULL DEFAULT 'system';
-            END IF;
         END $$;
-
-        -- Service Registry with tenant isolation
-        CREATE TABLE IF NOT EXISTS service_registry (
-            id SERIAL PRIMARY KEY,
-            tenant_id VARCHAR(100) NOT NULL DEFAULT 'system',
-            service_name VARCHAR(255) NOT NULL,
-            host VARCHAR(255) NOT NULL,
-            port INTEGER NOT NULL,
-            protocol VARCHAR(50) NOT NULL DEFAULT 'http',
-            health_endpoint VARCHAR(255) NOT NULL DEFAULT '/health',
-            version VARCHAR(100),
-            metadata JSONB,
-            status VARCHAR(50) NOT NULL DEFAULT 'active',
-            registered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            transport_preferences JSONB,
-            contract_validated BOOLEAN DEFAULT FALSE,
-            UNIQUE(tenant_id, service_name)
-        );
 
         -- Health Metrics with tenant isolation
         CREATE TABLE IF NOT EXISTS health_metrics (
@@ -154,45 +127,16 @@ class ConnectionManager:
             metadata JSONB
         );
 
-        -- Coordination History with tenant isolation
-        CREATE TABLE IF NOT EXISTS coordination_history (
-            id SERIAL PRIMARY KEY,
-            tenant_id VARCHAR(100) NOT NULL DEFAULT 'system',
-            correlation_id VARCHAR(255) NOT NULL,
-            source_service VARCHAR(255) NOT NULL,
-            target_service VARCHAR(255) NOT NULL,
-            operation VARCHAR(255) NOT NULL,
-            status VARCHAR(50) NOT NULL,
-            started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            completed_at TIMESTAMP,
-            execution_time_ms FLOAT,
-            result_data JSONB,
-            error_message TEXT
-        );
-
         -- Indexes for performance
-        CREATE INDEX IF NOT EXISTS idx_service_registry_tenant ON service_registry(tenant_id);
-        CREATE INDEX IF NOT EXISTS idx_service_registry_name ON service_registry(tenant_id, service_name);
         CREATE INDEX IF NOT EXISTS idx_health_metrics_tenant ON health_metrics(tenant_id, service_name, timestamp);
-        CREATE INDEX IF NOT EXISTS idx_coordination_tenant ON coordination_history(tenant_id, correlation_id);
 
         -- Enable Row-Level Security (RLS) for tenant isolation
-        ALTER TABLE service_registry ENABLE ROW LEVEL SECURITY;
         ALTER TABLE health_metrics ENABLE ROW LEVEL SECURITY;
-        ALTER TABLE coordination_history ENABLE ROW LEVEL SECURITY;
 
         -- RLS Policy: Users can only see their tenant's data
         -- Note: Requires setting tenant_id in session: SET app.tenant_id = 'tenant123';
-        DROP POLICY IF EXISTS tenant_isolation_policy_service_registry ON service_registry;
-        CREATE POLICY tenant_isolation_policy_service_registry ON service_registry
-            USING (tenant_id = current_setting('app.tenant_id', TRUE)::text OR current_setting('app.tenant_id', TRUE) IS NULL);
-
         DROP POLICY IF EXISTS tenant_isolation_policy_health_metrics ON health_metrics;
         CREATE POLICY tenant_isolation_policy_health_metrics ON health_metrics
-            USING (tenant_id = current_setting('app.tenant_id', TRUE)::text OR current_setting('app.tenant_id', TRUE) IS NULL);
-
-        DROP POLICY IF EXISTS tenant_isolation_policy_coordination ON coordination_history;
-        CREATE POLICY tenant_isolation_policy_coordination ON coordination_history
             USING (tenant_id = current_setting('app.tenant_id', TRUE)::text OR current_setting('app.tenant_id', TRUE) IS NULL);
         """
 

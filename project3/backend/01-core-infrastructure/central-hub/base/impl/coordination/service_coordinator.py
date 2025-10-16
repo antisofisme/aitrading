@@ -2,6 +2,22 @@
 """
 Service Coordinator - Central Hub coordination logic
 Manages service-to-service communication and coordination
+
+⚠️ PARTIALLY DEPRECATED (2025-10-16) ⚠️
+
+Database coordination_history table removed.
+
+Reason: Not needed for current architecture.
+- Services communicate directly via NATS/Kafka
+- NATS/Kafka provide message delivery tracking
+- Each service has own logging for debugging
+
+Changes:
+- coordination_history table: REMOVED (lines 131-141 disabled)
+- Coordination logic: Still functional (uses in-memory tracking)
+
+This code continues to work for in-memory coordination,
+but database persistence is disabled.
 """
 
 import asyncio
@@ -10,8 +26,16 @@ import time
 import httpx
 from typing import Dict, List, Any, Optional
 from dataclasses import dataclass
+import warnings
 
 logger = logging.getLogger("central-hub.coordination")
+
+# Issue warning about database coordination history
+warnings.warn(
+    "ServiceCoordinator database persistence disabled. coordination_history table removed.",
+    DeprecationWarning,
+    stacklevel=2
+)
 
 
 @dataclass
@@ -126,19 +150,21 @@ class ServiceCoordinator:
                 response.raise_for_status()
                 result = response.json()
 
-            # Store coordination history in database
-            if self.db_manager:
-                await self.db_manager.execute(
-                    "INSERT INTO coordination_history (correlation_id, source_service, target_service, operation, status, result_data) VALUES ($1, $2, $3, $4, $5, $6)",
-                    {
-                        "correlation_id": request.correlation_id,
-                        "source_service": request.source_service,
-                        "target_service": request.target_service,
-                        "operation": request.operation,
-                        "status": "completed",
-                        "result_data": result
-                    }
-                )
+            # DEPRECATED: Database coordination history removed (2025-10-16)
+            # Reason: coordination_history table doesn't exist
+            # Services use NATS/Kafka message tracking instead
+            # if self.db_manager:
+            #     await self.db_manager.execute(
+            #         "INSERT INTO coordination_history (correlation_id, source_service, target_service, operation, status, result_data) VALUES ($1, $2, $3, $4, $5, $6)",
+            #         {
+            #             "correlation_id": request.correlation_id,
+            #             "source_service": request.source_service,
+            #             "target_service": request.target_service,
+            #             "operation": request.operation,
+            #             "status": "completed",
+            #             "result_data": result
+            #         }
+            #     )
 
             return CoordinationResult(
                 success=True,

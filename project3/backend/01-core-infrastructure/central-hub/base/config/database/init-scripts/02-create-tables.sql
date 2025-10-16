@@ -92,16 +92,10 @@ CREATE POLICY tenant_isolation_ai_predictions ON ai_predictions
 FOR ALL TO suho_service
 USING (tenant_id = current_setting('app.current_tenant_id', true));
 
--- Create service registry table (shared across tenants)
-CREATE TABLE IF NOT EXISTS service_registry (
-    service_name VARCHAR(50) PRIMARY KEY,
-    service_host VARCHAR(255) NOT NULL,
-    service_port INTEGER NOT NULL,
-    health_endpoint VARCHAR(255),
-    status VARCHAR(20) DEFAULT 'active',
-    last_heartbeat TIMESTAMPTZ DEFAULT NOW(),
-    metadata JSONB DEFAULT '{}'::jsonb
-);
+-- REMOVED: service_registry table
+-- Reason: Not used in Docker Compose static topology
+-- Services use environment variables instead of dynamic service discovery
+-- Date removed: 2025-10-16
 
 -- Create user sessions table
 CREATE TABLE IF NOT EXISTS user_sessions (
