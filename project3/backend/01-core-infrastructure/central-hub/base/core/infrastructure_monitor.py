@@ -218,6 +218,23 @@ class InfrastructureMonitor:
             self.infrastructure_status[name].error = result.error
             self.infrastructure_status[name].last_check = int(asyncio.get_event_loop().time() * 1000)
 
+            # Log health check result (like httpx does for HTTP checks)
+            # For non-HTTP checks, log at INFO level so they're visible
+            if health_config.method != HealthCheckMethod.HTTP:
+                status_icon = "✅" if result.healthy else "❌"
+                log_message = (
+                    f"{status_icon} Health check: {name} "
+                    f"[{health_config.method.value.upper()}] "
+                    f"{config.host}:{config.port} "
+                    f"→ {new_status.value} "
+                    f"({result.response_time_ms:.1f}ms)"
+                )
+
+                if result.healthy:
+                    logger.info(log_message)
+                else:
+                    logger.warning(f"{log_message} | Error: {result.error}")
+
             # Trigger alert if status changed
             if old_status != new_status:
                 await self._handle_status_change(name, old_status, new_status)
