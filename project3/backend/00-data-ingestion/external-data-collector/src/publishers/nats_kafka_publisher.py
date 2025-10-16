@@ -72,13 +72,17 @@ class ExternalDataPublisher:
         if self.nats_config.get('enabled', False):
             try:
                 self.nats = NATS()
+                # Support new config format with 'url' (can be cluster URLs)
+                nats_url = self.nats_config.get('url', 'nats://localhost:4222')
+                servers = [url.strip() for url in nats_url.split(',')]
+
                 await self.nats.connect(
-                    servers=[f"nats://{self.nats_config['host']}:{self.nats_config['port']}"],
-                    max_reconnect_attempts=-1,
-                    reconnect_time_wait=2,
+                    servers=servers,
+                    max_reconnect_attempts=self.nats_config.get('max_reconnect_attempts', -1),
+                    reconnect_time_wait=self.nats_config.get('reconnect_time_wait', 2),
                     ping_interval=120
                 )
-                logger.info(f"✅ Connected to NATS: {self.nats_config['host']}:{self.nats_config['port']}")
+                logger.info(f"✅ Connected to NATS cluster: {len(servers)} nodes")
 
             except Exception as e:
                 logger.error(f"❌ NATS connection failed: {e}")
@@ -87,12 +91,15 @@ class ExternalDataPublisher:
         # Connect to Kafka (persistence, backup)
         if self.kafka_config.get('enabled', False):
             try:
+                # Support new config format with 'brokers' list
+                brokers = self.kafka_config.get('brokers', ['localhost:9092'])
+
                 self.kafka = KafkaProducer(
-                    bootstrap_servers=self.kafka_config['bootstrap_servers'],
+                    bootstrap_servers=brokers,
                     value_serializer=lambda v: json.dumps(v).encode('utf-8'),
                     compression_type='lz4'
                 )
-                logger.info(f"✅ Connected to Kafka: {self.kafka_config['bootstrap_servers']}")
+                logger.info(f"✅ Connected to Kafka: {brokers}")
 
             except Exception as e:
                 logger.error(f"❌ Kafka connection failed: {e}")
