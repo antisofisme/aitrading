@@ -20,9 +20,6 @@ from rest_poller import PolygonRESTPoller
 from aggregate_client import PolygonAggregateClient
 from nats_publisher import NATSPublisher
 
-# Central Hub SDK (installed via pip)
-from central_hub_sdk import CentralHubClient, HeartbeatLogger
-
 # Setup logging
 logging.basicConfig(
     level=logging.INFO,
@@ -39,36 +36,11 @@ class PolygonLiveCollector:
         self.rest_poller: PolygonRESTPoller = None
         self.aggregate_client: PolygonAggregateClient = None
 
-        # Central Hub integration
-        self.central_hub = CentralHubClient(
-            service_name="polygon-live-collector",
-            service_type="data-collector",
-            version="2.0.0",
-            capabilities=[
-                "forex-data-collection",
-                "real-time-streaming",
-                "websocket-ingestion",
-                "rest-polling",
-                "aggregate-bars",
-                "nats-publishing"
-            ],
-            metadata={
-                "source": "polygon.io",
-                "mode": "live",
-                "data_types": ["quotes", "aggregates"],
-                "transport": "nats",
-                "architecture": "hybrid-phase1"
-            }
-        )
-
         self.start_time = datetime.now()
         self.is_running = False
 
-        # HeartbeatLogger for live service monitoring
-        self.heartbeat_logger = None
-
         logger.info("=" * 80)
-        logger.info("POLYGON.IO LIVE COLLECTOR + CENTRAL HUB")
+        logger.info("POLYGON.IO LIVE COLLECTOR")
         logger.info("=" * 80)
         logger.info(f"Instance ID: {self.config.instance_id}")
         logger.info(f"Log Level: {self.config.log_level}")
@@ -78,28 +50,9 @@ class PolygonLiveCollector:
         try:
             logger.info("🚀 Starting Polygon.io Live Collector...")
 
-            # Register with Central Hub
-            await self.central_hub.register()
-
-            # Link config to Central Hub client for later use
-            self.config.central_hub = self.central_hub
-
-            # Get messaging configs from Central Hub
-            try:
-                logger.info("⚙️  Fetching messaging configs from Central Hub...")
-
-                # Fetch and store in config object
-                await self.config.fetch_messaging_configs_from_central_hub()
-
-                # Use the fetched configs
-                nats_config = self.config.nats_config
-
-                logger.info(f"✅ Messaging configs loaded from Central Hub")
-
-            except Exception as e:
-                # Fallback already handled by config.py
-                logger.warning(f"⚠️  Using fallback configuration")
-                nats_config = self.config.nats_config
+            # Get NATS config from environment variables
+            nats_config = self.config.nats_config
+            logger.info(f"✅ Configuration loaded from environment variables")
 
             # Initialize NATS publisher (market data streaming)
             self.publisher = NATSPublisher(nats_config=nats_config)
@@ -152,14 +105,6 @@ class PolygonLiveCollector:
 
             self.is_running = True
 
-            # Initialize HeartbeatLogger for live service monitoring
-            self.heartbeat_logger = HeartbeatLogger(
-                service_name="live-collector",
-                task_name="Real-time data collection",
-                heartbeat_interval=30  # Log every 30 seconds
-            )
-            self.heartbeat_logger.start()
-
             # Start WebSocket, REST poller, and Aggregate client concurrently
             logger.info("✅ Starting data collection...")
 
@@ -173,10 +118,6 @@ class PolygonLiveCollector:
             if self.aggregate_client:
                 tasks.append(self.aggregate_client.connect())
 
-            # Start Central Hub heartbeat if registered
-            if self.central_hub.registered:
-                tasks.append(self.central_hub.start_heartbeat_loop())
-
             await asyncio.gather(*tasks)
 
         except Exception as e:
@@ -184,10 +125,10 @@ class PolygonLiveCollector:
             await self.stop()
 
     async def _heartbeat_reporter(self):
-        """Lightweight heartbeat reporter using HeartbeatLogger"""
+        """Heartbeat reporter with standard logging"""
         while self.is_running:
             try:
-                await asyncio.sleep(5)  # Check every 5 seconds (logger decides when to log)
+                await asyncio.sleep(30)  # Log every 30 seconds
 
                 # Collect stats
                 ws_stats = self.websocket_client.get_stats() if self.websocket_client else {}
@@ -202,31 +143,15 @@ class PolygonLiveCollector:
                     agg_stats.get('aggregate_count', 0)
                 )
 
-                # Update heartbeat logger (will auto-log when interval reached)
-                self.heartbeat_logger.update(
-                    processed_count=0,  # Don't increment, just update metrics
-                    additional_metrics={
-                        'ws_msgs': ws_stats.get('message_count', 0),
-                        'rest_polls': rest_stats.get('poll_count', 0),
-                        'agg_bars': agg_stats.get('aggregate_count', 0),
-                        'nats': pub_stats.get('nats_publish_count', 0)
-                    }
+                # Log heartbeat metrics
+                logger.info(
+                    f"📊 Heartbeat | "
+                    f"Total: {total_messages:,} | "
+                    f"WS: {ws_stats.get('message_count', 0):,} | "
+                    f"REST: {rest_stats.get('poll_count', 0):,} | "
+                    f"Agg: {agg_stats.get('aggregate_count', 0):,} | "
+                    f"NATS: {pub_stats.get('nats_publish_count', 0):,}"
                 )
-
-                # Prepare status data for Central Hub (sent every 30s with heartbeat log)
-                status_data = {
-                    'instance_id': self.config.instance_id,
-                    'total_messages': total_messages,
-                    'websocket': ws_stats,
-                    'rest_poller': rest_stats,
-                    'aggregate': agg_stats,
-                    'publisher': pub_stats,
-                    'timestamp': datetime.now().isoformat()
-                }
-
-                # Send heartbeat to Central Hub with metrics (every 30s)
-                if self.central_hub.registered:
-                    await self.central_hub.send_heartbeat(metrics=status_data)
 
             except asyncio.CancelledError:
                 break
@@ -237,9 +162,6 @@ class PolygonLiveCollector:
         """Stop the collector"""
         logger.info("🛑 Stopping Polygon.io Live Collector...")
         self.is_running = False
-
-        # Deregister from Central Hub
-        await self.central_hub.deregister()
 
         # Stop components
         if self.websocket_client:

@@ -1,22 +1,13 @@
 """
 Configuration loader for Polygon.io Live Collector
-Enhanced to fetch NATS/Kafka config from Central Hub
+Refactored to use environment variables (Central Hub pattern)
 """
 import os
 import yaml
-import asyncio
 import logging
 from pathlib import Path
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any
 from dataclasses import dataclass
-
-# Import Central Hub SDK
-try:
-    from central_hub_sdk import CentralHubClient
-    SDK_AVAILABLE = True
-except ImportError:
-    SDK_AVAILABLE = False
-    logging.warning("Central Hub SDK not available, using fallback config")
 
 logger = logging.getLogger(__name__)
 
@@ -43,39 +34,28 @@ class Config:
         self.instance_id = os.getenv("INSTANCE_ID", "polygon-live-collector-1")
         self.log_level = os.getenv("LOG_LEVEL", "INFO")
 
-        # Central Hub client (will be initialized async)
-        self.central_hub: Optional[CentralHubClient] = None
-        self._nats_config_from_hub: Optional[Dict] = None
-        self._kafka_config_from_hub: Optional[Dict] = None
+        # Load messaging configs from environment variables
+        self._load_env_configs()
 
-    async def fetch_messaging_configs_from_central_hub(self):
-        """
-        Fetch NATS and Kafka configurations from Central Hub
-        This method should be called async after instantiation
-        """
-        if not SDK_AVAILABLE:
-            logger.warning("⚠️  Central Hub SDK not available, using YAML config")
-            return
+    def _load_env_configs(self):
+        """Load NATS and Kafka configs from environment variables"""
+        logger.info("📡 Loading configuration from environment variables...")
 
-        try:
-            # Note: central_hub is already initialized in main.py
-            if not self.central_hub:
-                logger.warning("⚠️  Central Hub client not initialized")
-                return
+        # NATS config
+        nats_url = os.getenv('NATS_URL', 'nats://localhost:4222')
+        if ',' in nats_url:
+            # Cluster mode
+            self._nats_cluster_urls = [url.strip() for url in nats_url.split(',')]
+            logger.info(f"✅ NATS cluster: {len(self._nats_cluster_urls)} nodes")
+        else:
+            # Single server
+            self._nats_cluster_urls = [nats_url]
+            logger.info(f"✅ NATS single server: {nats_url}")
 
-            logger.info("📡 Fetching messaging configs from Central Hub...")
-
-            # Fetch NATS config
-            self._nats_config_from_hub = await self.central_hub.get_messaging_config('nats')
-            logger.info(f"✅ NATS config loaded from Central Hub: {self._nats_config_from_hub['connection']['host']}:{self._nats_config_from_hub['connection']['port']}")
-
-            # Fetch Kafka config
-            self._kafka_config_from_hub = await self.central_hub.get_messaging_config('kafka')
-            logger.info(f"✅ Kafka config loaded from Central Hub: {self._kafka_config_from_hub['connection']['bootstrap_servers']}")
-
-        except Exception as e:
-            logger.warning(f"⚠️  Failed to fetch messaging configs from Central Hub: {e}")
-            logger.warning("⚠️  Falling back to YAML configuration")
+        # Kafka config
+        kafka_brokers = os.getenv('KAFKA_BROKERS', 'localhost:9092')
+        self._kafka_brokers = [b.strip() for b in kafka_brokers.split(',')]
+        logger.info(f"✅ Kafka brokers: {self._kafka_brokers}")
 
     def _load_config(self) -> Dict:
         """Load YAML configuration"""
@@ -147,51 +127,41 @@ class Config:
     @property
     def nats_config(self) -> Dict:
         """
-        Get NATS configuration
-        Priority: 1. Central Hub, 2. YAML config
+        Get NATS configuration from environment variables
+
+        Priority: 1. Environment variables, 2. YAML config
         """
-        # If config fetched from Central Hub, use it
-        if self._nats_config_from_hub:
-            conn = self._nats_config_from_hub['connection']
+        yaml_nats = self._config.get('nats_config', {})
 
-            # Use cluster_urls if available (preferred for HA)
-            cluster_urls = conn.get('cluster_urls')
-            if cluster_urls:
-                # Return comma-separated cluster URLs for high availability
-                return {
-                    'url': ','.join(cluster_urls),
-                    'max_reconnect_attempts': -1,
-                    'reconnect_time_wait': 2
-                }
-            else:
-                # Fallback to single host/port (legacy mode)
-                return {
-                    'url': f"nats://{conn['host']}:{conn['port']}",
-                    'max_reconnect_attempts': -1,
-                    'reconnect_time_wait': 2
-                }
-
-        # Fallback to YAML config
-        return self._config.get('nats_config', {})
+        if len(self._nats_cluster_urls) > 1:
+            # Cluster mode
+            return {
+                'url': ','.join(self._nats_cluster_urls),
+                'max_reconnect_attempts': yaml_nats.get('max_reconnect_attempts', -1),
+                'reconnect_time_wait': yaml_nats.get('reconnect_time_wait', 2)
+            }
+        else:
+            # Single server
+            return {
+                'url': self._nats_cluster_urls[0],
+                'max_reconnect_attempts': yaml_nats.get('max_reconnect_attempts', -1),
+                'reconnect_time_wait': yaml_nats.get('reconnect_time_wait', 2)
+            }
 
     @property
     def kafka_config(self) -> Dict:
         """
-        Get Kafka configuration
-        Priority: 1. Central Hub, 2. YAML config
-        """
-        # If config fetched from Central Hub, use it
-        if self._kafka_config_from_hub:
-            conn = self._kafka_config_from_hub['connection']
-            brokers = conn['bootstrap_servers']
-            return {
-                'brokers': brokers if isinstance(brokers, list) else [brokers],
-                'client_id': 'polygon-live-collector',
-                'group_id': 'polygon-collectors'
-            }
+        Get Kafka configuration from environment variables
 
-        # Fallback to YAML config
-        return self._config.get('kafka_config', {})
+        Priority: 1. Environment variables, 2. YAML config
+        """
+        yaml_kafka = self._config.get('kafka_config', {})
+
+        return {
+            'brokers': self._kafka_brokers,
+            'client_id': yaml_kafka.get('client_id', 'polygon-live-collector'),
+            'group_id': yaml_kafka.get('group_id', 'polygon-collectors')
+        }
 
     @property
     def monitoring_config(self) -> Dict:
