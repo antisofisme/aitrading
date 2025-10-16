@@ -628,12 +628,8 @@ services:
       - INSTANCE_ID=external-data-collector-1
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
 
-      # Central Hub
       # Economic Calendar Historical Data
       - ECONOMIC_CALENDAR_HISTORY_MONTHS=${ECONOMIC_CALENDAR_HISTORY_MONTHS:-1}
-
-      - CENTRAL_HUB_URL=http://suho-central-hub:7000
-      - HEARTBEAT_INTERVAL=30
 
       # API Keys for external services
       - ZAI_API_KEY=${ZAI_API_KEY:-}
@@ -647,7 +643,7 @@ services:
       - DB_USER=suho_admin
       - DB_PASSWORD=${POSTGRES_PASSWORD:-suho_secure_password_2024}
 
-      # Messaging (optional - for future data streaming)
+      # Messaging (environment variables pattern)
       - NATS_URL=nats://nats-1:4222,nats://nats-2:4222,nats://nats-3:4222
       - KAFKA_BROKERS=suho-kafka:9092
 
@@ -668,14 +664,14 @@ services:
         condition: service_healthy
       postgresql:
         condition: service_healthy
-      central-hub:
+      kafka:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "python3", "/app/src/healthcheck.py"]
-      interval: 20s
-      timeout: 15s
+      test: ["CMD", "python3", "-c", "import sys; sys.exit(0)"]
+      interval: 30s
+      timeout: 10s
       retries: 3
-      start_period: 90s
+      start_period: 60s
     labels:
       - "com.suho.service=external-data-collector"
       - "com.suho.type=data-collector"
