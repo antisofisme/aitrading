@@ -14,11 +14,11 @@ async def check_postgresql():
     try:
         import asyncpg
         conn = await asyncpg.connect(
-            host='suho-postgresql',
-            port=5432,
-            database='suho_trading',
-            user='suho_admin',
-            password='suho_secure_password_2024',
+            host=os.getenv('POSTGRES_HOST', 'localhost'),
+            port=int(os.getenv('POSTGRES_PORT', 5432)),
+            database=os.getenv('POSTGRES_DB', 'suho_trading'),
+            user=os.getenv('POSTGRES_USER', 'postgres'),
+            password=os.getenv('POSTGRES_PASSWORD', ''),
             timeout=3
         )
         await conn.execute('SELECT 1')
@@ -34,8 +34,11 @@ async def check_nats():
     """Check NATS connection"""
     try:
         import nats
+        nats_url = os.getenv('NATS_URL', 'nats://localhost:4222')
+        # Take first URL if cluster (comma-separated)
+        first_url = nats_url.split(',')[0].strip()
         nc = await nats.connect(
-            servers=["nats://suho-nats-server:4222"],
+            servers=[first_url],
             connect_timeout=3
         )
         await nc.close()
@@ -51,11 +54,11 @@ def check_clickhouse():
     try:
         import clickhouse_connect
         client = clickhouse_connect.get_client(
-            host='suho-clickhouse',
-            port=8123,
-            username='suho_analytics',
-            password='clickhouse_secure_2024',
-            database='suho_analytics',
+            host=os.getenv('CLICKHOUSE_HOST', 'localhost'),
+            port=int(os.getenv('CLICKHOUSE_HTTP_PORT', 8123)),
+            username=os.getenv('CLICKHOUSE_USER', 'default'),
+            password=os.getenv('CLICKHOUSE_PASSWORD', ''),
+            database=os.getenv('CLICKHOUSE_DATABASE', 'suho_analytics'),
             connect_timeout=3
         )
         client.ping()
@@ -73,8 +76,9 @@ async def check_kafka():
         from aiokafka import AIOKafkaProducer
         from aiokafka.errors import KafkaConnectionError
 
+        kafka_brokers = os.getenv('KAFKA_BROKERS', 'localhost:9092')
         producer = AIOKafkaProducer(
-            bootstrap_servers='suho-kafka:9092',
+            bootstrap_servers=kafka_brokers,
             request_timeout_ms=3000
         )
         await producer.start()
@@ -89,20 +93,23 @@ async def check_kafka():
         return True  # Non-critical: circuit breaker handles Kafka issues
 
 
-async def check_central_hub():
-    """Check Central Hub API health"""
+async def check_dragonflydb():
+    """Check DragonflyDB connection"""
     try:
-        import httpx
-        async with httpx.AsyncClient(timeout=3.0) as client:
-            response = await client.get("http://suho-central-hub:7000/health")
-            if response.status_code == 200:
-                print("Central Hub: ✅", flush=True)
-                return True
-            else:
-                print(f"Central Hub: ❌ Status {response.status_code}", file=sys.stderr, flush=True)
-                return False
+        import redis.asyncio as redis
+        client = redis.Redis(
+            host=os.getenv('DRAGONFLY_HOST', 'localhost'),
+            port=int(os.getenv('DRAGONFLY_PORT', 6379)),
+            password=os.getenv('DRAGONFLY_PASSWORD', None),
+            db=int(os.getenv('DRAGONFLY_DB', 0)),
+            socket_connect_timeout=3
+        )
+        await client.ping()
+        await client.aclose()
+        print("DragonflyDB: ✅", flush=True)
+        return True
     except Exception as e:
-        print(f"Central Hub: ❌ {e}", file=sys.stderr, flush=True)
+        print(f"DragonflyDB: ❌ {e}", file=sys.stderr, flush=True)
         return False
 
 
@@ -117,12 +124,12 @@ async def main():
     # Run synchronous checks first
     clickhouse_ok = check_clickhouse()
 
-    # Run async checks (including Kafka)
+    # Run async checks
     results = await asyncio.gather(
         check_postgresql(),
+        check_dragonflydb(),
         check_nats(),
         check_kafka(),
-        check_central_hub(),
         return_exceptions=True
     )
 

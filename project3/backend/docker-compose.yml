@@ -676,25 +676,35 @@ services:
     restart: unless-stopped
     environment:
       - KAFKA_GROUP_ID=data-bridge-group  # Same group for load balancing across instances
-      # INSTANCE_ID auto-detected by SDK from container hostname (no env var needed)
+      # INSTANCE_ID auto-detected from container hostname
       - INSTANCE_NUMBER=${REPLICA_NUMBER:-1}  # For metrics tracking
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      # Central Hub URL (for config distribution)
-      # Economic Calendar Historical Data
-      - ECONOMIC_CALENDAR_HISTORY_MONTHS=${ECONOMIC_CALENDAR_HISTORY_MONTHS:-1}
 
-      - CENTRAL_HUB_URL=http://suho-central-hub:7000
-      # Database credentials (used by Database Manager)
+      # PostgreSQL/TimescaleDB connection
       - POSTGRES_HOST=suho-postgresql
       - POSTGRES_PORT=5432
       - POSTGRES_DB=suho_trading
       - POSTGRES_USER=suho_admin
       - POSTGRES_PASSWORD=suho_secure_password_2024
+
+      # DragonflyDB connection (cache + pub/sub)
       - DRAGONFLY_HOST=suho-dragonflydb
       - DRAGONFLY_PORT=6379
       - DRAGONFLY_PASSWORD=dragonfly_secure_2024
-      # Messaging (fallback if Central Hub unavailable)
+      - DRAGONFLY_DB=0
+
+      # ClickHouse connection (analytics database)
+      - CLICKHOUSE_HOST=suho-clickhouse
+      - CLICKHOUSE_PORT=9000
+      - CLICKHOUSE_HTTP_PORT=8123
+      - CLICKHOUSE_DATABASE=suho_analytics
+      - CLICKHOUSE_USER=suho_analytics
+      - CLICKHOUSE_PASSWORD=clickhouse_secure_2024
+
+      # NATS cluster connection (message streaming)
       - NATS_URL=nats://nats-1:4222,nats://nats-2:4222,nats://nats-3:4222
+
+      # Kafka connection (message streaming)
       - KAFKA_BROKERS=suho-kafka:9092
     volumes:
       - ./02-data-processing/data-bridge/config:/app/config:ro
@@ -716,8 +726,6 @@ services:
       clickhouse:
         condition: service_healthy
       dragonflydb:
-        condition: service_healthy
-      central-hub:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "python3", "/app/src/healthcheck.py"]

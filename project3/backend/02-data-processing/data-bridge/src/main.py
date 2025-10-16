@@ -24,9 +24,6 @@ from retry_queue import RetryQueue
 # Import Database Manager from Central Hub
 from components.data_manager import DataRouter, TickData, CandleData
 
-# Central Hub SDK for heartbeat logging
-from central_hub_sdk import HeartbeatLogger
-
 # Setup logging
 logging.basicConfig(
     level=logging.INFO,
@@ -96,9 +93,6 @@ class DataBridge:
         self.backpressure_active_count = 0
         self.last_pause_time = None
         self.last_resume_time = None
-
-        # HeartbeatLogger for live service monitoring
-        self.heartbeat_logger = None
 
         logger.info("=" * 80)
         logger.info("DATA BRIDGE - INTELLIGENT ROUTING + RETRY QUEUE")
@@ -261,14 +255,6 @@ class DataBridge:
             await self.nats_subscriber.subscribe_all()
 
             self.is_running = True
-
-            # Initialize HeartbeatLogger for live service monitoring
-            self.heartbeat_logger = HeartbeatLogger(
-                service_name=f"data-bridge-{self.instance_number}",
-                task_name="Message routing and deduplication",
-                heartbeat_interval=30  # Log every 30 seconds
-            )
-            self.heartbeat_logger.start()
 
             logger.info("=" * 80)
             logger.info("✅ DATA BRIDGE STARTED - HYBRID PHASE 1 + RETRY QUEUE + BACKPRESSURE")
@@ -644,10 +630,22 @@ class DataBridge:
                     'last_resume': self.last_resume_time.isoformat() if self.last_resume_time else None
                 }
 
-                self.heartbeat_logger.update(
-                    processed_count=0,  # Don't increment, just update metrics
-                    additional_metrics=metrics
-                )
+                # Log heartbeat metrics every 30 seconds
+                if int((datetime.utcnow() - self.start_time).total_seconds()) % 30 == 0:
+                    logger.info(
+                        f"📊 Heartbeat | Ticks: {metrics['ticks']:,} | "
+                        f"CH Candles: {metrics['ch_candles']:,} | "
+                        f"External: {metrics['external']:,} | "
+                        f"NATS: {metrics['nats_msgs']:,} | "
+                        f"Buffer: {metrics['ch_buffer']:,} | "
+                        f"Backpressure: {'🔴 ACTIVE' if metrics['backpressure']['active'] else '🟢 Normal'}"
+                    )
+                    if retry_stats:
+                        logger.info(
+                            f"   🔄 Retry Queue: {metrics['retry_queue_size']} items | "
+                            f"Success: {metrics['retry_success_rate']}% | "
+                            f"DLQ: {metrics['total_dlq']}"
+                        )
 
                 # Prepare metrics for Central Hub (sent every 30s with heartbeat log)
                 if hasattr(self.config, 'central_hub') and self.config.central_hub:
@@ -690,12 +688,7 @@ class DataBridge:
                 await self.kafka_subscriber.resume()
                 self.kafka_paused = False
 
-        # Step 1: Stop heartbeat logger
-        if self.heartbeat_logger:
-            logger.info("📊 Stopping heartbeat logger...")
-            self.heartbeat_logger.stop()
-
-        # Step 1.5: Stop retry queue worker (will flush remaining to DLQ)
+        # Step 1: Stop retry queue worker (will flush remaining to DLQ)
         if self.retry_queue:
             logger.info("🔄 Stopping Retry Queue...")
             await self.retry_queue.stop()
