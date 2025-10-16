@@ -1,12 +1,16 @@
 """
 Configuration loader for Polygon.io Historical Downloader
+Refactored to use environment variables (Central Hub v2.0 pattern)
 """
 import os
 import yaml
+import logging
 from pathlib import Path
 from typing import Dict, List
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+
+logger = logging.getLogger(__name__)
 
 @dataclass
 class PairConfig:
@@ -26,6 +30,37 @@ class Config:
 
         self.instance_id = os.getenv("INSTANCE_ID", "polygon-historical-downloader-1")
         self.log_level = os.getenv("LOG_LEVEL", "INFO")
+
+        # Load messaging and database configs from environment variables
+        self._load_env_configs()
+
+    def _load_env_configs(self):
+        """Load NATS, Kafka, and ClickHouse configs from environment variables"""
+        logger.info("📡 Loading configuration from environment variables...")
+
+        # NATS config
+        nats_url = os.getenv('NATS_URL', 'nats://localhost:4222')
+        if ',' in nats_url:
+            # Cluster mode
+            self._nats_cluster_urls = [url.strip() for url in nats_url.split(',')]
+            logger.info(f"✅ NATS cluster: {len(self._nats_cluster_urls)} nodes")
+        else:
+            # Single server
+            self._nats_cluster_urls = [nats_url]
+            logger.info(f"✅ NATS single server: {nats_url}")
+
+        # Kafka config
+        kafka_brokers = os.getenv('KAFKA_BROKERS', 'localhost:9092')
+        self._kafka_brokers = [b.strip() for b in kafka_brokers.split(',')]
+        logger.info(f"✅ Kafka brokers: {self._kafka_brokers}")
+
+        # ClickHouse config
+        self._clickhouse_host = os.getenv('CLICKHOUSE_HOST', 'localhost')
+        self._clickhouse_port = int(os.getenv('CLICKHOUSE_PORT', '9000'))
+        self._clickhouse_user = os.getenv('CLICKHOUSE_USER', 'default')
+        self._clickhouse_password = os.getenv('CLICKHOUSE_PASSWORD', '')
+        self._clickhouse_database = os.getenv('CLICKHOUSE_DATABASE', 'suho_trading')
+        logger.info(f"✅ ClickHouse: {self._clickhouse_host}:{self._clickhouse_port}/{self._clickhouse_database}")
 
     def _load_config(self) -> Dict:
         """Load YAML configuration"""
@@ -81,6 +116,60 @@ class Config:
     def monitoring_config(self) -> Dict:
         """Get monitoring configuration"""
         return self._config.get('monitoring', {})
+
+    @property
+    def nats_config(self) -> Dict:
+        """
+        Get NATS configuration from environment variables
+
+        Returns:
+            Dict with 'url' and connection parameters
+        """
+        if len(self._nats_cluster_urls) > 1:
+            # Cluster mode
+            return {
+                'url': ','.join(self._nats_cluster_urls),
+                'max_reconnect_attempts': -1,
+                'reconnect_time_wait': 2
+            }
+        else:
+            # Single server
+            return {
+                'url': self._nats_cluster_urls[0],
+                'max_reconnect_attempts': -1,
+                'reconnect_time_wait': 2
+            }
+
+    @property
+    def kafka_config(self) -> Dict:
+        """
+        Get Kafka configuration from environment variables
+
+        Returns:
+            Dict with 'brokers' list
+        """
+        return {
+            'brokers': self._kafka_brokers,
+            'client_id': 'polygon-historical-downloader',
+            'group_id': 'polygon-downloaders'
+        }
+
+    @property
+    def clickhouse_config(self) -> Dict:
+        """
+        Get ClickHouse configuration from environment variables
+
+        Returns:
+            Dict with connection parameters
+        """
+        return {
+            'host': self._clickhouse_host,
+            'port': self._clickhouse_port,
+            'user': self._clickhouse_user,
+            'password': self._clickhouse_password,
+            'database': self._clickhouse_database,
+            'table': 'aggregates'
+        }
 
     def get_timeframe_for_pair(self, pair: PairConfig) -> tuple:
         """

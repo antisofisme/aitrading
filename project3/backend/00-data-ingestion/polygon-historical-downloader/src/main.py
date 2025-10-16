@@ -2,7 +2,7 @@
 """
 Polygon.io Historical Downloader
 Downloads historical forex data and publishes to NATS/Kafka
-Integrated with Central Hub for progress tracking
+Refactored to use environment variables (Central Hub v2.0 pattern)
 """
 import asyncio
 import logging
@@ -17,9 +17,6 @@ from config import Config
 from downloader import PolygonHistoricalDownloader
 from publisher import MessagePublisher
 from period_tracker import PeriodTracker
-
-# Central Hub SDK (installed via pip)
-from central_hub_sdk import CentralHubClient, ProgressLogger
 
 # Add shared components to path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
@@ -40,10 +37,10 @@ class PolygonHistoricalService:
             config=self.config.download_config
         )
 
-        # Publisher will be initialized after getting config from Central Hub
+        # Publisher will be initialized from environment variables
         self.publisher = None
 
-        # Gap fill verifier will be initialized after getting ClickHouse config
+        # Gap fill verifier will be initialized from environment variables
         self.verifier = None
 
         # Period tracker to prevent duplicate downloads
@@ -51,78 +48,40 @@ class PolygonHistoricalService:
             tracker_file="/data/downloaded_periods.json"
         )
 
-        # Central Hub integration
-        self.central_hub = CentralHubClient(
-            service_name="polygon-historical-downloader",
-            service_type="data-downloader",
-            version="1.0.0",
-            capabilities=[
-                "historical-data-download",
-                "bulk-publishing",
-                "gap-detection",
-                "gap-verification",
-                "nats-publishing",
-                "kafka-publishing"
-            ],
-            metadata={
-                "source": "polygon.io",
-                "mode": "historical",
-                "run_type": "continuous",
-                "data_types": ["aggregates", "bars"],
-                "transport": ["nats", "kafka"]
-            }
-        )
+        # Statistics
+        self.stats = {
+            "total_downloaded": 0,
+            "total_published": 0,
+            "gaps_filled": 0,
+            "errors": 0
+        }
 
         logger.info("=" * 80)
-        logger.info("POLYGON.IO HISTORICAL DOWNLOADER + CENTRAL HUB + GAP VERIFICATION")
+        logger.info("POLYGON.IO HISTORICAL DOWNLOADER + GAP VERIFICATION")
         logger.info("=" * 80)
+        logger.info(f"Instance ID: {self.config.instance_id}")
+        logger.info(f"Log Level: {self.config.log_level}")
 
     async def run_initial_download(self):
         """Download historical data for all pairs and publish to NATS/Kafka"""
         logger.info("📥 Starting initial historical download...")
 
-        # Get messaging configs from Central Hub
-        try:
-            logger.info("⚙️  Fetching messaging configs from Central Hub...")
-            nats_config = await self.central_hub.get_messaging_config('nats')
-            kafka_config = await self.central_hub.get_messaging_config('kafka')
+        # Get messaging configs from environment variables
+        nats_config = self.config.nats_config
+        kafka_config = self.config.kafka_config
 
-            # Build connection URLs from config (support cluster URLs)
-            hub_nats = nats_config['connection']
+        nats_url = nats_config['url']
+        kafka_brokers = ','.join(kafka_config['brokers'])
 
-            # Use cluster_urls if available (preferred for HA)
-            cluster_urls = hub_nats.get('cluster_urls')
-            if cluster_urls:
-                # Use cluster URLs for high availability
-                nats_url = ','.join(cluster_urls)
-                logger.info(f"✅ Using NATS cluster: {nats_url}")
-            else:
-                # Fallback to single host/port (legacy mode)
-                nats_url = f"nats://{hub_nats['host']}:{hub_nats['port']}"
-                logger.info(f"✅ Using NATS: {nats_url}")
-
-            kafka_brokers = ','.join(kafka_config['connection']['bootstrap_servers'])
-            logger.info(f"✅ Using Kafka: {kafka_brokers}")
-
-        except Exception as e:
-            # Fallback to environment variables if Central Hub config fails
-            logger.warning(f"⚠️  Failed to get messaging config from Central Hub: {e}")
-            logger.warning(f"⚠️  Falling back to environment variables...")
-            nats_url = os.getenv('NATS_URL', 'nats://nats-1:4222,nats://nats-2:4222,nats://nats-3:4222')
-            kafka_brokers = os.getenv('KAFKA_BROKERS', 'suho-kafka:9092')
+        logger.info(f"✅ Configuration loaded from environment variables")
+        logger.info(f"✅ NATS: {nats_url}")
+        logger.info(f"✅ Kafka: {kafka_brokers}")
 
         # Initialize publisher with config
         self.publisher = MessagePublisher(
             nats_url=nats_url,
             kafka_brokers=kafka_brokers
         )
-
-        # Report start status
-        if self.central_hub.registered:
-            await self.central_hub.send_heartbeat(metrics={
-                "status": "starting",
-                "message": "Beginning historical data download"
-            })
 
         download_cfg = self.config.download_config
         pairs = self.config.pairs
@@ -155,16 +114,15 @@ class PolygonHistoricalService:
                     # ✅ LAYER 2: CHECK IF DATA ALREADY EXISTS IN CLICKHOUSE (Backup check)
                     should_download = True
                     try:
-                        clickhouse_config = await self.central_hub.get_database_config('clickhouse')
-                        ch_connection = clickhouse_config['connection']
+                        ch_config = self.config.clickhouse_config
 
                         from clickhouse_driver import Client
                         ch_client = Client(
-                            host=ch_connection['host'],
-                            port=ch_connection.get('native_port', 9000),
-                            user=ch_connection['user'],
-                            password=ch_connection['password'],
-                            database=ch_connection['database']
+                            host=ch_config['host'],
+                            port=ch_config['port'],
+                            user=ch_config['user'],
+                            password=ch_config['password'],
+                            database=ch_config['database']
                         )
 
                         # Check existing data range for this pair
@@ -208,15 +166,7 @@ class PolygonHistoricalService:
                             logger.info(f"🔍 {pair.symbol}: Checking for gaps (including middle gaps)...")
 
                             from gap_detector import GapDetector
-                            gap_config = {
-                                'host': ch_connection['host'],
-                                'port': ch_connection.get('native_port', 9000),
-                                'user': ch_connection['user'],
-                                'password': ch_connection['password'],
-                                'database': ch_connection['database'],
-                                'table': 'aggregates'
-                            }
-                            gap_detector = GapDetector(gap_config)
+                            gap_detector = GapDetector(ch_config)
 
                             # Get ALL missing dates in full requested range
                             missing_dates = gap_detector.get_date_range_gaps(
@@ -318,15 +268,7 @@ class PolygonHistoricalService:
 
                         total_chunks = calculate_total_chunks(pair.gap_ranges)
 
-                        # Initialize progress logger
-                        progress = ProgressLogger(
-                            task_name=f"Downloading {pair.symbol} gaps",
-                            total_items=total_chunks,
-                            service_name="historical-downloader",
-                            milestones=[25, 50, 75, 100],
-                            heartbeat_interval=30
-                        )
-                        progress.start()
+                        logger.info(f"📥 Downloading {pair.symbol} gaps: {total_chunks} chunks")
 
                         all_bars = []
                         chunk_idx = 0
@@ -363,20 +305,19 @@ class PolygonHistoricalService:
                                 chunk_bars = chunk_results.get(pair.symbol, [])
                                 all_bars.extend(chunk_bars)
 
-                                # Update progress (auto-logs at milestones and heartbeats)
-                                progress.update(
-                                    current=chunk_idx,
-                                    additional_info={
-                                        "bars": len(all_bars),
-                                        "gap_type": gap_type
-                                    }
-                                )
+                                # Log progress
+                                progress_pct = (chunk_idx / total_chunks) * 100 if total_chunks > 0 else 0
+                                if chunk_idx % 5 == 0 or chunk_idx == total_chunks:
+                                    logger.info(
+                                        f"📊 {pair.symbol} gap fill progress: {chunk_idx}/{total_chunks} chunks "
+                                        f"({progress_pct:.1f}%) - {len(all_bars):,} bars - {gap_type} gap"
+                                    )
 
                                 # Move to next chunk
                                 current = chunk_end + timedelta(days=1)
 
                         bars = all_bars
-                        progress.complete(summary={"total_bars": len(bars), "gaps_filled": len(pair.gap_ranges)})
+                        logger.info(f"✅ Completed {pair.symbol} gap fill: {len(bars):,} bars, {len(pair.gap_ranges)} gaps")
 
                         # ✅ MARK EACH GAP RANGE AS DOWNLOADED
                         for gap_start, gap_end, gap_type in pair.gap_ranges:
@@ -418,15 +359,7 @@ class PolygonHistoricalService:
 
                         total_chunks = calculate_fresh_chunks(start, end)
 
-                        # Initialize progress logger
-                        progress = ProgressLogger(
-                            task_name=f"Initial download {pair.symbol}",
-                            total_items=total_chunks,
-                            service_name="historical-downloader",
-                            milestones=[25, 50, 75, 100],
-                            heartbeat_interval=30
-                        )
-                        progress.start()
+                        logger.info(f"📥 Initial download {pair.symbol}: {total_chunks} chunks")
 
                         all_bars = []
                         current = start
@@ -458,16 +391,18 @@ class PolygonHistoricalService:
                             chunk_bars = chunk_results.get(pair.symbol, [])
                             all_bars.extend(chunk_bars)
 
-                            # Update progress (auto-logs at milestones and heartbeats)
-                            progress.update(
-                                current=chunk_idx,
-                                additional_info={"bars": len(all_bars)}
-                            )
+                            # Log progress
+                            progress_pct = (chunk_idx / total_chunks) * 100 if total_chunks > 0 else 0
+                            if chunk_idx % 5 == 0 or chunk_idx == total_chunks:
+                                logger.info(
+                                    f"📊 {pair.symbol} download progress: {chunk_idx}/{total_chunks} chunks "
+                                    f"({progress_pct:.1f}%) - {len(all_bars):,} bars"
+                                )
 
                             current = chunk_end + timedelta(days=1)
 
                         bars = all_bars
-                        progress.complete(summary={"total_bars": len(bars)})
+                        logger.info(f"✅ Completed {pair.symbol} download: {len(bars):,} bars")
 
                     if bars:
                         logger.info(f"📤 Publishing {len(bars)} bars for {pair.symbol} to NATS/Kafka...")
@@ -493,29 +428,23 @@ class PolygonHistoricalService:
                             }
                             aggregates.append(aggregate)
 
-                        # Publish in batches with periodic heartbeat
+                        # Publish in batches
                         batch_size = 100
-                        heartbeat_interval = 10000  # Send heartbeat every 10K bars
-                        last_heartbeat = 0
 
                         for i in range(0, len(aggregates), batch_size):
                             batch = aggregates[i:i+batch_size]
                             await self.publisher.publish_batch(batch)
                             total_published += len(batch)
 
-                            # Send heartbeat during long publishes (prevents container kill)
-                            if (i - last_heartbeat) >= heartbeat_interval:
-                                if self.central_hub.registered:
-                                    await self.central_hub.send_heartbeat(metrics={
-                                        "status": "publishing",
-                                        "current_pair": pair.symbol,
-                                        "published": i,
-                                        "total": len(aggregates),
-                                        "progress_pct": round((i / len(aggregates)) * 100, 1)
-                                    })
-                                last_heartbeat = i
+                            # Log progress every 10K bars
+                            if i > 0 and i % 10000 == 0:
+                                progress_pct = (i / len(aggregates)) * 100
+                                logger.info(
+                                    f"📤 Publishing {pair.symbol}: {i:,}/{len(aggregates):,} bars ({progress_pct:.1f}%)"
+                                )
 
                         logger.info(f"✅ Published {len(aggregates)} bars for {pair.symbol}")
+                        self.stats["total_published"] += len(aggregates)
 
                         # ✅ MARK PERIOD AS DOWNLOADED (before verification)
                         self.period_tracker.mark_downloaded(
@@ -533,17 +462,16 @@ class PolygonHistoricalService:
                         await asyncio.sleep(5)  # Wait for data-bridge to process
 
                         try:
-                            # Get ClickHouse config from Central Hub
-                            clickhouse_config = await self.central_hub.get_database_config('clickhouse')
-                            ch_connection = clickhouse_config['connection']
+                            # Get ClickHouse config from environment variables
+                            ch_config = self.config.clickhouse_config
 
                             from clickhouse_driver import Client
                             ch_client = Client(
-                                host=ch_connection['host'],
-                                port=ch_connection.get('native_port', 9000),
-                                user=ch_connection['user'],
-                                password=ch_connection['password'],
-                                database=ch_connection['database']
+                                host=ch_config['host'],
+                                port=ch_config['port'],
+                                user=ch_config['user'],
+                                password=ch_config['password'],
+                                database=ch_config['database']
                             )
 
                             # Count bars in ClickHouse for this pair
@@ -605,15 +533,8 @@ class PolygonHistoricalService:
                             logger.warning(f"⚠️  Could not verify ClickHouse data: {verify_error}")
                             logger.warning(f"⚠️  Continuing anyway, gap detection will handle missing data")
 
-                        # Report progress to Central Hub after each pair
-                        if self.central_hub.registered:
-                            await self.central_hub.send_heartbeat(metrics={
-                                "status": "downloading",
-                                "current_pair": pair.symbol,
-                                "total_published": total_published,
-                                "bars_verified": bars_in_clickhouse if 'bars_in_clickhouse' in locals() else 0,
-                                "message": f"Completed {pair.symbol}"
-                            })
+                        # Update stats
+                        self.stats["total_downloaded"] += len(bars)
 
                 except Exception as pair_error:
                     logger.error(f"❌ Error downloading/publishing {pair.symbol}: {pair_error}", exc_info=True)
@@ -622,22 +543,14 @@ class PolygonHistoricalService:
 
             # Show final stats
             stats = self.publisher.get_stats()
-            logger.info(f"📊 Publishing Stats:")
-            logger.info(f"   NATS: {stats['published_nats']} messages")
-            logger.info(f"   Buffered: {stats['buffered_to_disk']} messages")
+            logger.info("=" * 80)
+            logger.info("📊 DOWNLOAD COMPLETE - Final Stats:")
+            logger.info(f"   Downloaded: {self.stats['total_downloaded']:,} bars")
+            logger.info(f"   Published: {total_published:,} messages")
+            logger.info(f"   NATS: {stats['published_nats']:,} messages")
+            logger.info(f"   Buffered: {stats['buffered_to_disk']:,} messages")
             logger.info(f"   Errors: {stats['errors']}")
-            logger.info(f"   Total Published: {total_published}")
-
-            # Report completion to Central Hub
-            if self.central_hub.registered:
-                await self.central_hub.send_heartbeat(metrics={
-                    "status": "completed",
-                    "message": "Historical download complete",
-                    "total_published": total_published,
-                    "nats_published": stats['published_nats'],
-                    "buffered": stats['buffered_to_disk'],
-                    "errors": stats['errors']
-                })
+            logger.info("=" * 80)
 
         finally:
             await self.publisher.disconnect()
@@ -836,14 +749,6 @@ class PolygonHistoricalService:
                     logger.error(f"      Error: {gap['error']}")
             logger.error("=" * 80)
 
-            # Report to Central Hub
-            if self.central_hub.registered:
-                await self.central_hub.send_heartbeat(metrics={
-                    "status": "gaps_require_manual_review",
-                    "failed_gaps": len(permanently_failed),
-                    "message": f"{len(permanently_failed)} gaps failed after max retries"
-                })
-
         return len(permanently_failed) == 0
 
     async def check_and_fill_gaps(self):
@@ -851,45 +756,24 @@ class PolygonHistoricalService:
         try:
             logger.info("🔍 Checking for data gaps...")
 
-            # Get ClickHouse config from Central Hub
-            try:
-                clickhouse_config = await self.central_hub.get_database_config('clickhouse')
-                ch_connection = clickhouse_config['connection']
-                gap_config = {
-                    'host': ch_connection['host'],
-                    'port': ch_connection.get('native_port', 9000),
-                    'user': ch_connection['user'],
-                    'password': ch_connection['password'],
-                    'database': ch_connection['database'],
-                    'table': 'aggregates'
-                }
+            # Get ClickHouse config from environment variables
+            gap_config = self.config.clickhouse_config
 
-                # Initialize verifier if not already done
-                if not self.verifier:
-                    self.verifier = GapFillVerifier(gap_config)
-                    logger.info("✅ Gap fill verifier initialized")
-
-            except Exception as e:
-                logger.warning(f"⚠️  Failed to get ClickHouse config from Central Hub: {e}")
-                # Skip gap detection if can't get config
-                return
+            # Initialize verifier if not already done
+            if not self.verifier:
+                self.verifier = GapFillVerifier(gap_config)
+                logger.info("✅ Gap fill verifier initialized")
 
             # Initialize gap detector
             from gap_detector import GapDetector
             gap_detector = GapDetector(gap_config)
 
-            # Get messaging configs (support cluster URLs)
-            nats_config = await self.central_hub.get_messaging_config('nats')
-            kafka_config = await self.central_hub.get_messaging_config('kafka')
+            # Get messaging configs from environment variables
+            nats_config = self.config.nats_config
+            kafka_config = self.config.kafka_config
 
-            hub_nats = nats_config['connection']
-            cluster_urls = hub_nats.get('cluster_urls')
-            if cluster_urls:
-                nats_url = ','.join(cluster_urls)
-            else:
-                nats_url = f"nats://{hub_nats['host']}:{hub_nats['port']}"
-
-            kafka_brokers = ','.join(kafka_config['connection']['bootstrap_servers'])
+            nats_url = nats_config['url']
+            kafka_brokers = ','.join(kafka_config['brokers'])
 
             # Reinitialize publisher
             self.publisher = MessagePublisher(
@@ -985,36 +869,23 @@ class PolygonHistoricalService:
             await self.publisher.disconnect()
 
             if total_gaps_filled > 0:
-                logger.info(f"✅ Gap filling complete: {total_gaps_filled} bars published")
-                if self.central_hub.registered:
-                    await self.central_hub.send_heartbeat(metrics={
-                        "status": "gap_fill_complete",
-                        "gaps_filled": total_gaps_filled
-                    })
+                logger.info(f"✅ Gap filling complete: {total_gaps_filled} gaps filled")
+                self.stats["gaps_filled"] += total_gaps_filled
             else:
                 logger.info("✅ No gaps to fill")
 
         except Exception as e:
             logger.error(f"❌ Error in gap checking: {e}", exc_info=True)
+            self.stats["errors"] += 1
 
     async def start(self):
         """Start the historical downloader in continuous mode"""
-        heartbeat_task = None  # Initialize at method level for finally block
-
         try:
             schedules = self.config.schedules
             gap_check_interval = schedules.get('gap_check', {}).get('interval_hours', 1)
 
             logger.info("🚀 Starting CONTINUOUS historical downloader...")
             logger.info(f"⏰ Gap check interval: {gap_check_interval} hour(s)")
-
-            # Register with Central Hub once at startup
-            await self.central_hub.register()
-
-            # Start continuous heartbeat loop in background (BEFORE initial download)
-            if self.central_hub.registered:
-                heartbeat_task = asyncio.create_task(self.central_hub.start_heartbeat_loop())
-                logger.info("💓 Continuous heartbeat loop started")
 
             # Initial download on startup
             if schedules.get('initial_download', {}).get('on_startup', True):
@@ -1034,17 +905,11 @@ class PolygonHistoricalService:
 
                         # Initialize publisher if needed
                         if not self.publisher:
-                            nats_config = await self.central_hub.get_messaging_config('nats')
-                            kafka_config = await self.central_hub.get_messaging_config('kafka')
+                            nats_config = self.config.nats_config
+                            kafka_config = self.config.kafka_config
 
-                            hub_nats = nats_config['connection']
-                            cluster_urls = hub_nats.get('cluster_urls')
-                            if cluster_urls:
-                                nats_url = ','.join(cluster_urls)
-                            else:
-                                nats_url = f"nats://{hub_nats['host']}:{hub_nats['port']}"
-
-                            kafka_brokers = ','.join(kafka_config['connection']['bootstrap_servers'])
+                            nats_url = nats_config['url']
+                            kafka_brokers = ','.join(kafka_config['brokers'])
 
                             self.publisher = MessagePublisher(nats_url, kafka_brokers)
                             await self.publisher.connect()
@@ -1076,17 +941,14 @@ class PolygonHistoricalService:
         except Exception as e:
             logger.error(f"❌ Fatal error: {e}", exc_info=True)
         finally:
-            # Cancel heartbeat task if running
-            if heartbeat_task and not heartbeat_task.done():
-                heartbeat_task.cancel()
-                try:
-                    await heartbeat_task
-                except asyncio.CancelledError:
-                    pass
-
-            # Deregister from Central Hub on shutdown
-            if self.central_hub.registered:
-                await self.central_hub.deregister()
+            # Show final statistics
+            logger.info("=" * 80)
+            logger.info("📊 FINAL STATISTICS:")
+            logger.info(f"   Downloaded: {self.stats['total_downloaded']:,} bars")
+            logger.info(f"   Published: {self.stats['total_published']:,} messages")
+            logger.info(f"   Gaps filled: {self.stats['gaps_filled']}")
+            logger.info(f"   Errors: {self.stats['errors']}")
+            logger.info("=" * 80)
             logger.info("✅ Historical downloader stopped")
 
 async def main():
