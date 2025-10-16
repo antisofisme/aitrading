@@ -1,13 +1,16 @@
 """
 Configuration loader for External Data Collector (Economic Calendar)
-Integrated with Central Hub pattern
+Refactored to use environment variables (Central Hub v2.0 pattern)
 """
 import os
 import re
 import yaml
+import logging
 from pathlib import Path
 from typing import Dict, List, Any
 from dataclasses import dataclass
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -52,9 +55,28 @@ class Config:
         # Temporary disable Z.ai to test regex parser
         self.zai_api_key = ""  # os.getenv("ZAI_API_KEY", "")
 
-        # Central Hub
-        self.central_hub_url = os.getenv("CENTRAL_HUB_URL", "http://suho-central-hub:7000")
-        self.heartbeat_interval = int(os.getenv("HEARTBEAT_INTERVAL", "30"))
+        # Load messaging and database configs from environment variables
+        self._load_env_configs()
+
+    def _load_env_configs(self):
+        """Load NATS and Kafka configs from environment variables"""
+        logger.info("📡 Loading configuration from environment variables...")
+
+        # NATS config
+        nats_url = os.getenv('NATS_URL', 'nats://localhost:4222')
+        if ',' in nats_url:
+            # Cluster mode
+            self._nats_cluster_urls = [url.strip() for url in nats_url.split(',')]
+            logger.info(f"✅ NATS cluster: {len(self._nats_cluster_urls)} nodes")
+        else:
+            # Single server
+            self._nats_cluster_urls = [nats_url]
+            logger.info(f"✅ NATS single server: {nats_url}")
+
+        # Kafka config
+        kafka_brokers = os.getenv('KAFKA_BROKERS', 'localhost:9092')
+        self._kafka_brokers = [b.strip() for b in kafka_brokers.split(',')]
+        logger.info(f"✅ Kafka brokers: {self._kafka_brokers}")
 
     def _substitute_env_vars(self, content: str) -> str:
         """
@@ -166,13 +188,47 @@ class Config:
 
     @property
     def nats_config(self) -> Dict:
-        """Get NATS configuration"""
-        return self.messaging_config.get('nats', {})
+        """
+        Get NATS configuration from environment variables
+
+        Returns:
+            Dict with 'url' and connection parameters
+        """
+        yaml_nats = self.messaging_config.get('nats', {})
+
+        if len(self._nats_cluster_urls) > 1:
+            # Cluster mode
+            return {
+                'url': ','.join(self._nats_cluster_urls),
+                'enabled': yaml_nats.get('enabled', False),
+                'max_reconnect_attempts': -1,
+                'reconnect_time_wait': 2
+            }
+        else:
+            # Single server
+            return {
+                'url': self._nats_cluster_urls[0],
+                'enabled': yaml_nats.get('enabled', False),
+                'max_reconnect_attempts': -1,
+                'reconnect_time_wait': 2
+            }
 
     @property
     def kafka_config(self) -> Dict:
-        """Get Kafka configuration"""
-        return self.messaging_config.get('kafka', {})
+        """
+        Get Kafka configuration from environment variables
+
+        Returns:
+            Dict with 'brokers' list
+        """
+        yaml_kafka = self.messaging_config.get('kafka', {})
+
+        return {
+            'brokers': self._kafka_brokers,
+            'enabled': yaml_kafka.get('enabled', False),
+            'client_id': 'external-data-collector',
+            'group_id': 'external-collectors'
+        }
 
     @property
     def backfill_config(self) -> Dict:

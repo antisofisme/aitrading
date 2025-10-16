@@ -2,7 +2,7 @@
 """
 External Data Collector - Economic Calendar & Market Data
 Real-time and historical data collection for trading system
-Integrated with Central Hub for service coordination
+Refactored to use environment variables (Central Hub v2.0 pattern)
 """
 import asyncio
 import logging
@@ -23,10 +23,6 @@ from scrapers.yahoo_finance_commodity import YahooFinanceCommodityCollector
 from scrapers.market_sessions import MarketSessionsCollector
 from publishers import ExternalDataPublisher
 
-# Central Hub SDK (installed via pip)
-# REQUIRED: Service MUST have Central Hub SDK installed
-from central_hub_sdk import CentralHubClient
-
 # Setup logging
 logging.basicConfig(
     level=logging.INFO,
@@ -44,35 +40,8 @@ class ExternalDataCollector:
         self.scrapers = {}
         self.publisher = None
 
-        # Initialize Central Hub client (REQUIRED)
-        self.central_hub = CentralHubClient(
-            service_name="external-data-collector",
-            service_type="data-collector",
-            version="1.0.0",
-            capabilities=[
-                "economic-calendar",
-                "historical-backfill",
-                "incremental-scraping",
-                "mql5-data-source",
-                "zai-parsing",
-                "date-tracking",
-                "nats-kafka-publishing"
-            ],
-            metadata={
-                "sources": ["mql5.com"],
-                "data_types": ["economic_calendar"],
-                "storage": self.config.storage_config.get('type', 'json'),
-                "backfill_enabled": self.config.backfill_config.get('enabled', False),
-                "messaging": {
-                    "nats_enabled": self.config.messaging_config.get('nats', {}).get('enabled', False),
-                    "kafka_enabled": self.config.messaging_config.get('kafka', {}).get('enabled', False)
-                }
-            }
-        )
-
         self.start_time = datetime.now()
         self.is_running = False
-        self.registered = False
         self.metrics = {
             'events_scraped': 0,
             'dates_tracked': 0,
@@ -81,27 +50,18 @@ class ExternalDataCollector:
         }
 
         logger.info("=" * 80)
-        logger.info("EXTERNAL DATA COLLECTOR + CENTRAL HUB")
+        logger.info("EXTERNAL DATA COLLECTOR")
         logger.info("=" * 80)
         logger.info(f"Instance ID: {self.config.instance_id}")
         logger.info(f"Log Level: {self.config.log_level}")
-        logger.info(f"Central Hub URL: {self.config.central_hub_url}")
 
     async def start(self):
-        """Start the collector - REQUIRES Central Hub registration"""
+        """Start the collector"""
         try:
             logger.info("🚀 Starting External Data Collector...")
 
-            # CRITICAL: Register with Central Hub with retry logic
-            await self._register_with_retry()
-
             # Initialize scrapers
             await self._initialize_scrapers()
-
-            # Start heartbeat loop
-            self.heartbeat_task = asyncio.create_task(
-                self._heartbeat_loop()
-            )
 
             # Start scraping loops
             self.is_running = True
@@ -113,7 +73,11 @@ class ExternalDataCollector:
                 )
                 scraping_tasks.append(task)
 
-            logger.info(f"✅ External Data Collector started with {len(scraping_tasks)} scrapers")
+            # Start metrics reporting loop
+            metrics_task = asyncio.create_task(self._metrics_loop())
+            scraping_tasks.append(metrics_task)
+
+            logger.info(f"✅ External Data Collector started with {len(self.scrapers)} scrapers")
 
             # Keep running
             await asyncio.gather(*scraping_tasks, return_exceptions=True)
@@ -122,56 +86,13 @@ class ExternalDataCollector:
             logger.error(f"❌ Failed to start collector: {e}", exc_info=True)
             raise
 
-    async def _register_with_retry(self):
-        """
-        Register with Central Hub with retry logic
-        FAILS FAST if registration fails after max retries
-        """
-        max_retries = 10
-        retry_delay = 5  # seconds
-
-        logger.info(f"📡 Registering with Central Hub (max retries: {max_retries})...")
-
-        for attempt in range(1, max_retries + 1):
-            try:
-                logger.info(f"🔄 Registration attempt {attempt}/{max_retries}...")
-
-                # Attempt registration
-                await self.central_hub.register()
-
-                # Success!
-                self.registered = True
-                logger.info(f"✅ Successfully registered with Central Hub on attempt {attempt}")
-                return
-
-            except Exception as e:
-                logger.warning(f"⚠️ Registration attempt {attempt}/{max_retries} failed: {e}")
-
-                if attempt == max_retries:
-                    # Final attempt failed - FAIL FAST
-                    logger.error("=" * 80)
-                    logger.error("❌ CRITICAL: Failed to register with Central Hub after all retries")
-                    logger.error("=" * 80)
-                    logger.error(f"Error: {e}")
-                    logger.error("Service CANNOT start without Central Hub coordination")
-                    logger.error("Check Central Hub availability and network connectivity")
-                    logger.error("=" * 80)
-                    raise RuntimeError(
-                        f"Failed to register with Central Hub after {max_retries} attempts. "
-                        f"Last error: {e}"
-                    )
-
-                # Wait before retry
-                logger.info(f"⏳ Waiting {retry_delay}s before retry...")
-                await asyncio.sleep(retry_delay)
-
     async def _initialize_scrapers(self):
         """Initialize all enabled scrapers"""
         logger.info("🔧 Initializing scrapers...")
 
         # Initialize NATS+Kafka publisher if enabled
-        nats_config = self.config.messaging_config.get('nats', {})
-        kafka_config = self.config.messaging_config.get('kafka', {})
+        nats_config = self.config.nats_config
+        kafka_config = self.config.kafka_config
 
         if nats_config.get('enabled') or kafka_config.get('enabled'):
             logger.info("📡 Initializing NATS+Kafka publisher...")
@@ -340,33 +261,29 @@ class ExternalDataCollector:
 
         logger.info(f"🛑 {scraper_name} scraping loop stopped after {iteration} iterations")
 
-    async def _heartbeat_loop(self):
-        """Send periodic heartbeat to Central Hub (REQUIRED for service coordination)"""
+    async def _metrics_loop(self):
+        """Log periodic metrics (every 30 seconds)"""
         while self.is_running:
             try:
-                await asyncio.sleep(self.config.heartbeat_interval)
+                await asyncio.sleep(30)
 
-                # Send heartbeat with metrics
-                await self.central_hub.send_heartbeat(metrics=self.metrics)
+                # Log metrics
+                logger.info(
+                    f"📊 Metrics | Events: {self.metrics['events_scraped']:,} | "
+                    f"Dates tracked: {self.metrics['dates_tracked']:,} | "
+                    f"Errors: {self.metrics['errors']} | "
+                    f"Last scrape: {self.metrics['last_scrape'] or 'N/A'}"
+                )
 
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error(f"❌ Heartbeat error: {e}")
-                logger.warning("⚠️ Lost connection to Central Hub - service may be deregistered")
+                logger.error(f"❌ Metrics logging error: {e}")
 
     async def stop(self):
         """Graceful shutdown"""
         logger.info("🛑 Stopping External Data Collector...")
         self.is_running = False
-
-        # Cancel heartbeat
-        if hasattr(self, 'heartbeat_task') and self.heartbeat_task:
-            self.heartbeat_task.cancel()
-            try:
-                await self.heartbeat_task
-            except asyncio.CancelledError:
-                pass
 
         # Close publisher
         if self.publisher:
@@ -376,12 +293,13 @@ class ExternalDataCollector:
             except Exception as e:
                 logger.error(f"⚠️ Failed to close publisher: {e}")
 
-        # Deregister from Central Hub (REQUIRED for clean shutdown)
-        try:
-            await self.central_hub.deregister()
-            logger.info("✅ Deregistered from Central Hub")
-        except Exception as e:
-            logger.error(f"⚠️ Failed to deregister from Central Hub: {e}")
+        # Log final statistics
+        logger.info("=" * 80)
+        logger.info("📊 FINAL STATISTICS:")
+        logger.info(f"   Events scraped: {self.metrics['events_scraped']:,}")
+        logger.info(f"   Dates tracked: {self.metrics['dates_tracked']:,}")
+        logger.info(f"   Errors: {self.metrics['errors']}")
+        logger.info("=" * 80)
 
         logger.info("✅ External Data Collector stopped")
 
