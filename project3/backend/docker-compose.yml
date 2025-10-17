@@ -868,7 +868,7 @@ services:
   feature-engineering-service:
     build:
       context: .
-      dockerfile: 03-machine-learning/feature-engineering-service/Dockerfile
+      dockerfile: 02-data-processing/feature-engineering-service/Dockerfile
     container_name: suho-feature-engineering
     hostname: suho-feature-engineering
     restart: unless-stopped
@@ -887,7 +887,7 @@ services:
       # Python
       - PYTHONUNBUFFERED=1
     volumes:
-      - ./03-machine-learning/feature-engineering-service/config:/app/config:ro
+      - ./02-data-processing/feature-engineering-service/config:/app/config:ro
       - feature_engineering_logs:/app/logs
     networks:
       - suho-trading-network
