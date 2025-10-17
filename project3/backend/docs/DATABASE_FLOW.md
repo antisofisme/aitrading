@@ -1,6 +1,6 @@
 # =� Database Flow - Data Storage Strategy
 
-> **Version**: 1.5.0 (Draft - Bertahap)
+> **Version**: 1.7.0 (Draft - Bertahap)
 > **Last Updated**: 2025-10-17
 > **Status**: In Discussion - Konsep Awal
 
@@ -24,13 +24,13 @@
 
 ## =� Data Sources & Storage
 
-**Final Architecture**: 2 Data Sources
+**Final Architecture**: 3 Data Sources
 
 | Source | Type | Storage | Retention | Cost | Status |
 |--------|------|---------|-----------|------|--------|
-| **Polygon Live** | Real-time tick | TimescaleDB | 90 days | Paid (subscription) | ✅ Active |
+| **Polygon Live** | Real-time tick | TimescaleDB | 3 days | Paid (subscription) | ✅ Active |
+| **Polygon Historical** | Gap filling (M1/M5) | → live_aggregates | On-demand (< 7 days) | Paid (per request) | ✅ Active |
 | **Dukascopy Historical** | Historical tick | ClickHouse | Unlimited | FREE | ✅ Active |
-| ~~Polygon Historical~~ | Aggregated candles | - | - | Paid | ❌ Archived |
 
 ---
 
@@ -40,12 +40,12 @@
 
 **Storage**:
 ```
-Polygon WebSocket � Live Collector � TimescaleDB.market_ticks
+Polygon WebSocket → Live Collector → TimescaleDB.live_ticks
 ```
 
 **Database**: TimescaleDB
-**Table**: `market_ticks`
-**Retention**: 90 hari
+**Table**: `live_ticks`
+**Retention**: 3 hari (auto-cleanup)
 
 **Kolom Inti** (6 kolom):
 - `time` - timestamp with time zone (primary key)
@@ -69,8 +69,8 @@ Polygon WebSocket � Live Collector � TimescaleDB.market_ticks
 
 **Karakteristik**:
 - Write speed: ~100-1,000 ticks/second per symbol
-- Query pattern: Recent data (last minutes/hours/days)
-- Auto-delete setelah 90 hari
+- Query pattern: Recent data (last minutes/hours)
+- Auto-delete setelah 3 hari (operational window only)
 
 ---
 
@@ -80,7 +80,7 @@ Polygon WebSocket � Live Collector � TimescaleDB.market_ticks
 
 **Storage**:
 ```
-Dukascopy Binary Files � Historical Downloader � ClickHouse.historical_ticks
+Dukascopy Binary Files → Historical Downloader → ClickHouse.historical_ticks
 ```
 
 **Database**: ClickHouse
@@ -124,21 +124,158 @@ Dukascopy Binary Files � Historical Downloader � ClickHouse.historical_ticks
 
 ---
 
-### ~~**Source 3: Polygon Historical API**~~ ❌ **ARCHIVED**
+### **Source 3: Polygon Historical API** ⚠️ **GAP FILLER**
 
-**Status**: **TIDAK DIGUNAKAN** - Service akan diarsipkan
+**Data Type**: Aggregated candles (M1/M5) untuk gap filling
 
-**Alasan**:
-- Redundant dengan Dukascopy (sudah ada tick historical)
-- Polygon historical = aggregated candles (bukan raw tick)
-- Lebih mahal untuk bulk historical data
-- Tidak perlu 2 sumber historical yang sama
+**Purpose**: **Fill gaps** di live_aggregates (< 2 days old)
 
-**Action Items**:
-- [ ] Stop `polygon-historical-downloader` service
-- [ ] Archive service code ke `00-data-ingestion/_archived/`
-- [ ] Remove from docker-compose.yml
-- [ ] Update service documentation
+**Storage Flow**:
+```
+Gap Detector → Polygon Historical API → ClickHouse.live_aggregates
+                                        (insert missing candles)
+```
+
+**Target Table**: **live_aggregates** (tidak punya tabel sendiri)
+**Trigger**: On-demand (saat gap terdeteksi)
+**Cost**: Pay-per-request (hanya saat fill gaps)
+
+**Why Needed**:
+- Live stream bisa terputus (app restart, connection issues)
+- Dukascopy delay 1-2 hari (tidak bisa fill recent gaps)
+- Polygon Historical available immediately untuk recent data
+
+**Gap Filling Strategy**:
+```python
+def fill_gap_in_live_aggregates(gap):
+    """
+    Fill detected gap dengan Polygon Historical (< 7 days only)
+    """
+    if gap.age < timedelta(days=7):
+        # Recent gap: Use Polygon Historical (available now)
+        data = polygon_api.get_aggregates(
+            symbol=gap.symbol,
+            timeframe='5m',
+            start=gap.start,
+            end=gap.end
+        )
+        clickhouse.insert('live_aggregates', data)
+    else:
+        # Old gap (> 7 days): SKIP - out of live retention window
+        # Data already available in historical_aggregates (Dukascopy)
+        logger.warning(f"Gap too old ({gap.age} days), skipping fill: {gap}")
+```
+
+**Karakteristik**:
+- Update: On-demand (bukan continuous)
+- Data type: Aggregates only (M1/M5), bukan raw tick
+- No separate table (langsung ke live_aggregates)
+- Use case: Gap recovery, data continuity
+- Cost efficient: Only pay when gaps detected
+
+---
+
+## 🔧 Gap Detection & Filling
+
+**Service**: `gap-filler-service` (scheduled job)
+
+### Gap Detection Logic
+
+```python
+class GapDetector:
+    def detect_gaps(self, timeframe='5m', max_gap_minutes=15):
+        """
+        Detect gaps in live_aggregates
+        """
+        query = """
+        SELECT
+            symbol,
+            time as gap_start,
+            LEAD(time) OVER (PARTITION BY symbol ORDER BY time) as gap_end,
+            dateDiff('minute', time, gap_end) as gap_minutes
+        FROM live_aggregates
+        WHERE timeframe = {timeframe}
+        HAVING gap_minutes > {max_gap}
+        ORDER BY symbol, time
+        """
+
+        gaps = clickhouse.query(query)
+        return [Gap(**g) for g in gaps]
+```
+
+### Gap Filling Workflow
+
+```
+┌─────────────────────────────────────────────────────┐
+│            SCHEDULED JOB (every hour)               │
+└────────────────────┬────────────────────────────────┘
+                     │
+                     ▼
+        ┌────────────────────────┐
+        │   Detect Gaps          │
+        │   (> 15 min missing)   │
+        └────────┬───────────────┘
+                 │
+                 ▼
+        ┌────────────────────────┐
+        │  Check Gap Age         │
+        └────┬───────────┬───────┘
+             │           │
+      < 7 days      > 7 days
+             │           │
+             ▼           ▼
+    ┌─────────────┐  ┌──────────────┐
+    │  Polygon    │  │  SKIP        │
+    │  Historical │  │  (too old)   │
+    └──────┬──────┘  └──────────────┘
+           │
+           │ Fill gap
+           ▼
+        ┌───────────────────────┐
+        │  Insert to            │
+        │  live_aggregates      │
+        └───────────────────────┘
+
+Note: Gaps > 7 days tidak perlu diisi karena:
+- Out of live retention window (7 days)
+- Data sudah ada di historical_aggregates
+```
+
+### Gap Filling Example
+
+**Scenario**: App down 10:00-12:00 (2 hours)
+
+```sql
+-- Before gap filling
+SELECT time, symbol FROM live_aggregates
+WHERE symbol = 'C:EURUSD' AND timeframe = '5m'
+ORDER BY time;
+
+2025-10-17 09:55:00  C:EURUSD
+-- GAP: 24 missing candles (10:00 - 11:55)
+2025-10-17 12:00:00  C:EURUSD
+
+-- Gap detected: 120 minutes missing
+
+-- Fill with Polygon Historical
+gaps = detect_gaps()
+for gap in gaps:
+    if gap.minutes > 15:  # Alert threshold
+        fill_gap_with_polygon_historical(gap)
+
+-- After gap filling
+2025-10-17 09:55:00  C:EURUSD
+2025-10-17 10:00:00  C:EURUSD  ← Filled from Polygon
+2025-10-17 10:05:00  C:EURUSD  ← Filled from Polygon
+...
+2025-10-17 11:55:00  C:EURUSD  ← Filled from Polygon
+2025-10-17 12:00:00  C:EURUSD  ← Back to live stream
+```
+
+**Monitoring**:
+- Alert if gap > 15 minutes detected
+- Log all gap fills untuk audit
+- Track Polygon API usage (cost monitoring)
 
 ---
 
@@ -499,12 +636,12 @@ def add_time_features(df, timestamp_col='time'):
 
 **Data Flow**:
 ```
-TimescaleDB.market_ticks → Tick Aggregator → ClickHouse.live_aggregates
+TimescaleDB.live_ticks → Tick Aggregator → ClickHouse.live_aggregates
 ```
 
 **Database**: ClickHouse
-**Retention**: 90-180 hari (operational data)
-**Update**: Real-time streaming aggregation
+**Retention**: 7 hari (operational window)
+**Update**: Real-time streaming aggregation + gap filling
 
 **Schema** (15 kolom):
 ```sql
@@ -580,8 +717,9 @@ Result:
 
 **Karakteristik**:
 - Write frequency: Continuous (new candles every timeframe interval)
-- Query pattern: Recent data (last hours/days/weeks)
-- Use Case: Live monitoring, recent backtesting, operational alerts
+- Query pattern: Recent data (last hours/days/week)
+- Use Case: Live monitoring, operational alerts, real-time analysis, swing trading
+- Retention: 7 days (sufficient for scalping, day trading, swing trading)
 
 ---
 
@@ -729,7 +867,7 @@ ORDER BY time;
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                    RAW TICK DATA                                │
-│  TimescaleDB.market_ticks (live) or ClickHouse.historical_ticks│
+│  TimescaleDB.live_ticks (live) or ClickHouse.historical_ticks  │
 └───────────────────────────┬─────────────────────────────────────┘
                             │
                             ▼
@@ -804,10 +942,11 @@ For ML training accuracy, flat aggregation is worth the computational cost.
 | **Write Pattern** | Streaming (real-time) | Batch (backfill) |
 | **Write Speed** | Fast (optimized for inserts) | Very fast (batch inserts) |
 | **Query Pattern** | Recent data (hot data) | Any timeframe (cold data) |
-| **Retention** | 90 hari | Unlimited |
+| **Retention** | 3 hari (ticks), 7 hari (aggregates) | Unlimited |
 | **Compression** | Moderate | High (10:1) |
 | **Storage Cost** | Higher (SSD) | Lower (compressed) |
-| **Data Age** | 0-90 days | > 90 days or historical |
+| **Data Age** | 0-7 days | All historical data |
+| **Trading Style** | Scalping, Day, Swing | Position, ML training |
 
 ---
 
@@ -824,6 +963,8 @@ For ML training accuracy, flat aggregation is worth the computational cost.
 **Status**: Dokumentasi bertahap - akan dilanjutkan sesuai diskusi
 
 **Version History**:
+- v1.7.0 (2025-10-17): Optimized live retention - live_ticks: 3 days, live_aggregates: 7 days (covers scalping/day/swing), gap filling < 7 days, Dukascopy does NOT fill live gaps
+- v1.6.0 (2025-10-17): Added Gap Filling strategy - Polygon Historical for recent gaps, renamed market_ticks → live_ticks, added gap detection workflow
 - v1.5.0 (2025-10-17): Separated External Data (3 sources) vs Calculated Features (Market Sessions, Calendar, Time) - Market Sessions moved to Feature Engineering
 - v1.4.0 (2025-10-17): Added aggregates tables (live + historical) with 15 columns, flat aggregation strategy, 7 timeframes
 - v1.3.0 (2025-10-17): Added 4 external data tables with timestamp concept for ML (Economic Calendar, FRED, Market Sessions, Commodity Prices)
