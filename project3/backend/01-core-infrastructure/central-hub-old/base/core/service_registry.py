@@ -1,11 +1,35 @@
 """
 Central Hub - Service Registry Coordinator
 Handles service registration, discovery, and management
+
+⚠️ DEPRECATED (2025-10-16) ⚠️
+
+This module is DEPRECATED and no longer used in production.
+
+Reason: Not needed for Docker Compose static topology.
+- Services use environment variables (12-factor app pattern)
+- Docker DNS provides automatic service discovery
+- No need for centralized service registry
+
+Migration Path:
+- Use Docker service names in docker-compose.yml for DNS resolution
+- Use environment variables for configuration
+- Each service implements own health endpoint
+
+This code is kept for backward compatibility only.
 """
 
 import time
 from typing import Dict, List, Optional, Any
 import logging
+import warnings
+
+# Issue deprecation warning when module is imported
+warnings.warn(
+    "ServiceRegistry is deprecated. Use Docker DNS and environment variables instead.",
+    DeprecationWarning,
+    stacklevel=2
+)
 
 
 class ServiceRegistry:

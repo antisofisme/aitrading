@@ -1,8 +1,23 @@
 """
 Schema Migration System
 Auto-initialize and version database schemas
+
+⚠️ DEPRECATION WARNING:
+   This module is OPTIONAL and may be deprecated in future versions.
+
+   For development environments, prefer native database initialization:
+   - ClickHouse: Mount SQL files to /docker-entrypoint-initdb.d/
+   - TimescaleDB: Mount SQL files to /docker-entrypoint-initdb.d/
+
+   Use SchemaMigrator ONLY when:
+   - You need version tracking across deployments
+   - You need programmatic rollback support
+   - Native init scripts are not sufficient
+
+   For most cases, native database init is simpler and more reliable.
 """
 import logging
+import warnings
 from typing import Any, Dict, Optional, List
 from pathlib import Path
 from .router import DatabaseRouter
@@ -15,11 +30,17 @@ class SchemaMigrator:
     """
     Schema migration and versioning system
 
+    ⚠️ OPTIONAL: Consider using native database init scripts instead.
+
     Features:
     - Auto-detect schema files
-    - Version tracking
+    - Version tracking (basic)
     - Idempotent migrations
-    - Rollback support (future)
+    - Rollback support (future/not implemented)
+
+    Alternatives (RECOMMENDED for development):
+    - ClickHouse: /docker-entrypoint-initdb.d/ (native)
+    - TimescaleDB: /docker-entrypoint-initdb.d/ (PostgreSQL native)
     """
 
     def __init__(self, router: DatabaseRouter, schema_base_path: str):

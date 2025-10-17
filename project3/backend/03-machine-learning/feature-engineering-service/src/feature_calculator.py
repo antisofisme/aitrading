@@ -39,6 +39,7 @@ from .features import (
     FibonacciFeatures,  # NEW v2.3
     StructureSLTPFeatures
 )
+from .data_quality_scorer import DataQualityScorer
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +73,10 @@ class FeatureCalculator:
         self.fibonacci_calculator = FibonacciFeatures(config)  # NEW v2.3
         self.sl_tp_calculator = StructureSLTPFeatures(config)
 
-        logger.info("🧮 Feature Calculator initialized with 12 feature groups (v2.3)")
+        # Data Quality Scorer
+        self.quality_scorer = DataQualityScorer()
+
+        logger.info("🧮 Feature Calculator initialized with 12 feature groups + Quality Scorer (v2.3)")
 
     async def calculate_features(
         self,
@@ -223,6 +227,14 @@ class FeatureCalculator:
                     )
                     features.update(sl_tp_features)
 
+                # Calculate data quality score
+                quality_score, quality_report = self.quality_scorer.calculate_quality(
+                    features=features,
+                    external_data=external_data
+                )
+                features['data_quality_score'] = quality_score
+                features['feature_version'] = '2.3'  # Feature calculation version
+
                 # Add metadata
                 features['symbol'] = symbol
                 features['timeframe'] = timeframe
@@ -231,6 +243,16 @@ class FeatureCalculator:
 
                 # Calculate target variable (binary: next candle UP/DOWN)
                 features['target'] = self._calculate_target(candle, aggregates_batch, idx)
+                features['target_pips'] = self._calculate_target_pips(candle, aggregates_batch, idx)
+
+                # Log quality warnings for low-quality data
+                if quality_score < 0.8:
+                    logger.warning(
+                        f"⚠️ Low data quality ({quality_score:.2f}) for {symbol} at {timestamp} | "
+                        f"Level: {quality_report['quality_level']} | "
+                        f"News: {quality_report['news_calendar']['status']}, "
+                        f"External: {quality_report['external_indicators']['status']}"
+                    )
 
                 results.append(features)
 
@@ -283,3 +305,46 @@ class FeatureCalculator:
         except Exception as e:
             logger.error(f"❌ Target calculation failed: {e}")
             return -1
+
+    def _calculate_target_pips(
+        self,
+        current_candle: pd.Series,
+        aggregates_batch: pd.DataFrame,
+        current_idx: int
+    ) -> float:
+        """
+        Calculate target variable in pips: actual pips moved to next candle
+
+        Args:
+            current_candle: Current candle data
+            aggregates_batch: Full batch of candles
+            current_idx: Index of current candle
+
+        Returns:
+            Pips moved (positive = up, negative = down)
+        """
+        try:
+            # Check if next candle exists
+            if current_idx + 1 < len(aggregates_batch):
+                next_candle = aggregates_batch.iloc[current_idx + 1]
+
+                current_close = float(current_candle['close'])
+                next_close = float(next_candle['close'])
+
+                # Calculate pips moved (for forex: 1 pip = 0.0001, for gold: 1 pip = 0.01)
+                symbol = current_candle['symbol']
+                if 'XAU' in symbol or 'GOLD' in symbol:
+                    # Gold: 1 pip = $0.01
+                    pips = (next_close - current_close) * 100
+                else:
+                    # Forex: 1 pip = 0.0001
+                    pips = (next_close - current_close) * 10000
+
+                return round(pips, 2)
+            else:
+                # No next candle available
+                return 0.0
+
+        except Exception as e:
+            logger.error(f"❌ Target pips calculation failed: {e}")
+            return 0.0

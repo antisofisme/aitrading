@@ -864,7 +864,7 @@ services:
   # MACHINE LEARNING SERVICES
   # ===================================
 
-  # Feature Engineering Service - Generates 63 ML features from OHLCV + External Data
+  # Feature Engineering Service - Generates 72 ML features from OHLCV + External Data
   feature-engineering-service:
     build:
       context: .
@@ -873,21 +873,18 @@ services:
     hostname: suho-feature-engineering
     restart: unless-stopped
     environment:
+      # Service identity
       - INSTANCE_ID=feature-engineering-1
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      # Central Hub
-      - CENTRAL_HUB_URL=http://suho-central-hub:7000
-      - HEARTBEAT_INTERVAL=30
-      # ClickHouse connection
-      - CLICKHOUSE_HOST=${CLICKHOUSE_HOST:-suho-clickhouse}
+
+      # ClickHouse connection (HTTP port for feature engineering)
+      - CLICKHOUSE_HOST=suho-clickhouse
       - CLICKHOUSE_PORT=8123  # HTTP interface
-      - CLICKHOUSE_DATABASE=${CLICKHOUSE_DATABASE:-suho_analytics}
-      - CLICKHOUSE_USER=${CLICKHOUSE_USER:-suho_analytics}
-      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD}
-      # Service settings
-      - SERVICE_NAME=feature-engineering-service
-      - SERVICE_TYPE=ml-feature-engineering
-      - SERVICE_VERSION=1.0.0
+      - CLICKHOUSE_DATABASE=suho_analytics
+      - CLICKHOUSE_USER=suho_analytics
+      - CLICKHOUSE_PASSWORD=clickhouse_secure_2024
+
+      # Python
       - PYTHONUNBUFFERED=1
     volumes:
       - ./03-machine-learning/feature-engineering-service/config:/app/config:ro
@@ -896,8 +893,6 @@ services:
       - suho-trading-network
     depends_on:
       clickhouse:
-        condition: service_healthy
-      central-hub:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "python3", "/app/src/healthcheck.py"]

@@ -83,41 +83,50 @@ aggregation:
         enabled: true
 
   # Timeframes to aggregate (maps to schedule)
+  # CRITICAL TIMING FIX: Enhanced lookback windows to catch late-arriving ticks
+  # Buffer Strategy: interval + 2x buffer (was 1x, now 2x for robustness)
   timeframes:
     - name: "5m"
       interval_minutes: 5
       cron: "*/5 * * * *"  # Every 5 minutes
-      lookback_minutes: 10  # Query last 10 minutes of ticks
+      lookback_minutes: 15  # IMPROVED: 5 + 10min buffer (was 10min, now 15min)
+      # Safety: Catches ticks up to 10 minutes late (2x interval)
 
     - name: "15m"
       interval_minutes: 15
       cron: "*/15 * * * *"  # Every 15 minutes
-      lookback_minutes: 20
+      lookback_minutes: 30  # IMPROVED: 15 + 15min buffer (was 20min, now 30min)
+      # Safety: Catches ticks up to 15 minutes late
 
     - name: "30m"
       interval_minutes: 30
       cron: "*/30 * * * *"  # Every 30 minutes
-      lookback_minutes: 35
+      lookback_minutes: 50  # IMPROVED: 30 + 20min buffer (was 35min, now 50min)
+      # Safety: Catches ticks up to 20 minutes late
 
     - name: "1h"
       interval_minutes: 60
       cron: "0 * * * *"  # Every hour at :00
-      lookback_minutes: 65
+      lookback_minutes: 90  # IMPROVED: 60 + 30min buffer (was 65min, now 90min)
+      # Safety: Catches ticks up to 30 minutes late
 
     - name: "4h"
       interval_minutes: 240
       cron: "0 */4 * * *"  # Every 4 hours
-      lookback_minutes: 245
+      lookback_minutes: 300  # IMPROVED: 240 + 60min buffer (was 245min, now 300min)
+      # Safety: Catches ticks up to 1 hour late
 
     - name: "1d"
       interval_minutes: 1440
       cron: "0 0 * * *"  # Daily at 00:00 UTC
-      lookback_minutes: 1445
+      lookback_minutes: 1500  # IMPROVED: 1440 + 60min buffer (was 1445min, now 1500min)
+      # Safety: Catches ticks up to 1 hour late
 
     - name: "1w"
       interval_minutes: 10080
       cron: "0 0 * * 1"  # Weekly on Monday 00:00 UTC
-      lookback_minutes: 10085
+      lookback_minutes: 10200  # IMPROVED: 10080 + 120min buffer (was 10085min, now 10200min)
+      # Safety: Catches ticks up to 2 hours late
 
   # Batch configuration
   batch_size: 10000  # Ticks per query

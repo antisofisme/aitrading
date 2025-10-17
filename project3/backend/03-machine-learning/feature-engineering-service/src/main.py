@@ -10,17 +10,13 @@ ClickHouse (aggregates + external) → Feature Calculation → ml_training_data 
 
 import asyncio
 import logging
-import yaml
 import sys
 from pathlib import Path
 from datetime import datetime, timedelta
 
+from .config import Config
 from .clickhouse_client import ClickHouseClient
 from .feature_calculator import FeatureCalculator
-from .central_hub_sdk import CentralHubSDK
-
-# Central Hub SDK for progress logging
-from central_hub_sdk import ProgressLogger
 
 # Setup logging
 logging.basicConfig(
@@ -43,13 +39,10 @@ class FeatureEngineeringService:
     """
 
     def __init__(self, config_path: str = "config/features.yaml"):
-        self.config = self._load_config(config_path)
+        # Load configuration from YAML + environment variables
+        self.config = Config(config_path)
 
         # Initialize clients
-        self.central_hub = CentralHubSDK(
-            base_url="http://suho-central-hub:7000"
-        )
-
         self.clickhouse = None
         self.feature_calculator = None
 
@@ -60,50 +53,28 @@ class FeatureEngineeringService:
 
         logger.info("🤖 Feature Engineering Service initialized")
 
-    def _load_config(self, config_path: str) -> dict:
-        """Load configuration from YAML"""
-        with open(config_path, 'r') as f:
-            config = yaml.safe_load(f)
-        logger.info(f"✅ Configuration loaded from {config_path}")
-        return config
-
     async def start(self):
         """Start feature engineering service"""
         try:
-            # 1. Register with Central Hub
-            await self.central_hub.register(
-                service_name="feature-engineering-service",
-                service_type="ml",
-                version=self.config['service']['version'],
-                metadata={
-                    'feature_count': 72,  # v2.3: 63 original + 9 Fibonacci
-                    'timeframes': list(self.config['timeframes'].values()),
-                    'primary_pair': self.config['primary_pair']
-                }
-            )
-            logger.info("✅ Registered with Central Hub")
+            logger.info("🚀 Starting Feature Engineering Service...")
 
-            # 2. Get ClickHouse config from Central Hub
-            ch_config_response = await self.central_hub.get_database_config("clickhouse")
-            ch_config = ch_config_response.get('config', ch_config_response)  # Extract 'config' key
-            logger.info("✅ Retrieved ClickHouse config from Central Hub")
-
-            # 3. Initialize ClickHouse client
+            # 1. Initialize ClickHouse client with config from environment variables
+            ch_config = self.config.clickhouse_config
             self.clickhouse = ClickHouseClient(ch_config)
             await self.clickhouse.connect()
             logger.info("✅ Connected to ClickHouse")
 
-            # 4. Initialize Feature Calculator
+            # 2. Initialize Feature Calculator
             self.feature_calculator = FeatureCalculator(
-                config=self.config,
+                config=self.config.get_full_config(),
                 clickhouse_client=self.clickhouse
             )
             logger.info("✅ Feature Calculator initialized")
 
-            # 5. Process historical data (5 years for training)
+            # 3. Process historical data (ALL available data for training)
             await self.process_historical_data()
 
-            # 6. Start continuous processing for new data
+            # 4. Start continuous processing for new data
             await self.continuous_processing()
 
         except Exception as e:
@@ -121,7 +92,7 @@ class FeatureEngineeringService:
         """
         logger.info("📊 Starting historical data processing (memory-efficient chunked mode)")
 
-        primary_pair = self.config['primary_pair']
+        primary_pair = self.config.primary_pair
 
         # Get date range for available data
         range_query = f"""
@@ -169,15 +140,7 @@ class FeatureEngineeringService:
 
         total_chunks = calculate_total_chunks(min_date, max_date)
 
-        # Initialize progress logger
-        progress = ProgressLogger(
-            task_name=f"Processing {primary_pair} features",
-            total_items=total_chunks,
-            service_name="feature-engineering",
-            milestones=[25, 50, 75, 100],
-            heartbeat_interval=30
-        )
-        progress.start()
+        logger.info(f"📊 Total chunks to process: {total_chunks} (6-month chunks)")
 
         current_date = min_date
         chunk_number = 0
@@ -216,16 +179,14 @@ class FeatureEngineeringService:
             aggregates = await self.clickhouse.query(query)
 
             if aggregates.empty:
-                # Still update progress for empty chunks
-                progress.update(
-                    current=chunk_number,
-                    additional_info={"status": "empty", "rows": self.total_rows_processed}
-                )
+                logger.info(f"   📊 Chunk {chunk_number}/{total_chunks}: Empty (no data)")
                 current_date = chunk_end
                 continue
 
+            logger.info(f"   📊 Chunk {chunk_number}/{total_chunks}: Processing {len(aggregates):,} candles ({current_date} to {chunk_end})")
+
             # Process in smaller batches within chunk
-            batch_size = self.config['processing']['batch_size']
+            batch_size = self.config.processing_config.get('batch_size', 1000)
             total_batches = (len(aggregates) + batch_size - 1) // batch_size
 
             for batch_idx in range(total_batches):
@@ -252,14 +213,11 @@ class FeatureEngineeringService:
                     logger.error(f"   ❌ Batch {batch_idx + 1} failed: {e}")
                     continue
 
-            # Update progress after chunk completion
-            progress.update(
-                current=chunk_number,
-                additional_info={
-                    "rows": self.total_rows_processed,
-                    "features": self.total_features_generated,
-                    "errors": self.errors
-                }
+            # Log progress after chunk completion
+            progress_pct = (chunk_number / total_chunks) * 100
+            logger.info(
+                f"   ✅ Chunk {chunk_number}/{total_chunks} completed ({progress_pct:.1f}%) | "
+                f"Rows: {self.total_rows_processed:,} | Features: {self.total_features_generated:,} | Errors: {self.errors}"
             )
 
             # Free memory
@@ -268,11 +226,12 @@ class FeatureEngineeringService:
             # Move to next chunk
             current_date = chunk_end
 
-        progress.complete(summary={
-            "total_rows": self.total_rows_processed,
-            "total_features": self.total_features_generated,
-            "errors": self.errors
-        })
+        logger.info(
+            f"✅ Historical data processing completed! | "
+            f"Total Rows: {self.total_rows_processed:,} | "
+            f"Total Features: {self.total_features_generated:,} | "
+            f"Errors: {self.errors}"
+        )
 
     async def continuous_processing(self):
         """
@@ -297,12 +256,13 @@ class FeatureEngineeringService:
                 # Process last hour candle
                 await self.process_latest_candle()
 
-                # Send heartbeat
-                await self.central_hub.send_heartbeat({
-                    'rows_processed': self.total_rows_processed,
-                    'features_generated': self.total_features_generated,
-                    'errors': self.errors
-                })
+                # Log periodic heartbeat with metrics
+                logger.info(
+                    f"💓 Heartbeat | "
+                    f"Rows: {self.total_rows_processed:,} | "
+                    f"Features: {self.total_features_generated:,} | "
+                    f"Errors: {self.errors}"
+                )
 
             except Exception as e:
                 logger.error(f"❌ Continuous processing error: {e}")
@@ -310,7 +270,7 @@ class FeatureEngineeringService:
 
     async def process_latest_candle(self):
         """Process the latest completed H1 candle"""
-        primary_pair = self.config['primary_pair']
+        primary_pair = self.config.primary_pair
 
         # Get last completed H1 candle (1 hour ago)
         query = f"""
@@ -348,9 +308,6 @@ class FeatureEngineeringService:
 
         if self.clickhouse:
             await self.clickhouse.close()
-
-        if self.central_hub:
-            await self.central_hub.deregister()
 
         logger.info("✅ Service shutdown complete")
 
