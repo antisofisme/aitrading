@@ -1,6 +1,6 @@
-# =� Database Flow - Data Storage Strategy
+# 🗄️ Database Flow - Data Storage Strategy
 
-> **Version**: 1.7.0 (Draft - Bertahap)
+> **Version**: 1.8.0 (Draft - Bertahap)
 > **Last Updated**: 2025-10-17
 > **Status**: In Discussion - Konsep Awal
 
@@ -55,9 +55,14 @@ Polygon WebSocket → Live Collector → TimescaleDB.live_ticks
 - `timestamp_ms` - bigint (unix timestamp untuk precision)
 - `ingested_at` - timestamp with time zone
 
-**Kolom Optional** (calculated on-the-fly):
-- `mid` = (bid + ask) / 2
-- `spread` = ask - bid
+**Kolom Derived** (⚠️ **TIDAK DISIMPAN** - calculated saat query jika dibutuhkan):
+- `mid` = (bid + ask) / 2 - Mid price (calculated from bid/ask)
+- `spread` = ask - bid - Spread (calculated from bid/ask)
+
+**Why NOT Stored?**
+- ✅ Dapat dihitung instant dari bid/ask
+- ✅ Menghemat storage (tidak perlu kolom tambahan)
+- ✅ Spread metrics sudah di-aggregate di `live_aggregates` table
 
 **Kolom Dihapus** (redundant):
 - ~~`tick_id`~~ - tidak perlu, cukup composite key (time + symbol)
@@ -95,9 +100,14 @@ Dukascopy Binary Files → Historical Downloader → ClickHouse.historical_ticks
 - `timestamp_ms` - UInt64 (unix timestamp untuk precision)
 - `ingested_at` - DateTime64(3, 'UTC')
 
-**Kolom Optional** (calculated on-the-fly):
-- `mid` = (bid + ask) / 2
-- `spread` = ask - bid
+**Kolom Derived** (⚠️ **TIDAK DISIMPAN** - calculated saat query jika dibutuhkan):
+- `mid` = (bid + ask) / 2 - Mid price (calculated from bid/ask)
+- `spread` = ask - bid - Spread (calculated from bid/ask)
+
+**Why NOT Stored?**
+- ✅ Dapat dihitung instant dari bid/ask
+- ✅ Menghemat storage (tidak perlu kolom tambahan)
+- ✅ Spread metrics sudah di-aggregate di `historical_aggregates` table
 
 **Kolom Dihapus** (redundant):
 - ~~`tick_id`~~ - tidak perlu, cukup composite key (time + symbol)
@@ -662,10 +672,10 @@ CREATE TABLE suho_analytics.live_aggregates
     -- Volume metrics
     tick_count UInt32,                                  -- Volume proxy (total ticks)
     
-    -- Spread metrics
-    avg_spread Decimal(18,5),                          -- Average bid-ask spread
-    max_spread Decimal(18,5),                          -- Maximum spread (volatility)
-    min_spread Decimal(18,5),                          -- Minimum spread
+    -- Spread metrics (⚠️ DISIMPAN karena hasil aggregasi dari banyak tick)
+    avg_spread Decimal(18,5),                          -- Average bid-ask spread (dari 847+ ticks)
+    max_spread Decimal(18,5),                          -- Maximum spread (volatility spike detection)
+    min_spread Decimal(18,5),                          -- Minimum spread (tightest liquidity)
     
     -- Volatility metrics
     price_range Decimal(18,5),                         -- high - low (intrabar range)
@@ -692,28 +702,38 @@ ORDER BY (symbol, timeframe, time);
 **Aggregation Example** (EUR/USD 5m candle):
 ```
 Raw Ticks (14:00:00 - 14:05:00): 847 ticks
-  → 14:00:01: bid=1.10501, ask=1.10503 (mid=1.10502)
-  → 14:00:45: bid=1.10510, ask=1.10512 (mid=1.10511)
-  → 14:04:59: bid=1.10508, ask=1.10510 (mid=1.10509)
+  → 14:00:01: bid=1.10501, ask=1.10503 (spread=0.00002)
+  → 14:00:45: bid=1.10510, ask=1.10512 (spread=0.00002)
+  → 14:04:59: bid=1.10508, ask=1.10510 (spread=0.00002)
+  → ... (844 more ticks with varying spreads)
 
-Result:
+Result (DISIMPAN di database):
 {
   time: "2025-10-17 14:00:00",
   symbol: "C:EURUSD",
   timeframe: "5m",
-  open: 1.10502,           // First tick
-  high: 1.10515,           // Highest
-  low: 1.10498,            // Lowest
-  close: 1.10509,          // Last tick
-  tick_count: 847,         // Total ticks
-  avg_spread: 0.00002,     // Average spread
-  max_spread: 0.00004,     // Volatility spike
-  min_spread: 0.00001,     // Tightest spread
+  open: 1.10502,           // First tick mid
+  high: 1.10515,           // Highest mid
+  low: 1.10498,            // Lowest mid
+  close: 1.10509,          // Last tick mid
+  tick_count: 847,         // Total ticks in 5 min
+
+  // Spread metrics (aggregated dari 847 individual tick spreads)
+  avg_spread: 0.00002,     // mean([spread1, spread2, ..., spread847])
+  max_spread: 0.00004,     // max([spread1, spread2, ..., spread847]) - Volatility spike
+  min_spread: 0.00001,     // min([spread1, spread2, ..., spread847]) - Tightest liquidity
+
   price_range: 0.00017,    // 1.10515 - 1.10498
   pct_change: 0.0063,      // (1.10509-1.10502)/1.10502*100
   is_complete: 1           // Closed candle
 }
 ```
+
+**Why Spread Metrics DISIMPAN?**
+- ❌ **Tidak bisa di-recalculate** tanpa akses ke 847 raw tick data
+- ✅ Hasil aggregasi dari banyak tick (not single calculation)
+- ✅ Critical untuk ML (volatility & liquidity features)
+- ✅ Dibutuhkan untuk historical analysis (tick data mungkin sudah dihapus)
 
 **Karakteristik**:
 - Write frequency: Continuous (new candles every timeframe interval)
@@ -963,6 +983,7 @@ For ML training accuracy, flat aggregation is worth the computational cost.
 **Status**: Dokumentasi bertahap - akan dilanjutkan sesuai diskusi
 
 **Version History**:
+- v1.8.0 (2025-10-17): Clarified storage strategy - Tick tables: mid/spread NOT stored (derived on-the-fly), Aggregates: spread metrics STORED (aggregated from many ticks, cannot recalculate)
 - v1.7.0 (2025-10-17): Optimized live retention - live_ticks: 3 days, live_aggregates: 7 days (covers scalping/day/swing), gap filling < 7 days, Dukascopy does NOT fill live gaps
 - v1.6.0 (2025-10-17): Added Gap Filling strategy - Polygon Historical for recent gaps, renamed market_ticks → live_ticks, added gap detection workflow
 - v1.5.0 (2025-10-17): Separated External Data (3 sources) vs Calculated Features (Market Sessions, Calendar, Time) - Market Sessions moved to Feature Engineering
