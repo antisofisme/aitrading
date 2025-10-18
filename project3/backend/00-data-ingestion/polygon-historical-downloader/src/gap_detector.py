@@ -127,7 +127,7 @@ class GapDetector:
             # Query for timestamps
             query = f"""
                 SELECT time
-                FROM {self.config.get('table', 'historical_ticks')}
+                FROM {self.config.get('table', 'live_aggregates')}
                 WHERE symbol = %(symbol)s
                   AND time >= now() - INTERVAL {days} DAY
                 ORDER BY time ASC
