@@ -64,7 +64,14 @@ When working on this service, ALWAYS verify:
 - [ ] Commodity prices current (within last hour)
 
 ## Reference Docs
+
+**Service Documentation:**
 - Planning guide: `PLANNING_SKILL_GUIDE.md` (Service 4, lines 652-850)
 - Architecture: `SERVICE_ARCHITECTURE_AND_FLOW.md` (lines 340-368)
 - Flow + messaging: `SERVICE_FLOW_TREE_WITH_MESSAGING.md` (lines 129-165)
 - Database schema: `table_database_input.md` (external_* tables)
+
+**Operational Skills (Central-Hub Agent Tools):**
+- 🔍 Debug issues: `.claude/skills/central-hub-debugger/`
+- 🔧 Fix problems: `.claude/skills/central-hub-fixer/`
+- ➕ Create new service: `.claude/skills/central-hub-service-creator/`

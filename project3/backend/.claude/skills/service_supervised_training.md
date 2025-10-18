@@ -57,7 +57,14 @@ When working on this service, ALWAYS verify:
 - [ ] NATS publishes training status events
 
 ## Reference Docs
+
+**Service Documentation:**
 - Planning guide: `PLANNING_SKILL_GUIDE.md` (Service 8, lines 1052-1250)
 - Architecture: `SERVICE_ARCHITECTURE_AND_FLOW.md` (lines 459-495)
 - Flow + messaging: `SERVICE_FLOW_TREE_WITH_MESSAGING.md` (lines 379-419)
 - Database schema: `table_database_training.md` (to be designed)
+
+**Operational Skills (Central-Hub Agent Tools):**
+- 🔍 Debug issues: `.claude/skills/central-hub-debugger/`
+- 🔧 Fix problems: `.claude/skills/central-hub-fixer/`
+- ➕ Create new service: `.claude/skills/central-hub-service-creator/`

@@ -70,7 +70,14 @@ When working on this service, ALWAYS verify:
 - [ ] NATS publishes completion status
 
 ## Reference Docs
+
+**Service Documentation:**
 - Planning guide: `PLANNING_SKILL_GUIDE.md` (Service 15, lines 2452-2650)
 - Architecture: `SERVICE_ARCHITECTURE_AND_FLOW.md` (lines 726-749)
 - Flow + messaging: `SERVICE_FLOW_TREE_WITH_MESSAGING.md` (lines 723-753)
 - Database schema: TBD (backtest_results table to be designed)
+
+**Operational Skills (Central-Hub Agent Tools):**
+- 🔍 Debug issues: `.claude/skills/central-hub-debugger/`
+- 🔧 Fix problems: `.claude/skills/central-hub-fixer/`
+- ➕ Create new service: `.claude/skills/central-hub-service-creator/`

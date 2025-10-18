@@ -55,7 +55,14 @@ When working on this service, ALWAYS verify:
 - [ ] Schedule runs as expected (cron: hourly, daily, weekly)
 
 ## Reference Docs
+
+**Service Documentation:**
 - Planning guide: `PLANNING_SKILL_GUIDE.md` (Service 2, lines 252-450)
 - Architecture: `SERVICE_ARCHITECTURE_AND_FLOW.md` (lines 301-319)
 - Flow + messaging: `SERVICE_FLOW_TREE_WITH_MESSAGING.md` (lines 82-105)
 - Database schema: `table_database_input.md` (live_aggregates table)
+
+**Operational Skills (Central-Hub Agent Tools):**
+- 🔍 Debug issues: `.claude/skills/central-hub-debugger/`
+- 🔧 Fix problems: `.claude/skills/central-hub-fixer/`
+- ➕ Create new service: `.claude/skills/central-hub-service-creator/`

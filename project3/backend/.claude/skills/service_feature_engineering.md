@@ -68,7 +68,14 @@ When working on this service, ALWAYS verify:
 - [ ] NATS publishes `features.*.*` (inference-service subscribes)
 
 ## Reference Docs
+
+**Service Documentation:**
 - Planning guide: `PLANNING_SKILL_GUIDE.md` (Service 7, lines 810-1050)
 - Architecture: `SERVICE_ARCHITECTURE_AND_FLOW.md` (lines 420-454)
 - Flow + messaging: `SERVICE_FLOW_TREE_WITH_MESSAGING.md` (lines 310-372)
 - Database schema: `table_database_process.md` (ml_features table - v2.0.0)
+
+**Operational Skills (Central-Hub Agent Tools):**
+- 🔍 Debug issues: `.claude/skills/central-hub-debugger/`
+- 🔧 Fix problems: `.claude/skills/central-hub-fixer/`
+- ➕ Create new service: `.claude/skills/central-hub-service-creator/`

@@ -74,7 +74,14 @@ When working on this service, ALWAYS verify:
 - [ ] Dashboard loads fast (< 2 seconds)
 
 ## Reference Docs
+
+**Service Documentation:**
 - Planning guide: `PLANNING_SKILL_GUIDE.md` (Service 16, lines 2652-2850)
 - Architecture: `SERVICE_ARCHITECTURE_AND_FLOW.md` (lines 752-767)
 - Flow + messaging: `SERVICE_FLOW_TREE_WITH_MESSAGING.md` (lines 755-785)
 - Database schema: All tables (read-only access)
+
+**Operational Skills (Central-Hub Agent Tools):**
+- 🔍 Debug issues: `.claude/skills/central-hub-debugger/`
+- 🔧 Fix problems: `.claude/skills/central-hub-fixer/`
+- ➕ Create new service: `.claude/skills/central-hub-service-creator/`

@@ -57,7 +57,14 @@ When working on this service, ALWAYS verify:
 - [ ] No data loss (compare live vs historical counts)
 
 ## Reference Docs
+
+**Service Documentation:**
 - Planning guide: `PLANNING_SKILL_GUIDE.md` (Service 5, lines 852-1050)
 - Architecture: `SERVICE_ARCHITECTURE_AND_FLOW.md` (lines 371-393)
 - Flow + messaging: `SERVICE_FLOW_TREE_WITH_MESSAGING.md` (lines 167-223)
 - Database schema: `table_database_input.md` (historical_* tables)
+
+**Operational Skills (Central-Hub Agent Tools):**
+- 🔍 Debug issues: `.claude/skills/central-hub-debugger/`
+- 🔧 Fix problems: `.claude/skills/central-hub-fixer/`
+- ➕ Create new service: `.claude/skills/central-hub-service-creator/`

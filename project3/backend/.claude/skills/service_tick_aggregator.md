@@ -53,7 +53,14 @@ When working on this service, ALWAYS verify:
 - [ ] No NULL values in OHLC (open, high, low, close all non-NULL)
 
 ## Reference Docs
+
+**Service Documentation:**
 - Planning guide: `PLANNING_SKILL_GUIDE.md` (Service 6, lines 810-1050)
 - Architecture: `SERVICE_ARCHITECTURE_AND_FLOW.md` (lines 396-418)
 - Flow + messaging: `SERVICE_FLOW_TREE_WITH_MESSAGING.md` (lines 251-308)
 - Database schema: `table_database_input.md` (aggregates table)
+
+**Operational Skills (Central-Hub Agent Tools):**
+- 🔍 Debug issues: `.claude/skills/central-hub-debugger/`
+- 🔧 Fix problems: `.claude/skills/central-hub-fixer/`
+- ➕ Create new service: `.claude/skills/central-hub-service-creator/`

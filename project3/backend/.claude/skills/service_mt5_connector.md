@@ -73,7 +73,14 @@ When working on this service, ALWAYS verify:
 - [ ] Error handling works (test with invalid orders)
 
 ## Reference Docs
+
+**Service Documentation:**
 - Planning guide: `PLANNING_SKILL_GUIDE.md` (Service 14, lines 2252-2450)
 - Architecture: `SERVICE_ARCHITECTURE_AND_FLOW.md` (lines 706-723)
 - Flow + messaging: `SERVICE_FLOW_TREE_WITH_MESSAGING.md` (lines 684-721)
 - Database schema: `table_database_trading.md` (executions table)
+
+**Operational Skills (Central-Hub Agent Tools):**
+- 🔍 Debug issues: `.claude/skills/central-hub-debugger/`
+- 🔧 Fix problems: `.claude/skills/central-hub-fixer/`
+- ➕ Create new service: `.claude/skills/central-hub-service-creator/`

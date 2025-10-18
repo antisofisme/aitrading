@@ -227,7 +227,21 @@ CREATE TABLE coordination_history (
 4. Services auto-reconnect via central-hub coordination
 
 ## Reference Docs
+
+**Complete Central-Hub Documentation:**
+- `docs/central-hub/README.md` - Complete guide (387 lines)
+- `docs/central-hub/API_DOCUMENTATION.md` - API endpoints reference
+- `docs/central-hub/CONTRACTS_GUIDE.md` - API contracts & validation
+- `docs/central-hub/SHARED_ARCHITECTURE.md` - Shared components
+- `docs/central-hub/SHARED_PROTOCOLS.md` - Communication protocols
+
+**Service Documentation:**
 - Planning guide: `PLANNING_SKILL_GUIDE.md` (Service 5, central-hub section)
 - Architecture: `SERVICE_ARCHITECTURE_AND_FLOW.md` (lines 371-393)
-- Flow + messaging: `SERVICE_FLOW_TREE_WITH_MESSAGING.md` (central-hub coordination)
+- Flow + messaging: `SERVICE_FLOW_TREE_WITH_MESSAGING.md` (coordination)
 - Infrastructure config: `01-core-infrastructure/central-hub/base/config/infrastructure.yaml`
+
+**Operational Skills (Central-Hub Agent Tools):**
+- 🔍 Debug issues: `.claude/skills/central-hub-debugger/`
+- 🔧 Fix problems: `.claude/skills/central-hub-fixer/`
+- ➕ Create new service: `.claude/skills/central-hub-service-creator/`

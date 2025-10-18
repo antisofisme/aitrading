@@ -65,7 +65,14 @@ When working on this service, ALWAYS verify:
 - [ ] Kafka archives all risk decisions
 
 ## Reference Docs
+
+**Service Documentation:**
 - Planning guide: `PLANNING_SKILL_GUIDE.md` (Service 12, lines 1652-1850)
 - Architecture: `SERVICE_ARCHITECTURE_AND_FLOW.md` (lines 620-656)
 - Flow + messaging: `SERVICE_FLOW_TREE_WITH_MESSAGING.md` (lines 527-577)
 - Database schema: `table_database_trading.md` (risk_events table)
+
+**Operational Skills (Central-Hub Agent Tools):**
+- 🔍 Debug issues: `.claude/skills/central-hub-debugger/`
+- 🔧 Fix problems: `.claude/skills/central-hub-fixer/`
+- ➕ Create new service: `.claude/skills/central-hub-service-creator/`

@@ -65,7 +65,14 @@ When working on this service, ALWAYS verify:
 - [ ] Kafka archives complete order lifecycle
 
 ## Reference Docs
+
+**Service Documentation:**
 - Planning guide: `PLANNING_SKILL_GUIDE.md` (Service 11, lines 1852-2050)
 - Architecture: `SERVICE_ARCHITECTURE_AND_FLOW.md` (lines 579-617)
 - Flow + messaging: `SERVICE_FLOW_TREE_WITH_MESSAGING.md` (lines 579-633)
 - Database schema: `table_database_trading.md` (orders, executions, positions tables)
+
+**Operational Skills (Central-Hub Agent Tools):**
+- 🔍 Debug issues: `.claude/skills/central-hub-debugger/`
+- 🔧 Fix problems: `.claude/skills/central-hub-fixer/`
+- ➕ Create new service: `.claude/skills/central-hub-service-creator/`

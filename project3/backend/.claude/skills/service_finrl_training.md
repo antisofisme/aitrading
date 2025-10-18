@@ -67,7 +67,14 @@ When working on this service, ALWAYS verify:
 - [ ] NATS publishes RL training progress
 
 ## Reference Docs
+
+**Service Documentation:**
 - Planning guide: `PLANNING_SKILL_GUIDE.md` (Service 9, lines 1252-1450)
 - Architecture: `SERVICE_ARCHITECTURE_AND_FLOW.md` (lines 498-539)
 - Flow + messaging: `SERVICE_FLOW_TREE_WITH_MESSAGING.md` (lines 421-465)
 - Database schema: `table_database_training.md` (to be designed)
+
+**Operational Skills (Central-Hub Agent Tools):**
+- 🔍 Debug issues: `.claude/skills/central-hub-debugger/`
+- 🔧 Fix problems: `.claude/skills/central-hub-fixer/`
+- ➕ Create new service: `.claude/skills/central-hub-service-creator/`
