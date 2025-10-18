@@ -339,13 +339,14 @@ class DataValidator:
 
         Examples:
             >>> DataValidator.validate_ohlcv_sql_clause()
-            'timestamp IS NOT NULL AND open IS NOT NULL AND high IS NOT NULL AND low IS NOT NULL AND close IS NOT NULL AND volume IS NOT NULL AND open > 0 AND high > 0 AND low > 0 AND close > 0 AND volume > 0'
+            'time IS NOT NULL AND open IS NOT NULL AND high IS NOT NULL AND low IS NOT NULL AND close IS NOT NULL AND volume IS NOT NULL AND open > 0 AND high > 0 AND low > 0 AND close > 0 AND volume > 0'
 
             >>> DataValidator.validate_ohlcv_sql_clause(table_alias='a', include_volume_positive=False)
-            'a.timestamp IS NOT NULL AND a.open IS NOT NULL AND ... AND a.close > 0'
+            'a.time IS NOT NULL AND a.open IS NOT NULL AND ... AND a.close > 0'
         """
         prefix = f"{table_alias}." if table_alias else ""
-        fields = ['timestamp', 'open', 'high', 'low', 'close', 'volume']
+        # Note: Using 'time' instead of 'timestamp' to match ClickHouse schema
+        fields = ['time', 'open', 'high', 'low', 'close', 'volume']
 
         # NULL checks
         conditions = [f"{prefix}{field} IS NOT NULL" for field in fields]
@@ -377,7 +378,8 @@ class DataValidator:
             SQL WHERE clause string
         """
         prefix = f"{table_alias}." if table_alias else ""
-        fields = ['timestamp', 'bid', 'ask']
+        # Note: Using 'time' instead of 'timestamp' to match ClickHouse schema
+        fields = ['time', 'bid', 'ask']
 
         # NULL checks
         conditions = [f"{prefix}{field} IS NOT NULL" for field in fields]
