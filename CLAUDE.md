@@ -102,7 +102,7 @@ Before implementing, reviewing, or fixing ANY service, you MUST:
 3. **Follow Critical Rules** (prevent common mistakes)
 4. **Use validation checklist** after making changes
 
-**Available Skills (17 services):**
+**Available Skills (18 services):**
 ```
 .claude/skills/
 ├── README.md (index + usage guide)
@@ -110,6 +110,7 @@ Before implementing, reviewing, or fixing ANY service, you MUST:
 ├── service_polygon_historical_downloader.md
 ├── service_dukascopy_historical_downloader.md
 ├── service_external_data_collector.md
+├── service_central_hub.md (Core Infrastructure)
 ├── service_data_bridge.md
 ├── service_tick_aggregator.md
 ├── service_feature_engineering.md

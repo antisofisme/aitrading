@@ -2,6 +2,7 @@
 
 > **Purpose**: Per-service knowledge base untuk memastikan Claude konsisten saat bekerja pada setiap service.
 > **Format**: Anthropic Skills-compatible markdown files
+> **Coverage**: 18 services (Phase 1-4)
 > **Usage**: Reference these skills when working on specific services
 
 ---
@@ -16,9 +17,10 @@
 | 2 | polygon-historical-downloader | [service_polygon_historical_downloader.md](./service_polygon_historical_downloader.md) | ✅ Active |
 | 3 | dukascopy-historical-downloader | [service_dukascopy_historical_downloader.md](./service_dukascopy_historical_downloader.md) | ✅ Active |
 | 4 | external-data-collector | [service_external_data_collector.md](./service_external_data_collector.md) | ✅ Active |
-| 5 | data-bridge | [service_data_bridge.md](./service_data_bridge.md) | ✅ Active |
-| 6 | tick-aggregator | [service_tick_aggregator.md](./service_tick_aggregator.md) | ✅ Active |
-| 7 | feature-engineering-service | [service_feature_engineering.md](./service_feature_engineering.md) | ✅ Active |
+| 5 | **central-hub** | [**service_central_hub.md**](./service_central_hub.md) | ✅ **Active** (Core Infrastructure) |
+| 6 | data-bridge | [service_data_bridge.md](./service_data_bridge.md) | ✅ Active |
+| 7 | tick-aggregator | [service_tick_aggregator.md](./service_tick_aggregator.md) | ✅ Active |
+| 8 | feature-engineering-service | [service_feature_engineering.md](./service_feature_engineering.md) | ✅ Active |
 
 ---
 
