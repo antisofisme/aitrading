@@ -188,17 +188,17 @@ class TickAggregator:
         end_time = datetime.utcnow()
         start_time = end_time - timedelta(minutes=lookback_minutes)
 
-        # Query ticks from TimescaleDB
+        # Query ticks from TimescaleDB (calculate mid and spread on-the-fly)
         query = """
             SELECT
                 symbol,
                 time as timestamp,
                 bid,
                 ask,
-                mid,
-                spread,
+                (bid + ask) / 2 as mid,
+                ask - bid as spread,
                 EXTRACT(EPOCH FROM time)::BIGINT * 1000 as timestamp_ms
-            FROM market_ticks
+            FROM live_ticks
             WHERE symbol = ANY($1)
               AND time >= $2
               AND time < $3
@@ -237,12 +237,10 @@ class TickAggregator:
                 # Determine resample rule
                 resample_rule = self._get_resample_rule(timeframe)
 
-                # Aggregate using mid price for OHLC
+                # Aggregate using mid price for OHLC + spread metrics
                 resampled = group.resample(resample_rule).agg({
                     'mid': ['first', 'max', 'min', 'last', 'count'],
-                    'bid': 'mean',
-                    'ask': 'mean',
-                    'spread': 'mean',
+                    'spread': ['mean', 'max', 'min'],  # NEW: avg, max, min spread for ML
                     'timestamp_ms': 'first'
                 }).dropna()
 
@@ -261,7 +259,7 @@ class TickAggregator:
                 else:
                     ohlcv_with_indicators = ohlcv_df
 
-                # Generate candles with indicators
+                # Generate candles with spread metrics for ML
                 for i, (timestamp, row) in enumerate(resampled.iterrows()):
                     open_price = row[('mid', 'first')]
                     high_price = row[('mid', 'max')]
@@ -269,17 +267,24 @@ class TickAggregator:
                     close_price = row[('mid', 'last')]
                     tick_count = int(row[('mid', 'count')])
 
-                    # Calculate VWAP (using mid price)
-                    vwap = (open_price + high_price + low_price + close_price) / 4
+                    # Spread metrics (critical for ML features)
+                    avg_spread = row[('spread', 'mean')]
+                    max_spread = row[('spread', 'max')]
+                    min_spread = row[('spread', 'min')]
 
-                    # Calculate range and body in pips
-                    range_pips = round((high_price - low_price) * 10000, 2)
-                    body_pips = round(abs(close_price - open_price) * 10000, 2)
+                    # Price range in pips
+                    price_range = round((high_price - low_price) * 10000, 2)
+
+                    # Percentage change (momentum feature)
+                    pct_change = ((close_price - open_price) / open_price * 100) if open_price != 0 else 0
+
+                    # Completeness flag (1 if tick_count > minimum threshold)
+                    is_complete = 1 if tick_count >= 5 else 0  # Require at least 5 ticks for complete candle
 
                     # Timestamp
                     timestamp_ms = int(timestamp.timestamp() * 1000)
-                    end_timestamp = timestamp + timedelta(minutes=interval_minutes)
 
+                    # NEW: 15-column schema aligned with live_aggregates table
                     candle = {
                         'symbol': symbol,
                         'timeframe': timeframe,
@@ -288,14 +293,13 @@ class TickAggregator:
                         'high': float(high_price),
                         'low': float(low_price),
                         'close': float(close_price),
-                        'volume': tick_count,  # Tick volume (number of ticks)
-                        'vwap': float(vwap),
-                        'range_pips': float(range_pips),
-                        'body_pips': float(body_pips),
-                        'start_time': timestamp.isoformat(),
-                        'end_time': end_timestamp.isoformat(),
-                        'source': 'live_aggregated',
-                        'event_type': 'ohlcv'
+                        'tick_count': tick_count,  # Renamed from 'volume'
+                        'avg_spread': float(avg_spread),  # NEW: ML feature
+                        'max_spread': float(max_spread),  # NEW: ML feature
+                        'min_spread': float(min_spread),  # NEW: ML feature
+                        'price_range': float(price_range),  # Renamed from 'range_pips'
+                        'pct_change': float(pct_change),  # NEW: momentum feature
+                        'is_complete': is_complete  # NEW: quality flag
                     }
 
                     # Add technical indicators for this candle

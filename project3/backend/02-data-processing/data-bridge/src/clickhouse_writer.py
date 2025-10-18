@@ -205,22 +205,22 @@ class ClickHouseWriter:
                     elif hasattr(timestamp_dt, 'tzinfo') and not timestamp_dt.tzinfo:
                         timestamp_dt = timestamp_dt.replace(tzinfo=timezone.utc)
 
+                    # NEW: 6-column schema for historical_ticks (matches live_ticks schema)
                     row = [
-                        tick['symbol'],
-                        timestamp_dt,
-                        float(tick.get('bid', 0)),
-                        float(tick.get('ask', 0)),
-                        float(tick.get('last', 0)),
-                        int(tick.get('volume', 0)),
-                        int(tick.get('flags', 0))
+                        timestamp_dt,  # time (DateTime64)
+                        tick['symbol'],  # symbol (String)
+                        float(tick.get('bid', 0)),  # bid (Decimal)
+                        float(tick.get('ask', 0)),  # ask (Decimal)
+                        int(timestamp_dt.timestamp() * 1000),  # timestamp_ms (UInt64)
+                        datetime.now(timezone.utc)  # ingested_at (DateTime64)
                     ]
                     data.append(row)
 
-                # Insert batch to ClickHouse ticks table
+                # Insert batch to ClickHouse historical_ticks table
                 self.client.insert(
-                    'ticks',
+                    'historical_ticks',
                     data,
-                    column_names=['symbol', 'timestamp', 'bid', 'ask', 'last', 'volume', 'flags']
+                    column_names=['time', 'symbol', 'bid', 'ask', 'timestamp_ms', 'ingested_at']
                 )
 
             # Execute with circuit breaker protection
@@ -230,7 +230,7 @@ class ClickHouseWriter:
             self.total_ticks_inserted += count
 
             if self.total_ticks_inserted % 10000 == 0:
-                logger.info(f"✅ Inserted {count} ticks to ClickHouse.ticks (total: {self.total_ticks_inserted})")
+                logger.info(f"✅ Inserted {count} ticks to ClickHouse.historical_ticks (total: {self.total_ticks_inserted})")
 
             # Clear buffer ONLY on success
             self.tick_buffer.clear()
@@ -292,7 +292,7 @@ class ClickHouseWriter:
 
                     check_query = f"""
                         SELECT symbol, timeframe, timestamp_ms
-                        FROM aggregates
+                        FROM live_aggregates
                         WHERE {where_clause}
                     """
 
@@ -335,73 +335,39 @@ class ClickHouseWriter:
                 data = []
                 for agg in filtered_buffer:
                     # Convert timestamps to UTC timezone-aware datetime
-                    timestamp_dt = datetime.fromtimestamp(agg['timestamp_ms'] / 1000.0, tz=timezone.utc)
+                    time_dt = datetime.fromtimestamp(agg['timestamp_ms'] / 1000.0, tz=timezone.utc)
 
-                    # Handle start_time and end_time (could be ISO strings or already datetime)
-                    start_time = agg.get('start_time')
-                    if isinstance(start_time, str):
-                        start_time = datetime.fromisoformat(start_time.replace('Z', '+00:00'))
-                    elif isinstance(start_time, (int, float)):
-                        start_time = datetime.fromtimestamp(start_time / 1000.0, tz=timezone.utc)
-
-                    end_time = agg.get('end_time')
-                    if isinstance(end_time, str):
-                        end_time = datetime.fromisoformat(end_time.replace('Z', '+00:00'))
-                    elif isinstance(end_time, (int, float)):
-                        end_time = datetime.fromtimestamp(end_time / 1000.0, tz=timezone.utc)
-
-                    # Serialize indicators to JSON string (if present)
-                    indicators_json = ''
-                    if 'indicators' in agg and agg['indicators']:
-                        try:
-                            indicators_json = json.dumps(agg['indicators'])
-                        except Exception as e:
-                            logger.warning(f"Failed to serialize indicators: {e}")
-                            indicators_json = '{}'
-
-                    # Calculate version based on source (for deduplication priority)
-                    source = agg.get('source', 'polygon_historical')
-                    if source == 'live_aggregated':
-                        version = agg['timestamp_ms']  # Highest priority
-                    elif source == 'live_gap_filled':
-                        version = agg['timestamp_ms'] - 1  # High priority
-                    elif source == 'historical_aggregated':
-                        version = 1  # Medium priority
-                    else:  # polygon_historical, polygon_gap_fill
-                        version = 0  # Low priority
-
+                    # NEW: 15-column schema for live_aggregates
                     row = [
-                        agg['symbol'],
-                        agg['timeframe'],
-                        timestamp_dt,
-                        agg['timestamp_ms'],
-                        float(agg['open']),
-                        float(agg['high']),
-                        float(agg['low']),
-                        float(agg['close']),
-                        int(agg.get('volume', 0)),
-                        float(agg.get('vwap', 0)),
-                        float(agg.get('range_pips', 0)),
-                        float(agg.get('body_pips', 0)),
-                        start_time,
-                        end_time,
-                        source,
-                        agg.get('event_type', 'ohlcv'),
-                        indicators_json,  # Technical indicators as JSON string
-                        version,  # NEW: Version for deduplication
-                        datetime.now(timezone.utc)  # NEW: created_at timestamp
+                        time_dt,  # time (DateTime64)
+                        agg['symbol'],  # symbol (String)
+                        agg['timeframe'],  # timeframe (Enum8 - ClickHouse handles conversion)
+                        float(agg['open']),  # open (Decimal)
+                        float(agg['high']),  # high (Decimal)
+                        float(agg['low']),  # low (Decimal)
+                        float(agg['close']),  # close (Decimal)
+                        int(agg.get('tick_count', agg.get('volume', 0))),  # tick_count (UInt32)
+                        float(agg.get('avg_spread', 0)),  # avg_spread (Decimal) - NEW
+                        float(agg.get('max_spread', 0)),  # max_spread (Decimal) - NEW
+                        float(agg.get('min_spread', 0)),  # min_spread (Decimal) - NEW
+                        float(agg.get('price_range', agg.get('range_pips', 0))),  # price_range (Decimal)
+                        float(agg.get('pct_change', 0)),  # pct_change (Decimal) - NEW
+                        int(agg.get('is_complete', 1)),  # is_complete (UInt8) - NEW
+                        datetime.now(timezone.utc)  # created_at (DateTime64)
                     ]
                     data.append(row)
 
-                # Insert batch to ClickHouse aggregates table
+                # Insert batch to ClickHouse live_aggregates table
                 self.client.insert(
-                    'aggregates',
+                    'live_aggregates',
                     data,
                     column_names=[
-                        'symbol', 'timeframe', 'timestamp', 'timestamp_ms',
-                        'open', 'high', 'low', 'close', 'volume',
-                        'vwap', 'range_pips', 'body_pips', 'start_time', 'end_time',
-                        'source', 'event_type', 'indicators', 'version', 'created_at'
+                        'time', 'symbol', 'timeframe',
+                        'open', 'high', 'low', 'close',
+                        'tick_count',
+                        'avg_spread', 'max_spread', 'min_spread',
+                        'price_range', 'pct_change', 'is_complete',
+                        'created_at'
                     ]
                 )
 

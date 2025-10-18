@@ -221,7 +221,7 @@ class DataBridge:
                     logger.debug(f"💾 Processing {data_type} from {source}...")
 
                     if data_type == 'tick':
-                        # Tick data → TimescaleDB.market_ticks
+                        # Tick data → TimescaleDB.live_ticks
                         await self._save_tick(data)
                         logger.debug(f"✅ Tick saved successfully")
 
@@ -259,8 +259,8 @@ class DataBridge:
             logger.info("=" * 80)
             logger.info("✅ DATA BRIDGE STARTED - HYBRID PHASE 1 + RETRY QUEUE + BACKPRESSURE")
             logger.info("📊 NATS: Market data streaming (ONLY SOURCE)")
-            logger.info("💾 Live Ticks → TimescaleDB.market_ticks")
-            logger.info("💾 Aggregates → ClickHouse.aggregates")
+            logger.info("💾 Live Ticks → TimescaleDB.live_ticks")
+            logger.info("💾 Aggregates → ClickHouse.live_aggregates")
             logger.info("💾 External Data → ClickHouse.external_*")
             logger.info(f"🔄 Retry Queue: {'ENABLED' if self.retry_queue else 'DISABLED'}")
             if self.retry_queue:
@@ -284,8 +284,8 @@ class DataBridge:
         Save tick data with intelligent routing
 
         Routing Logic:
-        - Dukascopy ticks (source == 'dukascopy_historical') → ClickHouse ticks table
-        - Polygon ticks (source == 'polygon_historical') → TimescaleDB market_ticks table
+        - Dukascopy ticks (source == 'dukascopy_historical') → ClickHouse historical_ticks table
+        - Polygon ticks (source == 'polygon_historical') → TimescaleDB live_ticks table
 
         This ensures:
         - Dukascopy raw ticks → ClickHouse for long-term storage

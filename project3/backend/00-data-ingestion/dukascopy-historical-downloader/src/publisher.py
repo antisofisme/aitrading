@@ -88,17 +88,17 @@ class NATSPublisher:
         - market.EURUSD.tick
         - market.GBPUSD.tick
 
-        Format (matching TimescaleDB market_ticks):
+        Format (aligned with live_ticks/historical_ticks schema):
         {
             'timestamp': datetime,
             'symbol': 'EUR/USD',
             'bid': 1.09990,
             'ask': 1.10000,
-            'mid': 1.09995,
-            'spread': 0.00010,
-            'volume': 2.0,
+            'volume': 2.0,  # Optional metadata
             'source': 'dukascopy_historical'
         }
+
+        Note: mid and spread removed (calculate on-the-fly when needed)
 
         Args:
             tick: Raw tick data dictionary

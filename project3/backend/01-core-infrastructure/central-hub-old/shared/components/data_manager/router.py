@@ -72,7 +72,7 @@ class DataRouter:
             try:
                 # Check if tick already exists
                 existing = await conn.fetchval("""
-                    SELECT 1 FROM market_ticks
+                    SELECT 1 FROM live_ticks
                     WHERE symbol = $1
                       AND time = to_timestamp($2/1000.0)
                     LIMIT 1
@@ -83,15 +83,13 @@ class DataRouter:
                     # logger.debug(f"⏭️  Skip duplicate tick: {tick_data.symbol} @ {tick_data.timestamp}")
                     return  # Exit early
 
-                # Insert only if not duplicate
+                # Insert only if not duplicate (6 columns: time, symbol, bid, ask, timestamp_ms, ingested_at)
                 await conn.execute("""
-                    INSERT INTO market_ticks (
-                        time, tenant_id, symbol, bid, ask, mid, spread,
-                        source, event_type, timestamp_ms
-                    ) VALUES (to_timestamp($1/1000.0), $2, $3, $4, $5, $6, $7, $8, $9, $10)
-                """, tick_data.timestamp, 'system', tick_data.symbol,
-                    tick_data.bid, tick_data.ask, tick_data.mid, tick_data.spread,
-                    tick_data.source, 'quote', tick_data.timestamp)
+                    INSERT INTO live_ticks (
+                        time, symbol, bid, ask, timestamp_ms
+                    ) VALUES (to_timestamp($1/1000.0), $2, $3, $4, $5)
+                """, tick_data.timestamp, tick_data.symbol,
+                    tick_data.bid, tick_data.ask, tick_data.timestamp)
             finally:
                 await self.pool_manager.release_timescale_connection(conn)
 

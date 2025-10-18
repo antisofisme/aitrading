@@ -80,21 +80,17 @@ class DukascopyDecoder:
                 if not self._validate_tick(bid, ask, bid_vol, ask_vol):
                     continue
 
-                # Calculate mid-price
-                mid = (bid + ask) / 2
-
-                # Total volume
+                # Total volume (optional field, not in core schema)
                 total_volume = bid_vol + ask_vol
 
-                # Format matching TimescaleDB market_ticks table
+                # NEW: 6-column schema aligned with live_ticks/historical_ticks
+                # Mid and spread removed (calculate on-the-fly when needed)
                 ticks.append({
                     'timestamp': timestamp,
                     'symbol': symbol.replace('', ''),  # Will be formatted in main.py
                     'bid': bid,
                     'ask': ask,
-                    'mid': mid,
-                    'spread': ask - bid,
-                    'volume': total_volume,
+                    'volume': total_volume,  # Optional metadata
                     'source': 'dukascopy_historical'
                 })
 
