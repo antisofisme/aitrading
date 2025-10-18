@@ -126,11 +126,11 @@ class GapDetector:
         try:
             # Query for timestamps
             query = f"""
-                SELECT timestamp
+                SELECT time
                 FROM {self.config.get('table', 'historical_ticks')}
                 WHERE symbol = %(symbol)s
-                  AND timestamp >= now() - INTERVAL {days} DAY
-                ORDER BY timestamp ASC
+                  AND time >= now() - INTERVAL {days} DAY
+                ORDER BY time ASC
             """
 
             result = self.client.execute(query, {'symbol': symbol})
