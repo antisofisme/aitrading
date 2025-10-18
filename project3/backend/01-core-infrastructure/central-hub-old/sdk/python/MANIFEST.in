@@ -1,3 +1,0 @@
-include README.md
-include LICENSE
-recursive-include central_hub_sdk *.py
