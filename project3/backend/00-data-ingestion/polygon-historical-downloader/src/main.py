@@ -794,24 +794,68 @@ class PolygonHistoricalService:
                 timeframe, multiplier = self.config.get_timeframe_for_pair(pair)
                 timeframe_str = f"{multiplier}{timeframe[0]}"
 
-                # Detect gaps in last 30 days
-                gaps = gap_detector.detect_gaps(symbol, days=30, max_gap_minutes=60)
+                # ✅ USE DATE RANGE GAP DETECTION (not detect_gaps which only finds gaps BETWEEN data)
+                # Get missing dates in configured range (default: today-7days to today)
+                download_cfg = self.config.download_config
+                from datetime import datetime, timedelta
 
-                if gaps:
-                    logger.info(f"📥 Found {len(gaps)} gaps for {symbol}, downloading with verification...")
+                # Parse date range from config
+                if download_cfg['start_date'].startswith('today'):
+                    # Parse "today-7days" format
+                    days_back = int(download_cfg['start_date'].replace('today-', '').replace('days', ''))
+                    start_date = (datetime.now() - timedelta(days=days_back)).strftime('%Y-%m-%d')
+                else:
+                    start_date = download_cfg['start_date']
+
+                if download_cfg['end_date'] == 'today':
+                    end_date = datetime.now().strftime('%Y-%m-%d')
+                else:
+                    end_date = download_cfg['end_date']
+
+                logger.info(f"📅 Checking date range: {start_date} to {end_date}")
+
+                # Get ALL missing dates in this range (handles empty database + partial data)
+                missing_dates = gap_detector.get_date_range_gaps(
+                    symbol=symbol,
+                    start_date=start_date,
+                    end_date=end_date,
+                    timeframe=timeframe_str
+                )
+
+                if missing_dates:
+                    logger.info(f"📥 Found {len(missing_dates)} missing dates for {symbol}, downloading with verification...")
+
+                    # Convert missing dates to gap ranges (consecutive dates grouped)
+                    gaps = []
+                    if missing_dates:
+                        # Sort dates
+                        sorted_dates = sorted([datetime.strptime(d, '%Y-%m-%d').date() for d in missing_dates])
+
+                        # Group consecutive dates
+                        gap_start = sorted_dates[0]
+                        gap_end = sorted_dates[0]
+
+                        for i in range(1, len(sorted_dates)):
+                            # Check if consecutive (within 4 days for weekends)
+                            if (sorted_dates[i] - gap_end).days <= 4:
+                                gap_end = sorted_dates[i]
+                            else:
+                                # Save previous gap
+                                gaps.append((gap_start, gap_end))
+                                # Start new gap
+                                gap_start = sorted_dates[i]
+                                gap_end = sorted_dates[i]
+
+                        # Don't forget last gap
+                        gaps.append((gap_start, gap_end))
+
+                    logger.info(f"📥 Grouped into {len(gaps)} gap ranges")
 
                     for gap_start, gap_end in gaps:
                         try:
-                            # Convert datetime to date
-                            if isinstance(gap_start, datetime):
-                                gap_start_date = gap_start.date()
-                            else:
-                                gap_start_date = gap_start
-
-                            if isinstance(gap_end, datetime):
-                                gap_end_date = gap_end.date()
-                            else:
-                                gap_end_date = gap_end
+                            # gap_start and gap_end are already date objects from above
+                            gap_start_date = gap_start
+                            gap_end_date = gap_end
 
                             # Download and verify with retry
                             success = await self.download_and_verify_gap(
@@ -886,9 +930,13 @@ class PolygonHistoricalService:
             logger.info("🚀 Starting CONTINUOUS historical downloader...")
             logger.info(f"⏰ Gap check interval: {gap_check_interval} hour(s)")
 
-            # Initial download on startup
-            if schedules.get('initial_download', {}).get('on_startup', True):
+            # Initial download on startup (DISABLED by default - polygon-historical is for gap filling only!)
+            # Dukascopy handles initial historical download (2+ years)
+            if schedules.get('initial_download', {}).get('on_startup', False):
+                logger.warning("⚠️  Initial download is ENABLED - this should only run ONCE for setup!")
                 await self.run_initial_download()
+            else:
+                logger.info("✅ Initial download DISABLED (gap filling mode only)")
 
             # Continuous gap checking + buffer flushing loop
             buffer_flush_interval = 300  # Flush buffer every 5 minutes
