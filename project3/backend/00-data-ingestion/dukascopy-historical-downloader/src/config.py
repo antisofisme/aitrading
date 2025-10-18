@@ -43,8 +43,8 @@ class Config:
         """Load NATS configuration from environment variables"""
         logger.info("📡 Loading configuration from environment variables...")
 
-        # NATS config
-        nats_url = os.getenv('NATS_URL', 'nats://localhost:4222')
+        # NATS config - Use cluster by default (Central Hub v2.0 pattern)
+        nats_url = os.getenv('NATS_URL', 'nats://nats-1:4222,nats://nats-2:4222,nats://nats-3:4222')
         if ',' in nats_url:
             # Cluster mode
             self._nats_cluster_urls = [url.strip() for url in nats_url.split(',')]

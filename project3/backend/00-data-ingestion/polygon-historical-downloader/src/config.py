@@ -38,8 +38,8 @@ class Config:
         """Load NATS, Kafka, and ClickHouse configs from environment variables"""
         logger.info("📡 Loading configuration from environment variables...")
 
-        # NATS config
-        nats_url = os.getenv('NATS_URL', 'nats://localhost:4222')
+        # NATS config - Use cluster by default (Central Hub v2.0 pattern)
+        nats_url = os.getenv('NATS_URL', 'nats://nats-1:4222,nats://nats-2:4222,nats://nats-3:4222')
         if ',' in nats_url:
             # Cluster mode
             self._nats_cluster_urls = [url.strip() for url in nats_url.split(',')]
@@ -50,12 +50,12 @@ class Config:
             logger.info(f"✅ NATS single server: {nats_url}")
 
         # Kafka config
-        kafka_brokers = os.getenv('KAFKA_BROKERS', 'localhost:9092')
+        kafka_brokers = os.getenv('KAFKA_BROKERS', 'suho-kafka:9092')
         self._kafka_brokers = [b.strip() for b in kafka_brokers.split(',')]
         logger.info(f"✅ Kafka brokers: {self._kafka_brokers}")
 
         # ClickHouse config
-        self._clickhouse_host = os.getenv('CLICKHOUSE_HOST', 'localhost')
+        self._clickhouse_host = os.getenv('CLICKHOUSE_HOST', 'suho-clickhouse')
         self._clickhouse_port = int(os.getenv('CLICKHOUSE_PORT', '9000'))
         self._clickhouse_user = os.getenv('CLICKHOUSE_USER', 'default')
         self._clickhouse_password = os.getenv('CLICKHOUSE_PASSWORD', '')

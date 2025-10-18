@@ -43,9 +43,9 @@ ENV PYTHONPATH=/app
 ENV PYTHONUNBUFFERED=1
 ENV LOG_LEVEL=INFO
 
-# Health check
+# Health check - Use proper health check script
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD python3 -c "import sys; sys.exit(0)"
+    CMD python3 /app/src/healthcheck.py
 
 # Run service directly (proxy configured via environment variables in docker-compose)
 CMD ["python3", "/app/src/main.py"]

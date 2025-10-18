@@ -110,7 +110,7 @@ schedule:
 
   # Gap check (maintenance mode)
   gap_check:
-    enabled: false  # Disable for testing (avoid checking future dates)
+    enabled: true  # Enable continuous gap monitoring
     lookback_days: 90  # Check last 90 days for gaps
     interval_hours: 24  # Run every 24 hours
 

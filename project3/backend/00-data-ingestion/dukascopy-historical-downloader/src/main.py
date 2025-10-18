@@ -303,17 +303,35 @@ async def main():
         # Run based on schedule config
         schedule_config = config.schedule_config
         initial_download = schedule_config.get('initial_download', {})
-
-        if initial_download.get('on_startup', True):
-            # Run initial download
-            await service.run_initial_download()
-
-        # Run gap check
         gap_check = schedule_config.get('gap_check', {})
-        if gap_check.get('enabled', True):
-            await service.run_gap_check()
 
-        logger.info("✅ Service completed successfully")
+        # Run initial download once on startup
+        if initial_download.get('on_startup', True):
+            logger.info("🚀 Running initial download (one-time)")
+            await service.run_initial_download()
+            logger.info("✅ Initial download complete")
+
+        # Continuous monitoring loop
+        if gap_check.get('enabled', True):
+            interval_hours = gap_check.get('interval_hours', 24)
+            logger.info(f"🔄 Starting continuous gap monitoring (every {interval_hours} hours)")
+
+            while True:
+                try:
+                    # Run gap check
+                    await service.run_gap_check()
+
+                    # Wait for next check
+                    logger.info(f"⏰ Next gap check in {interval_hours} hours...")
+                    await asyncio.sleep(interval_hours * 3600)
+
+                except Exception as e:
+                    logger.error(f"❌ Error in monitoring loop: {e}", exc_info=True)
+                    # Wait 5 minutes before retry on error
+                    logger.info("⏰ Retrying in 5 minutes...")
+                    await asyncio.sleep(300)
+        else:
+            logger.info("ℹ️  Gap check disabled. Service will exit after initial download.")
 
     except KeyboardInterrupt:
         logger.info("Received interrupt signal, shutting down...")
