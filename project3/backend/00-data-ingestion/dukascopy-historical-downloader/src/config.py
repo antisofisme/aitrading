@@ -120,7 +120,7 @@ class Config:
     def clickhouse_config(self) -> Dict:
         """
         Get ClickHouse configuration (for gap detection)
-        Uses ticks table (ClickHouse tick table)
+        Uses historical_ticks table (ClickHouse tick table)
         """
         yaml_config = self._config.get('clickhouse_config', {})
 
@@ -130,5 +130,5 @@ class Config:
             'user': os.getenv('CLICKHOUSE_USER', yaml_config.get('user', 'suho_analytics')),
             'password': os.getenv('CLICKHOUSE_PASSWORD', yaml_config.get('password', '')),
             'database': yaml_config.get('database', 'suho_analytics'),
-            'table': yaml_config.get('table', 'ticks')  # ClickHouse uses 'ticks' table name
+            'table': yaml_config.get('table', 'historical_ticks')  # ClickHouse historical ticks table
         }

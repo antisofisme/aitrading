@@ -66,12 +66,12 @@ class GapDetector:
             self.connect()
 
         # Query: Get all dates with tick data
-        # Note: ClickHouse ticks table doesn't have 'source' or 'timeframe' columns
+        # Note: historical_ticks uses timestamp_ms column (milliseconds since epoch)
         query = f"""
-        SELECT DISTINCT toDate(timestamp) as date
+        SELECT DISTINCT toDate(FROM_UNIXTIME(toInt64(timestamp_ms / 1000))) as date
         FROM {self.config['database']}.{self.config['table']}
         WHERE symbol = %(symbol)s
-          AND toDate(timestamp) BETWEEN %(start_date)s AND %(end_date)s
+          AND toDate(FROM_UNIXTIME(toInt64(timestamp_ms / 1000))) BETWEEN %(start_date)s AND %(end_date)s
         ORDER BY date
         """
 

@@ -121,11 +121,11 @@ nats_config:
   reconnect_time_wait: 2  # Seconds between reconnects
   ping_interval: 120  # Ping every 2 minutes
 
-# ClickHouse configuration (for gap detection in ticks table)
+# ClickHouse configuration (for gap detection in historical_ticks table)
 clickhouse_config:
   host: "suho-clickhouse"
   port: 9000
   user: "suho_analytics"
   password: "clickhouse_secure_2024"
   database: "suho_analytics"
-  table: "ticks"  # ClickHouse tick table name
+  table: "historical_ticks"  # ClickHouse historical tick table name
