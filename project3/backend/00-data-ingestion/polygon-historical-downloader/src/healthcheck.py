@@ -34,8 +34,14 @@ async def check_nats():
     """Check NATS connection"""
     try:
         import nats
+        import os
+
+        # Use NATS cluster from environment variable (Central Hub v2.0 pattern)
+        nats_url = os.getenv('NATS_URL', 'nats://nats-1:4222,nats://nats-2:4222,nats://nats-3:4222')
+        servers = [url.strip() for url in nats_url.split(',')]
+
         nc = await nats.connect(
-            servers=["nats://suho-nats-server:4222"],
+            servers=servers,
             connect_timeout=3
         )
         await nc.close()
