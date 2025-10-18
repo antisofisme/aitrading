@@ -127,7 +127,7 @@ class GapDetector:
             # Query for timestamps
             query = f"""
                 SELECT timestamp
-                FROM {self.config.get('table', 'ticks')}
+                FROM {self.config.get('table', 'historical_ticks')}
                 WHERE symbol = %(symbol)s
                   AND timestamp >= now() - INTERVAL {days} DAY
                 ORDER BY timestamp ASC
@@ -175,12 +175,11 @@ class GapDetector:
             # Query dates with COMPLETE data (no NULLs in OHLC)
             # Using centralized DataValidator for consistent validation
             query = f"""
-                SELECT DISTINCT toDate(timestamp) as date
-                FROM {self.config.get('table', 'aggregates')}
+                SELECT DISTINCT toDate(time) as date
+                FROM {self.config.get('table', 'live_aggregates')}
                 WHERE symbol = %(symbol)s
-                  AND toDate(timestamp) BETWEEN %(start_date)s AND %(end_date)s
+                  AND toDate(time) BETWEEN %(start_date)s AND %(end_date)s
                   AND timeframe = %(timeframe)s
-                  AND source = 'polygon_historical'
                   AND {DataValidator.validate_ohlcv_sql_clause(include_volume_positive=False)}
                 ORDER BY date ASC
             """
@@ -198,12 +197,11 @@ class GapDetector:
             # Also check for dates with NULL/invalid data
             # Using inverted validation to find BAD data
             quality_check_query = f"""
-                SELECT DISTINCT toDate(timestamp) as date, COUNT(*) as bad_count
-                FROM {self.config.get('table', 'aggregates')}
+                SELECT DISTINCT toDate(time) as date, COUNT(*) as bad_count
+                FROM {self.config.get('table', 'live_aggregates')}
                 WHERE symbol = %(symbol)s
-                  AND toDate(timestamp) BETWEEN %(start_date)s AND %(end_date)s
+                  AND toDate(time) BETWEEN %(start_date)s AND %(end_date)s
                   AND timeframe = %(timeframe)s
-                  AND source = 'polygon_historical'
                   AND NOT ({DataValidator.validate_ohlcv_sql_clause(include_volume_positive=False)})
                 GROUP BY date
                 ORDER BY date ASC
@@ -292,11 +290,10 @@ class GapDetector:
             # Using centralized DataValidator for consistent validation
             query = f"""
                 SELECT COUNT(*) as count
-                FROM {self.config.get('table', 'aggregates')}
+                FROM {self.config.get('table', 'live_aggregates')}
                 WHERE symbol = %(symbol)s
-                  AND toDate(timestamp) BETWEEN %(start_date)s AND %(end_date)s
+                  AND toDate(time) BETWEEN %(start_date)s AND %(end_date)s
                   AND timeframe = %(timeframe)s
-                  AND source = 'polygon_historical'
                   AND {DataValidator.validate_ohlcv_sql_clause(include_volume_positive=False)}
             """
 

@@ -126,15 +126,14 @@ class PolygonHistoricalService:
                         )
 
                         # Check existing data range for this pair
-                        query = """
+                        query = f"""
                             SELECT
                                 COUNT(*) as count,
-                                MIN(timestamp) as min_date,
-                                MAX(timestamp) as max_date
-                            FROM aggregates
+                                MIN(time) as min_date,
+                                MAX(time) as max_date
+                            FROM {ch_config['table']}
                             WHERE symbol = %(symbol)s
                               AND timeframe = %(timeframe)s
-                              AND source = 'polygon_historical'
                         """
                         result = ch_client.execute(query, {
                             'symbol': pair.symbol,
@@ -475,12 +474,12 @@ class PolygonHistoricalService:
                             )
 
                             # Count bars in ClickHouse for this pair
-                            query = """
+                            query = f"""
                                 SELECT COUNT(*) as count
-                                FROM aggregates
+                                FROM {ch_config['table']}
                                 WHERE symbol = %(symbol)s
                                   AND timeframe = %(timeframe)s
-                                  AND timestamp >= %(start_date)s
+                                  AND time >= %(start_date)s
                             """
                             result = ch_client.execute(query, {
                                 'symbol': pair.symbol,

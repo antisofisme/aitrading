@@ -87,6 +87,83 @@ CLICKHOUSE_PASSWORD = os.getenv("CLICKHOUSE_PASSWORD")
 
 ---
 
+### 🎯 Service Skills - MANDATORY USAGE
+
+**⚡ CRITICAL: Always Use Skills When Working on Services**
+
+Before implementing, reviewing, or fixing ANY service, you MUST:
+
+1. **Read the skill file first**: `.claude/skills/service_{name}.md`
+2. **Understand the service**:
+   - Purpose (what it does)
+   - Data flow (input → process → output)
+   - Messaging pattern (NATS/Kafka)
+   - Dependencies (upstream/downstream)
+3. **Follow Critical Rules** (prevent common mistakes)
+4. **Use validation checklist** after making changes
+
+**Available Skills (17 services):**
+```
+.claude/skills/
+├── README.md (index + usage guide)
+├── service_polygon_live_collector.md
+├── service_polygon_historical_downloader.md
+├── service_dukascopy_historical_downloader.md
+├── service_external_data_collector.md
+├── service_data_bridge.md
+├── service_tick_aggregator.md
+├── service_feature_engineering.md
+├── service_supervised_training.md
+├── service_finrl_training.md
+├── service_inference.md
+├── service_risk_management.md
+├── service_execution.md
+├── service_performance_monitoring.md
+├── service_mt5_connector.md
+├── service_backtesting.md
+├── service_dashboard.md
+└── service_notification_hub.md
+```
+
+**Example Workflow:**
+
+User: "Fix bug in tick-aggregator"
+
+**Step 1 - Read Skill:**
+```bash
+Read ".claude/skills/service_tick_aggregator.md"
+```
+
+**Step 2 - Understand:**
+- Purpose: Aggregate ticks → OHLCV candles (7 timeframes)
+- Flow: TimescaleDB.ticks → Aggregator → ClickHouse.aggregates → NATS + Kafka
+- Critical Rule: NEVER skip NATS publishing (feature-engineering needs it!)
+
+**Step 3 - Implement Fix:**
+- Follow critical rules from skill file
+- Maintain data flow consistency
+- Keep messaging pattern intact
+
+**Step 4 - Validate:**
+```bash
+# From skill file validation checklist:
+- [ ] Candles in ClickHouse
+- [ ] NATS publishes bars.*.*
+- [ ] Kafka archives aggregate_archive
+- [ ] All 7 timeframes active
+- [ ] No NULL values in OHLC
+```
+
+**Why Skills Are Mandatory:**
+- ✅ **Consistency**: Same understanding every time
+- ✅ **No mistakes**: Critical rules prevent common errors
+- ✅ **Correct flow**: Maintain data pipeline integrity
+- ✅ **Proper messaging**: Don't break NATS/Kafka patterns
+
+**RULE: NEVER work on a service without reading its skill file first!**
+
+---
+
 ### 🤖 Useful Agent Types
 
 When spawning agents for complex tasks, use these specialized types:
@@ -110,57 +187,49 @@ Task("Code Analyzer", "Review fibonacci.py code quality and performance", "code-
 ### 📝 Critical Reminders
 
 **Do's:**
+- ✅ **READ SKILL FILE FIRST** before working on any service
 - ✅ Do what has been asked; nothing more, nothing less
 - ✅ Batch all related operations in single message
 - ✅ Keep files modular (< 500 lines)
 - ✅ Use environment variables for secrets
 - ✅ Test before deploying
+- ✅ Follow validation checklist from skill files
 
 **Don'ts:**
+- ❌ **NEVER work on service without reading skill file**
 - ❌ NEVER create files unless absolutely necessary
 - ❌ NEVER save working files, text/mds, tests to the root folder
 - ❌ NEVER proactively create documentation files
 - ❌ NEVER hardcode API keys, passwords, or secrets
 - ❌ NEVER skip testing for critical ML features
+- ❌ NEVER break messaging patterns (NATS/Kafka)
+- ❌ NEVER skip validation checklist
 
-**Always prefer:** Editing existing file > Creating new file
+**Always prefer:**
+- Reading skill file > Guessing service behavior
+- Editing existing file > Creating new file
 
-## Project Structure
+## 📚 Documentation Structure
 
-```
-project3/
-├── backend/
-│   ├── 00-data-ingestion/       # Data collection services
-│   ├── 01-central-hub/          # Service coordination
-│   ├── 02-data-processing/      # Aggregation & indicators
-│   └── 03-machine-learning/     # Feature engineering & ML
-```
+This project uses a **layered documentation approach**:
 
-## Current Implementation Status
+### **Layer 1: Quick Reference (Skills)**
+- **Location**: `.claude/skills/service_{name}.md`
+- **Purpose**: Fast, per-service knowledge base
+- **Usage**: Read FIRST before working on any service
 
-**Phase 1:** Foundation ✅ COMPLETE (82% ready)
-- Historical data: 2.8 years (2023-2025)
-- 14 trading pairs
-- 7 timeframes (5m, 15m, 30m, 1h, 4h, 1d, 1w)
+### **Layer 2: Complete Architecture**
+- **Location**: `project3/backend/docs/*.md`
+- **Purpose**: Detailed architecture, planning templates, database schemas
+- **Usage**: Reference for deep implementation details
 
-**Phase 2:** Feature Engineering (IN PROGRESS)
-- 72 ML features defined (v2.3 with Fibonacci)
-- Feature engineering service updated
-- Pending: 14 missing technical indicators
+### **Layer 3: Service-Specific**
+- **Location**: Each service folder (e.g., `00-data-ingestion/tick-aggregator/`)
+- **Purpose**: Implementation details, config examples, README
+- **Usage**: Service-specific technical details
 
-## Key Documents
-
-- `project3/backend/02-data-processing/TRADING_STRATEGY_AND_ML_DESIGN.md` - Main strategy (v2.3)
-- `project3/backend/02-data-processing/FOUNDATION_VERIFICATION_REPORT.md` - Phase 1 status
-- `project3/backend/02-data-processing/FIBONACCI_ANALYSIS_AND_INTEGRATION.md` - Fibonacci features
-
-## Next Steps
-
-1. Add 14 missing indicators (RSI, Bollinger Bands, Stochastic, SMAs, CCI, MFI)
-2. Test feature engineering service
-3. Create ML training tables
-4. Begin Week 2: Feature Engineering Design
+**Rule**: Always start with Layer 1 (Skills) → Layer 2 (Docs) → Layer 3 (Service folder)
 
 ---
 
-**Note:** Keep this file minimal. Detailed instructions in respective service READMEs.
+**Note:** This file contains **working guidelines only**. For project status, implementation details, and roadmap, check the documentation layers above.

@@ -168,7 +168,7 @@ class Config:
             'user': self._clickhouse_user,
             'password': self._clickhouse_password,
             'database': self._clickhouse_database,
-            'table': 'aggregates'
+            'table': 'live_aggregates'  # Gap filling for live operational data
         }
 
     def get_timeframe_for_pair(self, pair: PairConfig) -> tuple:

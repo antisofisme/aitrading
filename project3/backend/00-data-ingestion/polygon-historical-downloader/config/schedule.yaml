@@ -69,23 +69,24 @@ pairs:
 # DOWNLOAD CONFIGURATION
 # =======================================================================
 download:
-  # Historical data range
-  start_date: "2023-01-01"  # Start from 2 years ago
-  end_date: "today"          # Download until today
+  # Gap filling range (NOT for initial historical download!)
+  # These dates are ONLY used when gaps are detected
+  start_date: "today-7days"  # Only fill gaps within last 7 days (live_aggregates retention)
+  end_date: "today"          # Up to today
 
   # Granularity for each tier
   granularity:
     trading_pairs:      # Priority 1-2 (6 pairs)
       timeframe: "minute"
-      multiplier: 1      # 1-minute bars
+      multiplier: 5      # 5-minute bars (matches ClickHouse schema)
 
     analysis_pairs:     # Priority 3 (4 pairs)
       timeframe: "minute"
-      multiplier: 1      # 1-minute bars
+      multiplier: 5      # 5-minute bars (matches ClickHouse schema)
 
     confirmation_pairs: # Priority 4 (4 pairs)
       timeframe: "minute"
-      multiplier: 1      # 1-minute bars (same as other pairs for ML training)
+      multiplier: 5      # 5-minute bars (matches ClickHouse schema)
 
   # Batch settings
   batch_size: 50000      # Records per API call
@@ -125,7 +126,7 @@ clickhouse:
   # Password from env: CLICKHOUSE_PASSWORD
 
   # Table configuration
-  table: "ticks"
+  table: "historical_ticks"
 
   # Batch insert settings
   batch_insert_size: 10000
@@ -138,10 +139,10 @@ clickhouse:
 # SCHEDULING
 # =======================================================================
 schedules:
-  # Initial historical download (run once at startup)
+  # Initial historical download (DISABLED - only for gap filling!)
   initial_download:
-    enabled: true
-    on_startup: true  # TEMPORARY: Re-download 4 REST pairs as 1m
+    enabled: false  # Polygon-historical is for GAP FILLING only, not initial download
+    on_startup: false  # Dukascopy handles historical data
 
   # Continuous gap checking (every N hours)
   gap_check:
