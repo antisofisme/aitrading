@@ -1,14 +1,19 @@
 """
 Configuration loader for Polygon.io Historical Downloader
-Refactored to use environment variables (Central Hub v2.0 pattern)
+Centralized config via Central Hub (ConfigClient pattern)
 """
 import os
-import yaml
+import sys
+import asyncio
 import logging
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+
+# Add shared components to path
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
+from shared.components.config import ConfigClient
 
 logger = logging.getLogger(__name__)
 
@@ -19,11 +24,8 @@ class PairConfig:
     priority: int
 
 class Config:
-    def __init__(self, config_path: str = "/app/config/schedule.yaml"):
-        self.config_path = config_path
-        self._config = self._load_config()
-
-        # Environment variables
+    def __init__(self):
+        # Environment variables (SECRETS ONLY!)
         self.polygon_api_key = os.getenv("POLYGON_API_KEY")
         if not self.polygon_api_key:
             raise ValueError("POLYGON_API_KEY environment variable not set")
@@ -31,8 +33,69 @@ class Config:
         self.instance_id = os.getenv("INSTANCE_ID", "polygon-historical-downloader-1")
         self.log_level = os.getenv("LOG_LEVEL", "INFO")
 
-        # Load messaging and database configs from environment variables
+        # ConfigClient for operational settings from Central Hub
+        self._config_client: Optional[ConfigClient] = None
+        self._operational_config: Dict = {}
+
+        # Safe defaults (fallback if Central Hub unavailable)
+        self._safe_defaults = {
+            "operational": {
+                "symbols": ["EURUSD", "XAUUSD"],
+                "timeframes": ["5m", "15m", "30m", "1h", "4h", "1d", "1w"],
+                "check_period_days": 7,
+                "completeness_threshold_intraday": 1.0,
+                "completeness_threshold_daily": 0.8,
+                "batch_size": 150,
+                "schedule": {
+                    "hourly_check": "0 * * * *",
+                    "daily_check": "0 1 * * *",
+                    "weekly_check": "0 2 * * 0"
+                },
+                "gap_detection": {
+                    "enabled": True,
+                    "max_gap_days": 7
+                },
+                "download": {
+                    "start_date": "today-7days",
+                    "end_date": "today",
+                    "rate_limit_per_sec": 5
+                }
+            }
+        }
+
+        # Load infrastructure configs from environment variables
         self._load_env_configs()
+
+        logger.info("=" * 80)
+        logger.info("POLYGON HISTORICAL DOWNLOADER - CENTRALIZED CONFIG")
+        logger.info("=" * 80)
+        logger.info(f"Instance ID: {self.instance_id}")
+        logger.info(f"Config Mode: Central Hub + Environment Variables")
+        logger.info("=" * 80)
+
+    async def init_async(self):
+        """Initialize ConfigClient connection to Central Hub"""
+        logger.info("📡 Initializing ConfigClient for polygon-historical-downloader...")
+
+        self._config_client = ConfigClient(
+            service_name="polygon-historical-downloader",
+            safe_defaults=self._safe_defaults
+        )
+
+        try:
+            await self._config_client.init_async()
+            self._operational_config = await self._config_client.get_config()
+
+            logger.info("✅ ConfigClient initialized successfully")
+            logger.info(f"✅ Loaded config from Central Hub:")
+            logger.info(f"   - Symbols: {self._operational_config['operational']['symbols']}")
+            logger.info(f"   - Timeframes: {self._operational_config['operational']['timeframes']}")
+            logger.info(f"   - Check period: {self._operational_config['operational']['check_period_days']} days")
+            logger.info(f"   - Batch size: {self._operational_config['operational']['batch_size']}")
+        except Exception as e:
+            logger.warning(f"⚠️  Failed to connect to Central Hub: {e}")
+            logger.warning(f"⚠️  Using safe defaults")
+            self._operational_config = self._safe_defaults
 
     def _load_env_configs(self):
         """Load NATS, Kafka, and ClickHouse configs from environment variables"""
@@ -62,60 +125,85 @@ class Config:
         self._clickhouse_database = os.getenv('CLICKHOUSE_DATABASE', 'suho_analytics')
         logger.info(f"✅ ClickHouse: {self._clickhouse_host}:{self._clickhouse_port}/{self._clickhouse_database} (user: {self._clickhouse_user})")
 
-    def _load_config(self) -> Dict:
-        """Load YAML configuration"""
-        config_file = Path(self.config_path)
-        if not config_file.exists():
-            raise FileNotFoundError(f"Config file not found: {self.config_path}")
-
-        with open(config_file, 'r') as f:
-            return yaml.safe_load(f)
-
     @property
     def pairs(self) -> List[PairConfig]:
-        """Get all pairs to download"""
+        """Get all pairs to download from Central Hub config"""
         pairs = []
-        for pair in self._config.get('pairs', []):
-            pairs.append(PairConfig(
-                symbol=pair['symbol'],
-                polygon_symbol=pair['polygon_symbol'],
-                priority=pair['priority']
-            ))
+        symbols = self._operational_config.get('operational', {}).get('symbols', ['EURUSD', 'XAUUSD'])
+
+        # Map symbols to polygon symbols with priority
+        symbol_mapping = {
+            'EURUSD': ('C:EURUSD', 1),
+            'XAUUSD': ('C:XAUUSD', 1),
+            'GBPUSD': ('C:GBPUSD', 2),
+            'USDJPY': ('C:USDJPY', 2),
+            'AUDUSD': ('C:AUDUSD', 3),
+            'USDCAD': ('C:USDCAD', 3),
+        }
+
+        for symbol in symbols:
+            if symbol in symbol_mapping:
+                polygon_symbol, priority = symbol_mapping[symbol]
+                pairs.append(PairConfig(
+                    symbol=symbol,
+                    polygon_symbol=polygon_symbol,
+                    priority=priority
+                ))
+            else:
+                logger.warning(f"Unknown symbol {symbol}, skipping")
+
         return pairs
 
     @property
     def download_config(self) -> Dict:
-        """Get download configuration"""
-        config = self._config.get('download', {})
+        """Get download configuration from Central Hub"""
+        download_cfg = self._operational_config.get('operational', {}).get('download', {})
 
-        # Parse dates - ENV takes priority over YAML config
-        start_date = os.getenv('HISTORICAL_START_DATE',
-                               config.get('start_date', '2023-01-01'))
-        end_date = os.getenv('HISTORICAL_END_DATE',
-                             config.get('end_date', 'today'))
+        # Parse dates - ENV takes priority over Central Hub config
+        start_date = os.getenv('HISTORICAL_START_DATE', download_cfg.get('start_date', 'today-7days'))
+        end_date = os.getenv('HISTORICAL_END_DATE', download_cfg.get('end_date', 'today'))
+
+        # Handle "today-Xdays" format
+        if start_date.startswith('today'):
+            days_back = 7  # default
+            if '-' in start_date and 'days' in start_date:
+                days_back = int(start_date.replace('today-', '').replace('days', ''))
+            start_date = (datetime.now() - timedelta(days=days_back)).strftime('%Y-%m-%d')
 
         if end_date == 'today' or end_date == 'now':
             end_date = datetime.now().strftime('%Y-%m-%d')
 
-        config['start_date'] = start_date
-        config['end_date'] = end_date
-
-        return config
+        return {
+            'start_date': start_date,
+            'end_date': end_date,
+            'batch_size': self._operational_config.get('operational', {}).get('batch_size', 150),
+            'rate_limit_per_sec': download_cfg.get('rate_limit_per_sec', 5)
+        }
 
     @property
     def gap_detection_config(self) -> Dict:
-        """Get gap detection configuration"""
-        return self._config.get('gap_detection', {})
+        """Get gap detection configuration from Central Hub"""
+        return self._operational_config.get('operational', {}).get('gap_detection', {
+            'enabled': True,
+            'max_gap_days': 7
+        })
 
     @property
     def schedules(self) -> Dict:
-        """Get schedule configuration"""
-        return self._config.get('schedules', {})
+        """Get schedule configuration from Central Hub"""
+        return self._operational_config.get('operational', {}).get('schedule', {
+            'hourly_check': "0 * * * *",
+            'daily_check': "0 1 * * *",
+            'weekly_check': "0 2 * * 0"
+        })
 
     @property
-    def monitoring_config(self) -> Dict:
-        """Get monitoring configuration"""
-        return self._config.get('monitoring', {})
+    def completeness_thresholds(self) -> Dict:
+        """Get completeness thresholds from Central Hub"""
+        return {
+            'intraday': self._operational_config.get('operational', {}).get('completeness_threshold_intraday', 1.0),
+            'daily': self._operational_config.get('operational', {}).get('completeness_threshold_daily', 0.8)
+        }
 
     @property
     def nats_config(self) -> Dict:

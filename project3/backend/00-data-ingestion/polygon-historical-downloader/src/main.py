@@ -32,10 +32,9 @@ logger = logging.getLogger(__name__)
 class PolygonHistoricalService:
     def __init__(self):
         self.config = Config()
-        self.downloader = PolygonHistoricalDownloader(
-            api_key=self.config.polygon_api_key,
-            config=self.config.download_config
-        )
+
+        # Downloader will be initialized after config is loaded
+        self.downloader = None
 
         # Publisher will be initialized from environment variables
         self.publisher = None
@@ -61,6 +60,21 @@ class PolygonHistoricalService:
         logger.info("=" * 80)
         logger.info(f"Instance ID: {self.config.instance_id}")
         logger.info(f"Log Level: {self.config.log_level}")
+
+    async def init_async(self):
+        """Initialize async components (ConfigClient, downloader)"""
+        logger.info("🚀 Initializing service components...")
+
+        # Initialize ConfigClient and fetch config from Central Hub
+        await self.config.init_async()
+
+        # Now initialize downloader with config from Central Hub
+        self.downloader = PolygonHistoricalDownloader(
+            api_key=self.config.polygon_api_key,
+            config=self.config.download_config
+        )
+
+        logger.info("✅ Service initialization complete")
 
     async def run_initial_download(self):
         """Download historical data for all pairs and publish to NATS/Kafka"""
@@ -1011,6 +1025,11 @@ class PolygonHistoricalService:
 
 async def main():
     service = PolygonHistoricalService()
+
+    # Initialize async components (ConfigClient)
+    await service.init_async()
+
+    # Start service
     await service.start()
 
 if __name__ == '__main__':
