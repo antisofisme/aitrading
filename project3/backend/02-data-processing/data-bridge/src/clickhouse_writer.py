@@ -92,10 +92,6 @@ class ClickHouseWriter:
         try:
             connection_config = self.config.get('connection', {})
 
-            # Debug: Print full config
-            logger.info(f"🔍 DEBUG: Full ClickHouse config: {self.config}")
-            logger.info(f"🔍 DEBUG: Connection config: {connection_config}")
-
             # Get host and port from config
             host = connection_config.get('host', 'localhost')
             # Try http_port first (8123), fallback to port (9000 for native)
@@ -103,8 +99,6 @@ class ClickHouseWriter:
             database = connection_config.get('database', 'suho_analytics')
             username = connection_config.get('username', connection_config.get('user', 'default'))
             password = connection_config.get('password', '')
-
-            logger.info(f"🔍 DEBUG: Connecting with - host={host}, port={port}, db={database}, user={username}")
 
             self.client = clickhouse_connect.get_client(
                 host=host,
@@ -115,8 +109,6 @@ class ClickHouseWriter:
                 connect_timeout=30,
                 send_receive_timeout=300
             )
-
-            logger.info(f"🔍 DEBUG: Client created, URL: {self.client.url if hasattr(self.client, 'url') else 'N/A'}")
 
             # Test connection
             result = self.client.command('SELECT 1')

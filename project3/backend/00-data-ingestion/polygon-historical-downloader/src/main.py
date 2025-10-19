@@ -839,9 +839,9 @@ class PolygonHistoricalService:
                         for i in range(1, len(sorted_dates)):
                             # Check if consecutive (within 4 days for weekends) AND gap not too large
                             days_between = (sorted_dates[i] - gap_end).days
-                            gap_size = (gap_end - gap_start).days
+                            new_gap_size = (sorted_dates[i] - gap_start).days
 
-                            if days_between <= 4 and gap_size < MAX_GAP_DAYS:
+                            if days_between <= 4 and new_gap_size < MAX_GAP_DAYS:
                                 # Continue current gap
                                 gap_end = sorted_dates[i]
                             else:
