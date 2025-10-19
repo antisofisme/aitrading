@@ -155,7 +155,19 @@ class Config:
             return yaml.safe_load(yaml_content)
 
     def _default_config(self) -> Dict:
-        """Safe defaults (Central Hub structure)"""
+        """
+        Safe defaults (Central Hub structure)
+
+        Only 3 external sources as per table_database_input.md:
+        1. Economic Calendar (MQL5) ⭐⭐⭐⭐⭐
+        2. FRED Indicators ⭐⭐⭐⭐⭐
+        3. Commodity Prices ⭐⭐⭐⭐
+
+        ARCHIVED (disabled):
+        - Crypto Sentiment (not relevant for forex/gold)
+        - Fear & Greed Index (subjective, low consistency)
+        - Market Sessions (moved to calculated features)
+        """
         return {
             'operational': {
                 'economic_calendar': {
@@ -176,7 +188,7 @@ class Config:
                     'source': 'fred.stlouisfed.org',
                     'priority': 2,
                     'scrape_interval': 14400,  # 4 hours
-                    'indicators': ['GDP', 'UNRATE', 'CPIAUCSL', 'DFF', 'DGS10'],
+                    'indicators': ['GDP', 'UNRATE', 'CPIAUCSL', 'DFF', 'DGS10', 'DEXUSEU', 'DEXJPUS'],
                     'metadata': {
                         'data_type': 'fred_economic'
                     }
@@ -187,44 +199,22 @@ class Config:
                     'priority': 5,
                     'scrape_interval': 1800,  # 30 minutes
                     'cache_ttl_minutes': 15,
-                    'symbols': ['GC=F', 'CL=F', 'SI=F', 'HG=F'],
+                    'symbols': ['GC=F', 'CL=F', 'SI=F', 'HG=F', 'NG=F'],
                     'metadata': {
                         'data_type': 'commodity_prices'
                     }
                 },
                 'crypto_sentiment': {
-                    'enabled': True,
-                    'source': 'coingecko.com',
-                    'priority': 3,
-                    'scrape_interval': 1800,  # 30 minutes
-                    'coins': ['bitcoin', 'ethereum', 'ripple'],
-                    'metadata': {
-                        'data_type': 'crypto_sentiment'
-                    }
+                    'enabled': False,
+                    'reason': 'ARCHIVED - Not relevant for forex/gold pairs'
                 },
                 'fear_greed_index': {
-                    'enabled': True,
-                    'source': 'alternative.me',
-                    'priority': 4,
-                    'scrape_interval': 3600,  # 1 hour
-                    'metadata': {
-                        'data_type': 'fear_greed_index'
-                    }
+                    'enabled': False,
+                    'reason': 'ARCHIVED - Subjective, low consistency'
                 },
                 'market_sessions': {
-                    'enabled': True,
-                    'source': 'market_sessions',
-                    'priority': 6,
-                    'scrape_interval': 300,  # 5 minutes
-                    'sessions': {
-                        'tokyo': {'open': '00:00', 'close': '09:00'},
-                        'london': {'open': '08:00', 'close': '16:30'},
-                        'newyork': {'open': '13:00', 'close': '22:00'},
-                        'sydney': {'open': '22:00', 'close': '07:00'}
-                    },
-                    'metadata': {
-                        'data_type': 'market_sessions'
-                    }
+                    'enabled': False,
+                    'reason': 'MOVED TO CALCULATED FEATURES - Pure calculation from UTC time'
                 },
                 'storage': {
                     'type': 'json',
