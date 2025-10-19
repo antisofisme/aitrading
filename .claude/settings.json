@@ -1,114 +1,42 @@
 {
-  "env": {
-    "CLAUDE_FLOW_AUTO_COMMIT": "false",
-    "CLAUDE_FLOW_AUTO_PUSH": "false",
-    "CLAUDE_FLOW_HOOKS_ENABLED": "true",
-    "CLAUDE_FLOW_TELEMETRY_ENABLED": "true",
-    "CLAUDE_FLOW_REMOTE_EXECUTION": "true",
-    "CLAUDE_FLOW_CHECKPOINTS_ENABLED": "true"
-  },
   "permissions": {
     "allow": [
-      "Bash(npx claude-flow *)",
-      "Bash(npm run lint)",
-      "Bash(npm run test:*)",
-      "Bash(npm test *)",
-      "Bash(git status)",
-      "Bash(git diff *)",
-      "Bash(git log *)",
-      "Bash(git add *)",
-      "Bash(git commit *)",
-      "Bash(git push)",
-      "Bash(git config *)",
-      "Bash(git tag *)",
-      "Bash(git branch *)",
-      "Bash(git checkout *)",
-      "Bash(git stash *)",
-      "Bash(jq *)",
-      "Bash(node *)",
-      "Bash(which *)",
-      "Bash(pwd)",
-      "Bash(ls *)"
+      "Bash(/mnt/c/Program Files/Docker/Docker/resources/bin/docker logs suho-data-bridge --tail 200)",
+      "Bash(docker logs:*)",
+      "Bash(docker exec:*)",
+      "Bash(docker ps:*)",
+      "Bash(docker build:*)",
+      "Bash(docker:*)",
+      "Bash(docker compose:*)",
+      "Bash(git add:*)",
+      "Bash(\"/mnt/c/Program Files/Docker/Docker/resources/bin/docker.exe\" exec suho-tick-aggregator cat /app/config/aggregator.yaml)",
+      "Bash(\"/mnt/c/Program Files/Docker/Docker/resources/bin/docker.exe\" ps --filter \"name=suho\" --format \"table {{.Names}}\\t{{.Status}}\")",
+      "Bash(\"/mnt/c/Program Files/Docker/Docker/resources/bin/docker.exe\" exec suho-postgresql psql -U postgres -c \"\\du\")",
+      "Bash(\"/mnt/c/Program Files/Docker/Docker/resources/bin/docker.exe\" exec suho-postgresql psql:*)",
+      "Bash(\"/mnt/c/Program Files/Docker/Docker/resources/bin/docker.exe\" exec suho-postgresql env)",
+      "Bash(\"/mnt/c/Program Files/Docker/Docker/resources/bin/docker.exe\" ps -a --filter \"name=data-bridge\" --format \"table {{.Names}}\\t{{.Status}}\\t{{.Ports}}\")",
+      "Bash(\"/mnt/c/Program Files/Docker/Docker/resources/bin/docker.exe\" exec suho-postgresql psql -U suho_admin -d suho_trading -c \"\nSELECT \n    symbol,\n    COUNT(*) as tick_count,\n    MIN(timestamp_ms) as oldest_ms,\n    MAX(timestamp_ms) as newest_ms,\n    ROUND((MAX(timestamp_ms) - MIN(timestamp_ms)) / 1000.0 / 86400.0, 2) as days_span\nFROM market_ticks\nGROUP BY symbol\nORDER BY tick_count DESC\nLIMIT 10;\n\")",
+      "Bash(\"/mnt/c/Program Files/Docker/Docker/resources/bin/docker.exe\" logs backend-data-bridge-1 --tail 50)",
+      "Bash(\"/mnt/c/Program Files/Docker/Docker/resources/bin/docker.exe\" logs backend-data-bridge-1 --tail 200)",
+      "Bash(\"/mnt/c/Program Files/Docker/Docker/resources/bin/docker.exe\" exec suho-clickhouse clickhouse-client --query \"\nSELECT \n    database,\n    name as table,\n    total_rows,\n    total_bytes,\n    formatReadableSize(total_bytes) as size\nFROM system.tables\nWHERE database = ''suho_analytics''\nORDER BY total_rows DESC\nFORMAT Vertical\n\")",
+      "Bash(\"/mnt/c/Program Files/Docker/Docker/resources/bin/docker.exe\" exec suho-clickhouse clickhouse-client --query \"\nSELECT name FROM system.tables \nWHERE database = ''suho_analytics'' \nORDER BY name\n\")",
+      "Bash(\"/mnt/c/Program Files/Docker/Docker/resources/bin/docker.exe\" exec suho-clickhouse clickhouse-client --query \"\nSHOW TABLES FROM suho_analytics\n\")",
+      "Bash(\"/mnt/c/Program Files/Docker/Docker/resources/bin/docker.exe\" exec suho-postgresql psql -U suho_admin -d suho_trading -c \"\n-- Service Registry\nSELECT column_name, data_type FROM information_schema.columns \nWHERE table_schema = ''public'' AND table_name = ''service_registry''\nORDER BY ordinal_position;\n\")",
+      "Bash(\"/mnt/c/Program Files/Docker/Docker/resources/bin/docker.exe\" exec suho-postgresql psql -U suho_admin -d suho_trading -c \"\n-- Health Metrics\nSELECT column_name, data_type FROM information_schema.columns \nWHERE table_schema = ''public'' AND table_name = ''health_metrics''\nORDER BY ordinal_position;\n\")",
+      "Bash(\"/mnt/c/Program Files/Docker/Docker/resources/bin/docker.exe\" exec suho-postgresql psql -U suho_admin -d suho_trading -c \"\n-- Coordination History\nSELECT column_name, data_type FROM information_schema.columns \nWHERE table_schema = ''public'' AND table_name = ''coordination_history''\nORDER BY ordinal_position;\n\")",
+      "Bash(\"/mnt/c/Program Files/Docker/Docker/resources/bin/docker.exe\" exec suho-postgresql psql -U suho_admin -d suho_trading -c \"DROP TABLE IF EXISTS service_registry CASCADE; DROP TABLE IF EXISTS coordination_history CASCADE;\")",
+      "Bash(\"/mnt/c/Program Files/Docker/Docker/resources/bin/docker.exe\" exec suho-postgresql psql -U suho_admin -d suho_trading -c \"\\dt\")",
+      "Bash(\"/mnt/c/Program Files/Docker/Docker/resources/bin/docker.exe\" compose ps --filter \"name=central-hub\" --format \"table {{.Names}}\\t{{.Status}}\")",
+      "Bash(\"/mnt/c/Program Files/Docker/Docker/resources/bin/docker.exe\" ps --format \"table {{.Names}}\\t{{.Status}}\")",
+      "Bash(\"/mnt/c/Program Files/Docker/Docker/resources/bin/docker.exe\" exec suho-postgresql psql -U suho_admin -d suho_trading -c \"\\d health_metrics\")",
+      "Bash(\"/mnt/c/Program Files/Docker/Docker/resources/bin/docker.exe\" logs suho-dukascopy-historical --tail 5)",
+      "WebSearch"
     ],
-    "deny": [
-      "Bash(rm -rf /)",
-      "Bash(curl * | bash)",
-      "Bash(wget * | sh)",
-      "Bash(eval *)"
-    ]
+    "deny": [],
+    "ask": []
   },
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "cat | jq -r '.tool_input.command // empty' | tr '\\n' '\\0' | xargs -0 -I {} npx claude-flow@alpha hooks pre-command --command '{}' --validate-safety true --prepare-resources true"
-          }
-        ]
-      },
-      {
-        "matcher": "Write|Edit|MultiEdit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "cat | jq -r '.tool_input.file_path // .tool_input.path // empty' | tr '\\n' '\\0' | xargs -0 -I {} npx claude-flow@alpha hooks pre-edit --file '{}' --auto-assign-agents true --load-context true"
-          }
-        ]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "cat | jq -r '.tool_input.command // empty' | tr '\\n' '\\0' | xargs -0 -I {} npx claude-flow@alpha hooks post-command --command '{}' --track-metrics true --store-results true"
-          }
-        ]
-      },
-      {
-        "matcher": "Write|Edit|MultiEdit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "cat | jq -r '.tool_input.file_path // .tool_input.path // empty' | tr '\\n' '\\0' | xargs -0 -I {} npx claude-flow@alpha hooks post-edit --file '{}' --format true --update-memory true"
-          }
-        ]
-      }
-    ],
-    "PreCompact": [
-      {
-        "matcher": "manual",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "/bin/bash -c 'INPUT=$(cat); CUSTOM=$(echo \"$INPUT\" | jq -r \".custom_instructions // \\\"\\\"\"); echo \"🔄 PreCompact Guidance:\"; echo \"📋 IMPORTANT: Review CLAUDE.md in project root for:\"; echo \"   • 54 available agents and concurrent usage patterns\"; echo \"   • Swarm coordination strategies (hierarchical, mesh, adaptive)\"; echo \"   • SPARC methodology workflows with batchtools optimization\"; echo \"   • Critical concurrent execution rules (GOLDEN RULE: 1 MESSAGE = ALL OPERATIONS)\"; if [ -n \"$CUSTOM\" ]; then echo \"🎯 Custom compact instructions: $CUSTOM\"; fi; echo \"✅ Ready for compact operation\"'"
-          }
-        ]
-      },
-      {
-        "matcher": "auto",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "/bin/bash -c 'echo \"🔄 Auto-Compact Guidance (Context Window Full):\"; echo \"📋 CRITICAL: Before compacting, ensure you understand:\"; echo \"   • All 54 agents available in .claude/agents/ directory\"; echo \"   • Concurrent execution patterns from CLAUDE.md\"; echo \"   • Batchtools optimization for 300% performance gains\"; echo \"   • Swarm coordination strategies for complex tasks\"; echo \"⚡ Apply GOLDEN RULE: Always batch operations in single messages\"; echo \"✅ Auto-compact proceeding with full agent context\"'"
-          }
-        ]
-      }
-    ],
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "npx claude-flow@alpha hooks session-end --generate-summary true --persist-state true --export-metrics true"
-          }
-        ]
-      }
-    ]
-  },
-  "includeCoAuthoredBy": true,
-  "enabledMcpjsonServers": ["claude-flow", "ruv-swarm"]
+  "enabledMcpjsonServers": [
+    "claude-flow",
+    "ruv-swarm"
+  ]
 }

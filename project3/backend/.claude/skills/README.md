@@ -2,8 +2,18 @@
 
 > **Purpose**: Per-service knowledge base untuk memastikan Claude konsisten saat bekerja pada setiap service.
 > **Format**: Anthropic Skills-compatible markdown files
-> **Coverage**: 18 services (Phase 1-4)
+> **Coverage**: 18 services (Phase 1-4) + Universal debugging protocol
 > **Usage**: Reference these skills when working on specific services
+
+---
+
+## 🧠 **Core Skills (Universal)**
+
+| # | Skill | File | Status | Priority |
+|---|-------|------|--------|----------|
+| 0 | **Systematic Debugging** | [**systematic_debugging.md**](./systematic_debugging.md) | ✅ **MANDATORY** | **🚨 CRITICAL** |
+
+**Usage:** Apply this skill for ALL bug fixes and complex feature development before writing any code.
 
 ---
 

@@ -323,6 +323,7 @@ class DataValidator:
     @staticmethod
     def validate_ohlcv_sql_clause(
         table_alias: Optional[str] = None,
+        include_volume: bool = True,
         include_volume_positive: bool = True,
         include_price_positive: bool = True
     ) -> str:
@@ -331,7 +332,8 @@ class DataValidator:
 
         Args:
             table_alias: Optional table alias
-            include_volume_positive: If True, adds "volume > 0" check
+            include_volume: If True, includes volume in NULL checks (for tables WITH volume column)
+            include_volume_positive: If True, adds "volume > 0" check (only if include_volume=True)
             include_price_positive: If True, adds price > 0 checks
 
         Returns:
@@ -339,14 +341,21 @@ class DataValidator:
 
         Examples:
             >>> DataValidator.validate_ohlcv_sql_clause()
-            'time IS NOT NULL AND open IS NOT NULL AND high IS NOT NULL AND low IS NOT NULL AND close IS NOT NULL AND volume IS NOT NULL AND open > 0 AND high > 0 AND low > 0 AND close > 0 AND volume > 0'
+            'time IS NOT NULL AND open IS NOT NULL AND high IS NOT NULL AND low IS NOT NULL AND close IS NOT NULL AND volume IS NOT NULL AND open > 0 AND high > 0 and low > 0 AND close > 0 AND volume > 0'
 
-            >>> DataValidator.validate_ohlcv_sql_clause(table_alias='a', include_volume_positive=False)
+            >>> DataValidator.validate_ohlcv_sql_clause(include_volume=False)
+            'time IS NOT NULL AND open IS NOT NULL AND high IS NOT NULL AND low IS NOT NULL AND close IS NOT NULL AND open > 0 AND high > 0 AND low > 0 AND close > 0'
+
+            >>> DataValidator.validate_ohlcv_sql_clause(table_alias='a', include_volume=False)
             'a.time IS NOT NULL AND a.open IS NOT NULL AND ... AND a.close > 0'
         """
         prefix = f"{table_alias}." if table_alias else ""
         # Note: Using 'time' instead of 'timestamp' to match ClickHouse schema
-        fields = ['time', 'open', 'high', 'low', 'close', 'volume']
+        fields = ['time', 'open', 'high', 'low', 'close']
+
+        # Add volume only if table has volume column (not all tables do - e.g., live_aggregates uses tick_count)
+        if include_volume:
+            fields.append('volume')
 
         # NULL checks
         conditions = [f"{prefix}{field} IS NOT NULL" for field in fields]
@@ -356,8 +365,8 @@ class DataValidator:
             price_fields = ['open', 'high', 'low', 'close']
             conditions.extend([f"{prefix}{field} > 0" for field in price_fields])
 
-        # Positive volume check
-        if include_volume_positive:
+        # Positive volume check (only if volume is included)
+        if include_volume and include_volume_positive:
             conditions.append(f"{prefix}volume > 0")
 
         return " AND ".join(conditions)

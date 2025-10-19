@@ -280,18 +280,19 @@ class ClickHouseWriter:
             if records_to_check:
                 try:
                     # Build WHERE clause for batch check
-                    # Format: (symbol='EUR/USD' AND timeframe='1m' AND timestamp_ms=123) OR (...)
+                    # Format: (symbol='EUR/USD' AND timeframe='1m' AND time=fromUnixTimestamp64Milli(123)) OR (...)
+                    # NOTE: live_aggregates uses 'time' (DateTime64), not 'timestamp_ms'
                     conditions = []
                     for symbol, timeframe, ts_ms in records_to_check:
                         conditions.append(
-                            f"(symbol = '{symbol}' AND timeframe = '{timeframe}' AND timestamp_ms = {ts_ms})"
+                            f"(symbol = '{symbol}' AND timeframe = '{timeframe}' AND time = fromUnixTimestamp64Milli({ts_ms}))"
                         )
 
                     # Limit to first 1000 conditions to avoid query size limits
                     where_clause = " OR ".join(conditions[:1000])
 
                     check_query = f"""
-                        SELECT symbol, timeframe, timestamp_ms
+                        SELECT symbol, timeframe, toUnixTimestamp64Milli(time) as timestamp_ms
                         FROM live_aggregates
                         WHERE {where_clause}
                     """

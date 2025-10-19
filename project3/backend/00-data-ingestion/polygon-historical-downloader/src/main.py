@@ -831,16 +831,21 @@ class PolygonHistoricalService:
                         # Sort dates
                         sorted_dates = sorted([datetime.strptime(d, '%Y-%m-%d').date() for d in missing_dates])
 
-                        # Group consecutive dates
+                        # Group consecutive dates WITH MAX 7 DAYS PER GAP (prevent huge ranges)
+                        MAX_GAP_DAYS = 7
                         gap_start = sorted_dates[0]
                         gap_end = sorted_dates[0]
 
                         for i in range(1, len(sorted_dates)):
-                            # Check if consecutive (within 4 days for weekends)
-                            if (sorted_dates[i] - gap_end).days <= 4:
+                            # Check if consecutive (within 4 days for weekends) AND gap not too large
+                            days_between = (sorted_dates[i] - gap_end).days
+                            gap_size = (gap_end - gap_start).days
+
+                            if days_between <= 4 and gap_size < MAX_GAP_DAYS:
+                                # Continue current gap
                                 gap_end = sorted_dates[i]
                             else:
-                                # Save previous gap
+                                # Save previous gap (max 7 days)
                                 gaps.append((gap_start, gap_end))
                                 # Start new gap
                                 gap_start = sorted_dates[i]
@@ -941,6 +946,7 @@ class PolygonHistoricalService:
             # Continuous gap checking + buffer flushing loop
             buffer_flush_interval = 300  # Flush buffer every 5 minutes
             last_buffer_flush = asyncio.get_event_loop().time()
+            first_run = True  # Flag for immediate first gap check
 
             while True:
                 try:
@@ -971,9 +977,14 @@ class PolygonHistoricalService:
 
                         last_buffer_flush = current_time
 
-                    # Wait and then check gaps (hourly)
-                    logger.info(f"⏰ Waiting {gap_check_interval} hour(s) until next gap check...")
-                    await asyncio.sleep(min(gap_check_interval * 3600, buffer_flush_interval))
+                    # ✅ FIX: Run gap check IMMEDIATELY on first run, then wait for next cycle
+                    if first_run:
+                        logger.info("🚀 Running first gap check immediately on startup...")
+                        first_run = False
+                    else:
+                        # Wait for next check (after first run)
+                        logger.info(f"⏰ Waiting {gap_check_interval} hour(s) until next gap check...")
+                        await asyncio.sleep(min(gap_check_interval * 3600, buffer_flush_interval))
 
                     # Check and fill gaps
                     await self.check_and_fill_gaps()

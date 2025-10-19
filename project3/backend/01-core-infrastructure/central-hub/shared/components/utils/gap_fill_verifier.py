@@ -59,15 +59,14 @@ class GapFillVerifier:
         """
         query = """
             SELECT count() as cnt
-            FROM aggregates
+            FROM live_aggregates
             WHERE symbol = %(symbol)s
               AND timeframe = %(timeframe)s
-              AND toDate(timestamp) = %(date)s
+              AND toDate(time) = %(date)s
               AND open IS NOT NULL
               AND high IS NOT NULL
               AND low IS NOT NULL
               AND close IS NOT NULL
-              AND volume > 0
         """
 
         try:
@@ -264,10 +263,10 @@ class GapFillVerifier:
         """
         query = """
             SELECT count() as cnt
-            FROM aggregates
+            FROM live_aggregates
             WHERE symbol = %(symbol)s
               AND timeframe = %(timeframe)s
-              AND toDate(timestamp) = %(date)s
+              AND toDate(time) = %(date)s
         """
 
         try:
@@ -312,13 +311,13 @@ class GapFillVerifier:
         query = """
             SELECT
                 COUNT(*) as total_bars,
-                COUNT(DISTINCT toDate(timestamp)) as dates_with_data,
-                MIN(timestamp) as min_date,
-                MAX(timestamp) as max_date
-            FROM aggregates
+                COUNT(DISTINCT toDate(time)) as dates_with_data,
+                MIN(time) as min_date,
+                MAX(time) as max_date
+            FROM live_aggregates
             WHERE symbol = %(symbol)s
               AND timeframe = %(timeframe)s
-              AND toDate(timestamp) BETWEEN %(start_date)s AND %(end_date)s
+              AND toDate(time) BETWEEN %(start_date)s AND %(end_date)s
         """
 
         try:

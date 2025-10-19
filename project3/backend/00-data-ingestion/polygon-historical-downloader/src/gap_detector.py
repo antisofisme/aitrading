@@ -174,13 +174,14 @@ class GapDetector:
         try:
             # Query dates with COMPLETE data (no NULLs in OHLC)
             # Using centralized DataValidator for consistent validation
+            # Note: live_aggregates uses tick_count, not volume - use include_volume=False
             query = f"""
                 SELECT DISTINCT toDate(time) as date
                 FROM {self.config.get('table', 'live_aggregates')}
                 WHERE symbol = %(symbol)s
                   AND toDate(time) BETWEEN %(start_date)s AND %(end_date)s
                   AND timeframe = %(timeframe)s
-                  AND {DataValidator.validate_ohlcv_sql_clause(include_volume_positive=False)}
+                  AND {DataValidator.validate_ohlcv_sql_clause(include_volume=False)}
                 ORDER BY date ASC
             """
 
@@ -202,7 +203,7 @@ class GapDetector:
                 WHERE symbol = %(symbol)s
                   AND toDate(time) BETWEEN %(start_date)s AND %(end_date)s
                   AND timeframe = %(timeframe)s
-                  AND NOT ({DataValidator.validate_ohlcv_sql_clause(include_volume_positive=False)})
+                  AND NOT ({DataValidator.validate_ohlcv_sql_clause(include_volume=False)})
                 GROUP BY date
                 ORDER BY date ASC
             """
@@ -294,7 +295,7 @@ class GapDetector:
                 WHERE symbol = %(symbol)s
                   AND toDate(time) BETWEEN %(start_date)s AND %(end_date)s
                   AND timeframe = %(timeframe)s
-                  AND {DataValidator.validate_ohlcv_sql_clause(include_volume_positive=False)}
+                  AND {DataValidator.validate_ohlcv_sql_clause(include_volume=False)}
             """
 
             result = self.client.execute(query, {
