@@ -1,14 +1,20 @@
 """
 Configuration loader for External Data Collector (Economic Calendar)
-Refactored to use environment variables (Central Hub v2.0 pattern)
+Centralized config via Central Hub (ConfigClient pattern)
 """
 import os
 import re
 import yaml
+import sys
+import asyncio
 import logging
 from pathlib import Path
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 from dataclasses import dataclass
+
+# Add shared components to path
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
+from shared.components.config import ConfigClient
 
 logger = logging.getLogger(__name__)
 
@@ -45,18 +51,35 @@ class Config:
 
     def __init__(self, config_path: str = "/app/config/scrapers.yaml"):
         self.config_path = config_path
-        self._config = self._load_config()
 
-        # Environment variables
+        # Environment variables (SECRETS ONLY!)
         self.instance_id = os.getenv("INSTANCE_ID", "external-data-collector-1")
         self.log_level = os.getenv("LOG_LEVEL", "INFO")
 
-        # API Keys from environment
-        # Temporary disable Z.ai to test regex parser
-        self.zai_api_key = ""  # os.getenv("ZAI_API_KEY", "")
+        # API Keys from environment (SECRETS!)
+        self.zai_api_key = os.getenv("ZAI_API_KEY", "")
+        self.fred_api_key = os.getenv("FRED_API_KEY", "")
+        self.economic_calendar_api_key = os.getenv("ECONOMIC_CALENDAR_API_KEY", "")
 
-        # Load messaging and database configs from environment variables
+        # ConfigClient for operational settings from Central Hub
+        self._config_client: Optional[ConfigClient] = None
+        self._operational_config: Dict = {}
+
+        # Safe defaults (fallback if Central Hub unavailable)
+        self._safe_defaults = self._default_config()
+
+        # Legacy YAML config (fallback only)
+        self._yaml_config = self._load_yaml_config()
+
+        # Load infrastructure configs from environment variables
         self._load_env_configs()
+
+        logger.info("=" * 80)
+        logger.info("EXTERNAL DATA COLLECTOR - CENTRALIZED CONFIG")
+        logger.info("=" * 80)
+        logger.info(f"Instance ID: {self.instance_id}")
+        logger.info(f"Config Mode: Central Hub + Environment Variables")
+        logger.info("=" * 80)
 
     def _load_env_configs(self):
         """Load NATS and Kafka configs from environment variables"""
@@ -93,13 +116,36 @@ class Config:
 
         return re.sub(pattern, replacer, content)
 
-    def _load_config(self) -> Dict:
-        """Load YAML configuration with environment variable substitution"""
+    async def init_async(self):
+        """Initialize ConfigClient connection to Central Hub"""
+        logger.info("📡 Initializing ConfigClient for external-data-collector...")
+
+        self._config_client = ConfigClient(
+            service_name="external-data-collector",
+            safe_defaults=self._safe_defaults
+        )
+
+        try:
+            await self._config_client.init_async()
+            self._operational_config = await self._config_client.get_config()
+
+            logger.info("✅ ConfigClient initialized successfully")
+            logger.info(f"✅ Loaded config from Central Hub:")
+            logger.info(f"   - Economic Calendar: {self._operational_config['operational'].get('economic_calendar', {}).get('enabled', False)}")
+            logger.info(f"   - FRED Indicators: {len(self._operational_config['operational'].get('fred_indicators', {}).get('indicators', []))}")
+            logger.info(f"   - Commodity Prices: {len(self._operational_config['operational'].get('commodity_prices', {}).get('symbols', []))}")
+        except Exception as e:
+            logger.warning(f"⚠️  Failed to connect to Central Hub: {e}")
+            logger.warning(f"⚠️  Using safe defaults")
+            self._operational_config = self._safe_defaults
+
+    def _load_yaml_config(self) -> Dict:
+        """Load YAML configuration with environment variable substitution (fallback only)"""
         config_file = Path(self.config_path)
 
-        # If config doesn't exist, return default
+        # If config doesn't exist, return empty
         if not config_file.exists():
-            return self._default_config()
+            return {}
 
         with open(config_file, 'r') as f:
             # Read YAML and substitute environment variables
@@ -109,82 +155,161 @@ class Config:
             return yaml.safe_load(yaml_content)
 
     def _default_config(self) -> Dict:
-        """Default configuration if YAML not found"""
+        """Safe defaults (Central Hub structure)"""
         return {
-            'scrapers': {
-                'mql5_economic_calendar': {
+            'operational': {
+                'economic_calendar': {
                     'enabled': True,
                     'source': 'mql5.com',
                     'priority': 1,
                     'scrape_interval': 3600,  # 1 hour
+                    'lookforward_days': 30,
+                    'impact_levels': ['high', 'medium'],
                     'metadata': {
                         'data_type': 'economic_calendar',
-                        'update_mode': 'incremental'
+                        'update_mode': 'incremental',
+                        'parser': 'regex'
                     }
-                }
-            },
-            'storage': {
-                'type': 'json',  # json or postgresql
-                'json_path': '/app/data',
-                'postgresql': {
-                    'host': os.getenv('DB_HOST', 'localhost'),
-                    'port': int(os.getenv('DB_PORT', '5432')),
-                    'database': os.getenv('DB_NAME', 'aitrading'),
-                    'user': os.getenv('DB_USER', 'postgres'),
-                    'password': os.getenv('DB_PASSWORD', '')
-                }
-            },
-            'messaging': {
-                'nats': {
-                    'enabled': False,
-                    'host': 'suho-nats',
-                    'port': 4222
                 },
-                'kafka': {
+                'fred_indicators': {
+                    'enabled': True,
+                    'source': 'fred.stlouisfed.org',
+                    'priority': 2,
+                    'scrape_interval': 14400,  # 4 hours
+                    'indicators': ['GDP', 'UNRATE', 'CPIAUCSL', 'DFF', 'DGS10'],
+                    'metadata': {
+                        'data_type': 'fred_economic'
+                    }
+                },
+                'commodity_prices': {
+                    'enabled': True,
+                    'source': 'finance.yahoo.com',
+                    'priority': 5,
+                    'scrape_interval': 1800,  # 30 minutes
+                    'cache_ttl_minutes': 15,
+                    'symbols': ['GC=F', 'CL=F', 'SI=F', 'HG=F'],
+                    'metadata': {
+                        'data_type': 'commodity_prices'
+                    }
+                },
+                'crypto_sentiment': {
+                    'enabled': True,
+                    'source': 'coingecko.com',
+                    'priority': 3,
+                    'scrape_interval': 1800,  # 30 minutes
+                    'coins': ['bitcoin', 'ethereum', 'ripple'],
+                    'metadata': {
+                        'data_type': 'crypto_sentiment'
+                    }
+                },
+                'fear_greed_index': {
+                    'enabled': True,
+                    'source': 'alternative.me',
+                    'priority': 4,
+                    'scrape_interval': 3600,  # 1 hour
+                    'metadata': {
+                        'data_type': 'fear_greed_index'
+                    }
+                },
+                'market_sessions': {
+                    'enabled': True,
+                    'source': 'market_sessions',
+                    'priority': 6,
+                    'scrape_interval': 300,  # 5 minutes
+                    'sessions': {
+                        'tokyo': {'open': '00:00', 'close': '09:00'},
+                        'london': {'open': '08:00', 'close': '16:30'},
+                        'newyork': {'open': '13:00', 'close': '22:00'},
+                        'sydney': {'open': '22:00', 'close': '07:00'}
+                    },
+                    'metadata': {
+                        'data_type': 'market_sessions'
+                    }
+                },
+                'storage': {
+                    'type': 'json',
+                    'json_path': '/app/data'
+                },
+                'messaging': {
+                    'nats_enabled': False,
+                    'kafka_enabled': True
+                },
+                'backfill': {
                     'enabled': False,
-                    'bootstrap_servers': 'suho-kafka:9092'
+                    'months_back': 1,
+                    'batch_days': 7
                 }
-            },
-            'backfill': {
-                'enabled': False,
-                'months_back': 12,
-                'batch_days': 30
-            },
-            'monitoring': {
-                'metrics_enabled': True,
-                'health_check_port': 8080
             }
         }
 
     @property
     def scrapers(self) -> List[ScraperConfig]:
-        """Get enabled scrapers"""
+        """Get enabled scrapers from Central Hub config"""
         scrapers = []
-        for name, config in self._config.get('scrapers', {}).items():
-            if config.get('enabled', True):
-                scrapers.append(ScraperConfig(
-                    source=config.get('source', name),
+        operational = self._operational_config.get('operational', {})
+
+        # Map Central Hub config to ScraperConfig objects
+        scraper_mappings = {
+            'economic_calendar': ('mql5.com', 'mql5_economic_calendar'),
+            'fred_indicators': ('fred.stlouisfed.org', 'fred_economic'),
+            'commodity_prices': ('finance.yahoo.com', 'yahoo_finance_commodity'),
+            'crypto_sentiment': ('coingecko.com', 'coingecko_sentiment'),
+            'fear_greed_index': ('alternative.me', 'fear_greed_index'),
+            'market_sessions': ('market_sessions', 'market_sessions')
+        }
+
+        for config_key, (source, name) in scraper_mappings.items():
+            config = operational.get(config_key, {})
+
+            if config.get('enabled', False):
+                # Build ScraperConfig
+                scraper = ScraperConfig(
+                    source=config.get('source', source),
                     enabled=True,
                     priority=config.get('priority', 5),
                     scrape_interval=config.get('scrape_interval', 3600),
                     metadata=config.get('metadata', {}),
-                    api_key=config.get('api_key', ''),
+                    api_key=self.fred_api_key if config_key == 'fred_indicators' else '',
                     indicators=config.get('indicators', []),
                     coins=config.get('coins', []),
                     symbols=config.get('symbols', []),
                     sessions=config.get('sessions', {})
-                ))
+                )
+                scrapers.append(scraper)
+
         return sorted(scrapers, key=lambda x: x.priority)
 
     @property
     def storage_config(self) -> Dict:
-        """Get storage configuration"""
-        return self._config.get('storage', self._default_config()['storage'])
+        """Get storage configuration from Central Hub"""
+        storage = self._operational_config.get('operational', {}).get('storage', {})
+
+        # Merge with defaults
+        return {
+            'type': storage.get('type', 'json'),
+            'json_path': storage.get('json_path', '/app/data'),
+            'postgresql': {
+                'host': os.getenv('DB_HOST', 'suho-postgresql'),
+                'port': int(os.getenv('DB_PORT', '5432')),
+                'database': os.getenv('DB_NAME', 'suho_trading'),
+                'user': os.getenv('DB_USER', 'suho_admin'),
+                'password': os.getenv('DB_PASSWORD', 'suho_secure_2024')
+            }
+        }
 
     @property
     def messaging_config(self) -> Dict:
-        """Get messaging configuration"""
-        return self._config.get('messaging', {})
+        """Get messaging configuration from Central Hub"""
+        messaging = self._operational_config.get('operational', {}).get('messaging', {})
+
+        return {
+            'nats': {
+                'enabled': messaging.get('nats_enabled', False)
+            },
+            'kafka': {
+                'enabled': messaging.get('kafka_enabled', True)
+            }
+        }
 
     @property
     def nats_config(self) -> Dict:
@@ -232,8 +357,12 @@ class Config:
 
     @property
     def backfill_config(self) -> Dict:
-        """Get backfill configuration"""
-        return self._config.get('backfill', {})
+        """Get backfill configuration from Central Hub"""
+        return self._operational_config.get('operational', {}).get('backfill', {
+            'enabled': False,
+            'months_back': 1,
+            'batch_days': 7
+        })
 
     @property
     def monitoring_config(self) -> Dict:

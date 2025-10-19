@@ -27,11 +27,14 @@ COPY 00-data-ingestion/external-data-collector/src/ ./src/
 COPY 00-data-ingestion/external-data-collector/config/ ./config/
 COPY 00-data-ingestion/external-data-collector/scripts/ ./scripts/
 
+# Copy shared utilities (ConfigClient, etc.)
+COPY shared/ ./shared/
+
 # Create necessary directories
 RUN mkdir -p /app/data /app/logs /var/log/external-data-collector
 
 # Set Python path
-ENV PYTHONPATH=/app/src
+ENV PYTHONPATH=/app
 ENV PYTHONUNBUFFERED=1
 
 # Health check

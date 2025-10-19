@@ -39,6 +39,7 @@ class ExternalDataCollector:
         self.config = Config()
         self.scrapers = {}
         self.publisher = None
+        self._config_initialized = False
 
         self.start_time = datetime.now()
         self.is_running = False
@@ -59,6 +60,11 @@ class ExternalDataCollector:
         """Start the collector"""
         try:
             logger.info("🚀 Starting External Data Collector...")
+
+            # Initialize ConfigClient (Central Hub connection)
+            if not self._config_initialized:
+                await self.config.init_async()
+                self._config_initialized = True
 
             # Initialize scrapers
             await self._initialize_scrapers()
