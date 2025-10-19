@@ -26,8 +26,9 @@ from .cache import (
 )
 
 from .config import (
-    ConfigManager,
-    ConfigSource
+    InfrastructureConfigManager,
+    ConfigSource,
+    ConfigManager  # Deprecated alias, use InfrastructureConfigManager
 )
 
 from .health import (
@@ -92,9 +93,10 @@ __all__ = [
     "RedisBackend",
     "MemoryBackend",
 
-    # Configuration management
-    "ConfigManager",
+    # Configuration management (Infrastructure only!)
+    "InfrastructureConfigManager",
     "ConfigSource",
+    "ConfigManager",  # DEPRECATED: Use InfrastructureConfigManager
 
     # Health checking
     "HealthChecker",

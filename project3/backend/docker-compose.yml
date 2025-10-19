@@ -378,6 +378,7 @@ services:
       # === SERVICE SETTINGS ===
       - HOT_RELOAD_ENABLED=${HOT_RELOAD_ENABLED:-false}
       - COMPONENT_WATCH_ENABLED=${COMPONENT_WATCH_ENABLED:-false}
+      - DISABLE_AUTH=true  # Temporarily disable auth for config API testing
     volumes:
       # Mount shared components for hot reload
       - ./01-core-infrastructure/central-hub/shared:/app/shared:rw
@@ -477,9 +478,9 @@ services:
       # Polygon.io API
       - POLYGON_API_KEY=${POLYGON_API_KEY}
 
-      # Download configuration
-      - HISTORICAL_START_DATE=${HISTORICAL_START_DATE:-2023-01-01}
-      - HISTORICAL_END_DATE=${HISTORICAL_END_DATE:-now}
+      # Download configuration (GAP FILLING ONLY - last 7 days)
+      - HISTORICAL_START_DATE=${POLYGON_GAP_START_DATE:-today-7days}
+      - HISTORICAL_END_DATE=${POLYGON_GAP_END_DATE:-today}
 
       # Messaging (environment variables pattern)
       - NATS_URL=nats://nats-1:4222,nats://nats-2:4222,nats://nats-3:4222

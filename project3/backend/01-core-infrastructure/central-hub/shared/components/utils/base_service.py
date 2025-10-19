@@ -13,7 +13,7 @@ from abc import ABC, abstractmethod
 
 from .patterns.database import DatabaseManager
 from .patterns.cache import CacheManager
-from .patterns.config import ConfigManager
+from .patterns.config import InfrastructureConfigManager
 from .patterns.tracing import RequestTracer
 from .patterns.circuit_breaker import CircuitBreakerManager
 from .patterns.response import StandardResponse
@@ -77,8 +77,8 @@ class BaseService(ABC):
             default_ttl=self.config.cache_ttl_default
         )
 
-        # Configuration manager
-        self.config_manager = ConfigManager(
+        # Infrastructure configuration manager (for Central Hub internal use)
+        self.config_manager = InfrastructureConfigManager(
             service_name=self.service_name,
             environment=self.config.environment
         )

@@ -15,8 +15,8 @@ Usage:
     # For Central Hub's own config
     from .validation import validate_central_hub_config
 
-    # For service coordination
-    from central_hub.core.config_manager import ConfigManager
+    # For Central Hub infrastructure config
+    # Use InfrastructureConfigManager from components.utils.patterns.config
 """
 
 import os

@@ -1,6 +1,31 @@
 """
-Configuration Manager untuk semua services
-Menyediakan consistent configuration management patterns
+Infrastructure Configuration Manager for Central Hub
+====================================================
+
+IMPORTANT - SCOPE:
+This module is for Central Hub's INTERNAL infrastructure configuration ONLY.
+It loads configs from YAML/JSON files (infrastructure.yaml) for Central Hub's own use.
+
+DO NOT USE THIS FOR SERVICE OPERATIONAL CONFIGS!
+For service operational configs, use ConfigClient from shared/components/config/
+
+Purpose:
+- Load Central Hub's infrastructure settings (databases, messaging, health checks)
+- Manage internal configuration from files
+- Support environment variable overrides
+
+NOT for:
+- Service operational configurations (batch_size, intervals, etc.) → Use ConfigClient
+- Runtime config updates → Use centralized config API (GET/POST /api/v1/config/{service})
+- Multi-service configuration management → Use ConfigClient
+
+Usage:
+    # For Central Hub infrastructure config only
+    from components.utils.patterns.config import InfrastructureConfigManager
+
+    config = InfrastructureConfigManager(service_name="central-hub")
+    await config.load_config()
+    db_config = await config.get_database_config()
 """
 
 import json
@@ -24,10 +49,41 @@ class ConfigSource:
     format: str = "json"  # "json", "yaml", "env"
 
 
-class ConfigManager:
+class InfrastructureConfigManager:
     """
-    Configuration manager untuk semua services
-    Mendukung multiple configuration sources dengan priority dan hot-reload
+    Infrastructure Configuration Manager for Central Hub's INTERNAL use only.
+
+    ⚠️ WARNING - SCOPE LIMITATION:
+    This class is designed EXCLUSIVELY for Central Hub's infrastructure configuration.
+    It loads configs from YAML/JSON files for Central Hub's internal operations.
+
+    DO NOT USE THIS IN OTHER SERVICES!
+    For service operational configs, use ConfigClient from shared/components/config/
+
+    Purpose:
+    - Load infrastructure configuration from files (infrastructure.yaml)
+    - Manage Central Hub's database/messaging/health check settings
+    - Support environment variable overrides with priority system
+
+    Configuration Sources (Priority Order):
+    1. Environment variables (priority: 100) - Highest
+    2. Environment-specific file (production.json, priority: 50)
+    3. Service-specific file (central-hub.json, priority: 40)
+    4. Default file (default.json, priority: 10) - Lowest
+
+    Example:
+        >>> config = InfrastructureConfigManager(service_name="central-hub")
+        >>> await config.load_config()
+        >>> db_config = await config.get_database_config()
+        >>> print(db_config['host'])
+        'suho-postgresql'
+
+    For Service Operational Configs:
+        >>> # DON'T USE THIS! Use ConfigClient instead:
+        >>> from shared.components.config import ConfigClient
+        >>> client = ConfigClient("polygon-historical-downloader")
+        >>> await client.init_async()
+        >>> config = await client.get_config()
     """
 
     def __init__(self, service_name: str, environment: str = "development"):
@@ -310,8 +366,13 @@ class ConfigManager:
 
     def __str__(self) -> str:
         """String representation of configuration"""
-        return f"ConfigManager(service={self.service_name}, env={self.environment}, sources={len(self.sources)})"
+        return f"InfrastructureConfigManager(service={self.service_name}, env={self.environment}, sources={len(self.sources)})"
 
     def __repr__(self) -> str:
         """Detailed string representation"""
-        return f"ConfigManager(service_name='{self.service_name}', environment='{self.environment}', config_keys={list(self.config_data.keys())})"
+        return f"InfrastructureConfigManager(service_name='{self.service_name}', environment='{self.environment}', config_keys={list(self.config_data.keys())})"
+
+
+# Backward compatibility alias (DEPRECATED)
+# TODO: Remove after all references updated
+ConfigManager = InfrastructureConfigManager

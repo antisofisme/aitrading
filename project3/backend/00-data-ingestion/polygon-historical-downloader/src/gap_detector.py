@@ -109,13 +109,15 @@ def is_forex_market_open(dt: datetime) -> bool:
 class GapDetector:
     def __init__(self, clickhouse_config: dict):
         self.config = clickhouse_config
+        # Use config values directly - no fallback defaults to avoid confusion
         self.client = Client(
-            host=clickhouse_config.get('host', 'suho-clickhouse'),
-            port=clickhouse_config.get('port', 9000),
-            user=clickhouse_config.get('user', 'suho_analytics'),
+            host=clickhouse_config['host'],
+            port=clickhouse_config['port'],
+            user=clickhouse_config['user'],
             password=clickhouse_config['password'],
-            database=clickhouse_config.get('database', 'suho_analytics')
+            database=clickhouse_config['database']
         )
+        logger.info(f"✅ GapDetector connected to ClickHouse: {clickhouse_config['host']}:{clickhouse_config['port']}/{clickhouse_config['database']}")
 
     def detect_gaps(self, symbol: str, days: int = 7, max_gap_minutes: int = 60) -> List[Tuple[datetime, datetime]]:
         """

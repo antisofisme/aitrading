@@ -15,8 +15,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "shared"))
 from core.service_registry import ServiceRegistry
 from core.coordination_router import CoordinationRouter
 
-# ConfigManager moved to shared patterns after refactoring
-from components.utils.patterns.config import ConfigManager
+# InfrastructureConfigManager for Central Hub's internal config
+from components.utils.patterns.config import InfrastructureConfigManager
 
 # Implementation modules
 from impl.coordination.service_coordinator import ServiceCoordinator
@@ -44,7 +44,7 @@ class CoordinationManager:
 
         # Core coordination components
         self.service_registry: Optional[ServiceRegistry] = None
-        self.config_manager: Optional[ConfigManager] = None
+        self.config_manager: Optional[InfrastructureConfigManager] = None
         self.coordination_router: Optional[CoordinationRouter] = None
 
         # Implementation components
@@ -61,9 +61,9 @@ class CoordinationManager:
             self.service_registry = ServiceRegistry()
             logger.info("✅ Service registry initialized")
 
-            # 2. Initialize configuration manager
-            self.config_manager = ConfigManager(service_name=self.service_name)
-            logger.info("✅ Configuration manager initialized")
+            # 2. Initialize infrastructure configuration manager
+            self.config_manager = InfrastructureConfigManager(service_name=self.service_name)
+            logger.info("✅ Infrastructure configuration manager initialized")
 
             # 3. Initialize coordination router
             self.coordination_router = CoordinationRouter()

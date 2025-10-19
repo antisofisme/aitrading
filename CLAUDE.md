@@ -117,7 +117,7 @@ Phase 5: ROOT CAUSE ANALYSIS
 ```
 
 **Full Protocol:** `.claude/DEBUGGING_PROTOCOL.md`
-**Quick Reference:** `.claude/skills/systematic_debugging.md`
+**Quick Reference:** `.claude/skills/systematic-debugging/SKILL.md`
 
 **Why This Matters:**
 - Research shows: **87% first-attempt success rate** with protocol
@@ -150,7 +150,7 @@ Phase 5: ROOT CAUSE ANALYSIS
 
 Before implementing, reviewing, or fixing ANY service, you MUST:
 
-1. **Read the skill file first**: `.claude/skills/service_{name}.md`
+1. **Read the skill file first**: `.claude/skills/{service-name}/SKILL.md`
 2. **Understand the service**:
    - Purpose (what it does)
    - Data flow (input → process → output)
@@ -159,28 +159,41 @@ Before implementing, reviewing, or fixing ANY service, you MUST:
 3. **Follow Critical Rules** (prevent common mistakes)
 4. **Use validation checklist** after making changes
 
-**Available Skills (18 services):**
+**Available Skills (19 total):**
 ```
 .claude/skills/
-├── README.md (index + usage guide)
-├── service_polygon_live_collector.md
-├── service_polygon_historical_downloader.md
-├── service_dukascopy_historical_downloader.md
-├── service_external_data_collector.md
-├── service_central_hub.md (Core Infrastructure)
-├── service_data_bridge.md
-├── service_tick_aggregator.md
-├── service_feature_engineering.md
-├── service_supervised_training.md
-├── service_finrl_training.md
-├── service_inference.md
-├── service_risk_management.md
-├── service_execution.md
-├── service_performance_monitoring.md
-├── service_mt5_connector.md
-├── service_backtesting.md
-├── service_dashboard.md
-└── service_notification_hub.md
+├── skill-creator/SKILL.md (Helper for creating new skills)
+├── systematic-debugging/SKILL.md (Debugging methodology)
+│
+├── Data Ingestion (Phase 1):
+│   ├── polygon-live-collector/SKILL.md
+│   ├── polygon-historical-downloader/SKILL.md
+│   ├── dukascopy-historical-downloader/SKILL.md
+│   └── external-data-collector/SKILL.md
+│
+├── Data Processing (Phase 2):
+│   ├── data-bridge/SKILL.md
+│   ├── tick-aggregator/SKILL.md
+│   └── feature-engineering/SKILL.md
+│
+├── Machine Learning (Phase 2.5):
+│   ├── supervised-training/SKILL.md
+│   ├── finrl-training/SKILL.md
+│   └── inference/SKILL.md
+│
+├── Trading Execution (Phase 3):
+│   ├── risk-management/SKILL.md
+│   ├── execution/SKILL.md
+│   └── performance-monitoring/SKILL.md
+│
+├── Supporting Services (Phase 4):
+│   ├── mt5-connector/SKILL.md
+│   ├── backtesting/SKILL.md
+│   ├── dashboard/SKILL.md
+│   └── notification-hub/SKILL.md
+│
+└── Core Infrastructure (Phase 0):
+    └── central-hub/SKILL.md (System backbone)
 ```
 
 **Example Workflow:**
@@ -189,7 +202,7 @@ User: "Fix bug in tick-aggregator"
 
 **Step 1 - Read Skill:**
 ```bash
-Read ".claude/skills/service_tick_aggregator.md"
+Read ".claude/skills/tick-aggregator/SKILL.md"
 ```
 
 **Step 2 - Understand:**
@@ -272,8 +285,9 @@ Task("Code Analyzer", "Review fibonacci.py code quality and performance", "code-
 This project uses a **layered documentation approach**:
 
 ### **Layer 1: Quick Reference (Skills)**
-- **Location**: `.claude/skills/service_{name}.md`
+- **Location**: `.claude/skills/{service-name}/SKILL.md`
 - **Purpose**: Fast, per-service knowledge base
+- **Format**: Anthropic official format with YAML frontmatter
 - **Usage**: Read FIRST before working on any service
 
 ### **Layer 2: Complete Architecture**

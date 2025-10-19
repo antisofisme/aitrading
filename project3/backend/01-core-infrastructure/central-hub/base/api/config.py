@@ -78,97 +78,284 @@ async def get_global_config(request: Request) -> Dict[str, Any]:
 
 
 @config_router.get("/{service_name}")
-async def get_service_config(service_name: str) -> Dict[str, Any]:
-    """Get configuration for specific service"""
-    # TODO: Implement service-specific config retrieval
-    return {
-        "service": service_name,
-        "config": {
-            "database_pool_size": 10,
-            "cache_ttl": 300,
-            "log_level": "INFO"
-        },
-        "version": "1.0.0",
-        "last_updated": int(time.time() * 1000)
-    }
+async def get_service_config(service_name: str, request: Request) -> Dict[str, Any]:
+    """
+    Get configuration for specific service from PostgreSQL
 
-
-@config_router.post("/update")
-async def update_config(update: ConfigUpdate, request: Request) -> Dict[str, Any]:
-    """Update global or service-specific configuration - Enhanced with contract-based broadcasting"""
-    from ..app import central_hub_service
-
-    # Prepare update data for contract processing
-    update_data = {
-        "config_key": "service_config" if update.service else "global_config",
-        "config_value": update.config,
-        "target_services": [update.service] if update.service else "all",
-        "version": update.version or "1.0.1",
-        "timestamp": int(time.time() * 1000)
-    }
-
-    # Process configuration update through contract formatting
+    Returns:
+        - 200: Config found
+        - 404: Service not found
+        - 500: Database error
+    """
     try:
-        format_result = await contract_processor.process_outbound_message('configuration_update', update_data)
-        formatted_data = format_result.get('formatted_data', update_data)
-        transport_info = format_result.get('transport_info', {})
+        # Get database manager from app state
+        import sys
+        from pathlib import Path
+        # Add base directory to path
+        base_dir = Path(__file__).parent.parent
+        if str(base_dir) not in sys.path:
+            sys.path.insert(0, str(base_dir))
 
-        central_hub_service.logger.info(
-            f"✅ Configuration updated for {'global' if not update.service else update.service} "
-            f"using {transport_info.get('primary', 'http')} transport"
+        from app import central_hub_service
+
+        if not central_hub_service.connection_manager or not central_hub_service.connection_manager.db_manager:
+            raise HTTPException(status_code=503, detail="Database connection not available")
+
+        db_manager = central_hub_service.connection_manager.db_manager
+
+        # Fetch config from PostgreSQL using DatabaseManager API
+        row = await db_manager.fetch_one(
+            """
+            SELECT
+                config_json,
+                version,
+                updated_at,
+                description,
+                tags,
+                active
+            FROM service_configs
+            WHERE service_name = $1 AND active = true
+            """,
+            [service_name]
         )
 
-        # TODO: Implement actual config update logic
-        # This would typically:
-        # 1. Validate config using contract schemas
-        # 2. Store in database
-        # 3. Broadcast to affected services using selected transport method
-        # 4. Log the change with contract metadata
+        if not row:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Configuration not found for service: {service_name}"
+            )
 
         return {
-            "status": "updated",
-            "service": update.service or "global",
-            "updated_at": int(time.time() * 1000),
-            "version": update.version or "1.0.1",
-            "transport_method": transport_info.get('primary', 'http'),
-            "broadcast_format": "contract_validated",
-            "affected_services": formatted_data.get('target_services', [])
+            "service_name": service_name,
+            "config": row['config_json'],
+            "version": row['version'],
+            "updated_at": int(row['updated_at'].timestamp() * 1000),
+            "description": row['description'],
+            "tags": row['tags'],
+            "active": row['active']
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
-        central_hub_service.logger.warning(f"Contract formatting failed for config update: {str(e)}")
+        import logging
+        logger = logging.getLogger("central-hub.api.config")
+        logger.error(f"Failed to get config for {service_name}: {e}")
+        raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
 
-        # Fallback to basic update without contract formatting
-        central_hub_service.logger.info(
-            f"Configuration updated for {'global' if not update.service else update.service} (fallback mode)"
+
+@config_router.post("/{service_name}")
+async def update_service_config(
+    service_name: str,
+    config_update: Dict[str, Any],
+    request: Request,
+    version: Optional[str] = None,
+    updated_by: str = "api-user"
+) -> Dict[str, Any]:
+    """
+    Update service configuration and store in PostgreSQL
+
+    Also broadcasts update notification via NATS (optional)
+
+    Args:
+        service_name: Service identifier
+        config_update: New configuration (full or partial)
+        version: Config version (auto-incremented if not provided)
+        updated_by: Who made the change (for audit)
+
+    Returns:
+        - 200: Config updated successfully
+        - 404: Service not found
+        - 500: Database error
+    """
+    try:
+        import sys
+        from pathlib import Path
+        # Add base directory to path
+        base_dir = Path(__file__).parent.parent
+        if str(base_dir) not in sys.path:
+            sys.path.insert(0, str(base_dir))
+
+        from app import central_hub_service
+
+        if not central_hub_service.connection_manager or not central_hub_service.connection_manager.db_manager:
+            raise HTTPException(status_code=503, detail="Database connection not available")
+
+        db_manager = central_hub_service.connection_manager.db_manager
+
+        # Store in PostgreSQL with UPSERT using DatabaseManager API
+        # Convert config_update to JSON string for JSONB column
+        import json
+        config_json_str = json.dumps(config_update)
+
+        await db_manager.execute(
+            """
+            INSERT INTO service_configs (
+                service_name,
+                config_json,
+                version,
+                updated_by
+            ) VALUES ($1, $2::jsonb, $3, $4)
+            ON CONFLICT (service_name) DO UPDATE SET
+                config_json = EXCLUDED.config_json,
+                version = EXCLUDED.version,
+                updated_by = EXCLUDED.updated_by,
+                updated_at = NOW()
+            """,
+            [service_name, config_json_str, version or "1.0.0", updated_by]
         )
+
+        # Fetch updated config for response
+        row = await db_manager.fetch_one(
+            """
+            SELECT config_json, version, updated_at
+            FROM service_configs
+            WHERE service_name = $1
+            """,
+            [service_name]
+        )
+
+        # Broadcast update via NATS (optional, best-effort)
+        try:
+            if central_hub_service.connection_manager.nats_client:
+                import json
+                update_message = {
+                    "service_name": service_name,
+                    "config": config_update,
+                    "version": row['version'],
+                    "updated_at": int(row['updated_at'].timestamp() * 1000),
+                    "updated_by": updated_by
+                }
+
+                await central_hub_service.connection_manager.nats_client.publish(
+                    f"config.update.{service_name}",
+                    json.dumps(update_message).encode()
+                )
+
+                central_hub_service.logger.info(
+                    f"✅ Config updated and broadcasted for {service_name} (version: {row['version']})"
+                )
+        except Exception as nats_error:
+            central_hub_service.logger.warning(f"NATS broadcast failed (non-critical): {nats_error}")
 
         return {
             "status": "updated",
-            "service": update.service or "global",
-            "updated_at": int(time.time() * 1000),
-            "version": update.version or "1.0.1",
-            "transport_method": "http",
-            "broadcast_format": "basic"
+            "service_name": service_name,
+            "config": row['config_json'],
+            "version": row['version'],
+            "updated_at": int(row['updated_at'].timestamp() * 1000),
+            "updated_by": updated_by,
+            "broadcast": "sent" if central_hub_service.connection_manager.nats_client else "unavailable"
         }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        import logging
+        logger = logging.getLogger("central-hub.api.config")
+        logger.error(f"Failed to update config for {service_name}: {e}")
+        raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
 
 
 @config_router.get("/history/{service_name}")
-async def get_config_history(service_name: str, limit: int = 10) -> Dict[str, Any]:
-    """Get configuration change history for service"""
-    # TODO: Implement config history retrieval
-    return {
-        "service": service_name,
-        "history": [
+async def get_config_history(
+    service_name: str,
+    request: Request,
+    limit: int = 10
+) -> Dict[str, Any]:
+    """
+    Get configuration change history for service from audit log
+
+    Args:
+        service_name: Service identifier
+        limit: Maximum number of history entries (default: 10, max: 100)
+
+    Returns:
+        - 200: History retrieved
+        - 404: Service not found
+        - 500: Database error
+    """
+    try:
+        import sys
+        from pathlib import Path
+        # Add base directory to path
+        base_dir = Path(__file__).parent.parent
+        if str(base_dir) not in sys.path:
+            sys.path.insert(0, str(base_dir))
+
+        from app import central_hub_service
+
+        if not central_hub_service.connection_manager or not central_hub_service.connection_manager.db_manager:
+            raise HTTPException(status_code=503, detail="Database connection not available")
+
+        db_manager = central_hub_service.connection_manager.db_manager
+
+        # Limit max history entries
+        limit = min(limit, 100)
+
+        # Fetch history from audit log using DatabaseManager API
+        rows = await db_manager.fetch_many(
+            """
+            SELECT
+                version,
+                action,
+                changed_by,
+                changed_at,
+                change_reason,
+                config_json
+            FROM config_audit_log
+            WHERE service_name = $1
+            ORDER BY changed_at DESC
+            LIMIT $2
+            """,
+            [service_name, limit]
+        )
+
+        # Get total count
+        # Use get_connection to access the pool for fetchval (not in DatabaseManager API)
+        connection = db_manager.get_connection("default")
+        async with connection.pool.acquire() as conn:
+            total = await conn.fetchval(
+                """
+                SELECT COUNT(*)
+                FROM config_audit_log
+                WHERE service_name = $1
+                """,
+                service_name
+            )
+
+        if not rows:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No history found for service: {service_name}"
+            )
+
+        history = [
             {
-                "version": "1.0.0",
-                "updated_at": int(time.time() * 1000) - 3600000,
-                "updated_by": "admin",
-                "changes": ["database_pool_size: 5 -> 10"]
+                "version": row['version'],
+                "action": row['action'],
+                "changed_by": row['changed_by'],
+                "changed_at": int(row['changed_at'].timestamp() * 1000),
+                "change_reason": row['change_reason'],
+                "config": row['config_json']
             }
-        ],
-        "total": 1
-    }
+            for row in rows
+        ]
+
+        return {
+            "service_name": service_name,
+            "history": history,
+            "total": total,
+            "limit": limit
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        import logging
+        logger = logging.getLogger("central-hub.api.config")
+        logger.error(f"Failed to get history for {service_name}: {e}")
+        raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
 
 
 @config_router.get("/database/{db_name}")

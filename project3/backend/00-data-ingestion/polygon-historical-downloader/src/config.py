@@ -57,10 +57,10 @@ class Config:
         # ClickHouse config
         self._clickhouse_host = os.getenv('CLICKHOUSE_HOST', 'suho-clickhouse')
         self._clickhouse_port = int(os.getenv('CLICKHOUSE_PORT', '9000'))
-        self._clickhouse_user = os.getenv('CLICKHOUSE_USER', 'default')
-        self._clickhouse_password = os.getenv('CLICKHOUSE_PASSWORD', '')
-        self._clickhouse_database = os.getenv('CLICKHOUSE_DATABASE', 'suho_trading')
-        logger.info(f"✅ ClickHouse: {self._clickhouse_host}:{self._clickhouse_port}/{self._clickhouse_database}")
+        self._clickhouse_user = os.getenv('CLICKHOUSE_USER', 'suho_analytics')
+        self._clickhouse_password = os.getenv('CLICKHOUSE_PASSWORD', 'clickhouse_secure_2024')
+        self._clickhouse_database = os.getenv('CLICKHOUSE_DATABASE', 'suho_analytics')
+        logger.info(f"✅ ClickHouse: {self._clickhouse_host}:{self._clickhouse_port}/{self._clickhouse_database} (user: {self._clickhouse_user})")
 
     def _load_config(self) -> Dict:
         """Load YAML configuration"""
