@@ -25,8 +25,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY 00-data-ingestion/polygon-historical-downloader/src/ ./src/
 COPY 00-data-ingestion/polygon-historical-downloader/config/ ./config/
 
-# Copy shared utilities
-COPY 01-core-infrastructure/central-hub/shared/ ./shared/
+# Copy shared utilities (ConfigClient, etc.)
+COPY shared/ ./shared/
 
 # Create logs directory
 RUN mkdir -p /var/log/polygon-historical-downloader

@@ -264,21 +264,25 @@ class Config:
         Get timeframe and multiplier for a pair based on priority
 
         Returns: (timeframe, multiplier)
+
+        Note: Defaults to 5m (smallest granularity in ClickHouse live_aggregates)
         """
         download_cfg = self.download_config
         granularity = download_cfg.get('granularity', {})
 
         if pair.priority <= 2:
-            # Trading pairs: 1-minute bars
+            # Trading pairs: 5-minute bars (ClickHouse default)
             cfg = granularity.get('trading_pairs', {})
         elif pair.priority == 3:
-            # Analysis pairs: 1-minute bars
+            # Analysis pairs: 5-minute bars
             cfg = granularity.get('analysis_pairs', {})
         else:
             # Confirmation pairs: 5-minute bars
             cfg = granularity.get('confirmation_pairs', {})
 
-        timeframe = cfg.get('timeframe', 'minute')
-        multiplier = cfg.get('multiplier', 1)
+        # Default to '5m' which is the smallest timeframe in ClickHouse live_aggregates
+        # ClickHouse schema only supports: 5m, 15m, 30m, 1h, 4h, 1d, 1w
+        timeframe = cfg.get('timeframe', 'minute')  # Keep 'minute' for Polygon API compatibility
+        multiplier = cfg.get('multiplier', 5)  # Changed from 1 to 5 (5-minute default)
 
         return timeframe, multiplier

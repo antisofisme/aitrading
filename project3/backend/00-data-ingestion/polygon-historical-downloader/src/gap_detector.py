@@ -159,7 +159,7 @@ class GapDetector:
             logger.error(f"Error detecting gaps for {symbol}: {e}")
             return []
 
-    def get_date_range_gaps(self, symbol: str, start_date: str, end_date: str, timeframe: str = '1m') -> List[str]:
+    def get_date_range_gaps(self, symbol: str, start_date: str, end_date: str, timeframe: str = '5m') -> List[str]:
         """
         Get missing dates in a range
 
@@ -169,7 +169,7 @@ class GapDetector:
             symbol: Trading pair symbol (e.g., 'EURUSD', 'XAUUSD')
             start_date: Start date in YYYY-MM-DD format
             end_date: End date in YYYY-MM-DD format
-            timeframe: Timeframe to check (default: '1m', can be '5m', '15m', '1h', etc.)
+            timeframe: Timeframe to check (default: '5m', can be '5m', '15m', '30m', '1h', '4h', '1d', '1w')
 
         Returns: List of missing dates (YYYY-MM-DD)
         """
