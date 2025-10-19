@@ -57,9 +57,8 @@ class Config:
         self.log_level = os.getenv("LOG_LEVEL", "INFO")
 
         # API Keys from environment (SECRETS!)
-        self.zai_api_key = os.getenv("ZAI_API_KEY", "")
         self.fred_api_key = os.getenv("FRED_API_KEY", "")
-        self.economic_calendar_api_key = os.getenv("ECONOMIC_CALENDAR_API_KEY", "")
+        # Note: Economic calendar (MQL5) no longer needs API key - uses BeautifulSoup HTML parser
 
         # ConfigClient for operational settings from Central Hub
         self._config_client: Optional[ConfigClient] = None
@@ -221,8 +220,8 @@ class Config:
                     'json_path': '/app/data'
                 },
                 'messaging': {
-                    'nats_enabled': False,
-                    'kafka_enabled': True
+                    'nats_enabled': True,  # Enable NATS for real-time publishing
+                    'kafka_enabled': True  # Keep Kafka for archival
                 },
                 'backfill': {
                     'enabled': False,

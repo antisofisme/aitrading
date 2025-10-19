@@ -6,10 +6,31 @@ LABEL description="External Data Collector - Economic Calendar & Market Data"
 # Set working directory
 WORKDIR /app
 
-# Install system dependencies
+# Install system dependencies (including Playwright browser dependencies)
 RUN apt-get update && apt-get install -y \
     gcc \
     g++ \
+    wget \
+    ca-certificates \
+    fonts-liberation \
+    libasound2 \
+    libatk-bridge2.0-0 \
+    libatk1.0-0 \
+    libatspi2.0-0 \
+    libcups2 \
+    libdbus-1-3 \
+    libdrm2 \
+    libgbm1 \
+    libgtk-3-0 \
+    libnspr4 \
+    libnss3 \
+    libwayland-client0 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxfixes3 \
+    libxkbcommon0 \
+    libxrandr2 \
+    xdg-utils \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy and install Central Hub SDK first
@@ -21,6 +42,9 @@ COPY 00-data-ingestion/external-data-collector/requirements.txt .
 
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
+
+# Install Playwright browsers (Chromium for scraping)
+RUN playwright install chromium
 
 # Copy application code
 COPY 00-data-ingestion/external-data-collector/src/ ./src/

@@ -112,17 +112,14 @@ class ExternalDataCollector:
 
             # MQL5 Economic Calendar
             if scraper_config.source == 'mql5.com':
-                use_zai = bool(self.config.zai_api_key)
                 db_conn = self.config.get_db_connection_string()
 
                 scraper = MQL5HistoricalScraper(
-                    zai_api_key=self.config.zai_api_key or "test",
                     db_connection_string=db_conn,
-                    use_zai=use_zai,
                     publisher=self.publisher
                 )
                 scraper_name = 'mql5_economic_calendar'
-                logger.info(f"✅ MQL5 Economic Calendar | Z.ai: {use_zai} | DB: {bool(db_conn)}")
+                logger.info(f"✅ MQL5 Economic Calendar | Parser: BeautifulSoup | DB: {bool(db_conn)}")
 
             # FRED Economic Indicators
             elif scraper_config.source == 'fred.stlouisfed.org':
@@ -290,6 +287,15 @@ class ExternalDataCollector:
         """Graceful shutdown"""
         logger.info("🛑 Stopping External Data Collector...")
         self.is_running = False
+
+        # Close MQL5 scraper browser (Playwright)
+        if 'mql5_economic_calendar' in self.scrapers:
+            try:
+                scraper = self.scrapers['mql5_economic_calendar']['scraper']
+                await scraper.close_browser()
+                logger.info("✅ MQL5 browser closed")
+            except Exception as e:
+                logger.error(f"⚠️ Failed to close MQL5 browser: {e}")
 
         # Close publisher
         if self.publisher:

@@ -1,12 +1,21 @@
 #!/usr/bin/env python3
 """
 MQL5 Historical Economic Calendar Scraper
-Uses aiohttp + BeautifulSoup + Z.ai for intelligent scraping
+Uses Playwright + BeautifulSoup for JavaScript rendering and HTML parsing
+
+Features:
+- Playwright for JavaScript rendering (handles dynamic content)
+- BeautifulSoup HTML parser (fast, reliable, no API cost)
+- Historical backfill (10 years back)
+- Rate limiting to avoid blocking
+- NATS+Kafka real-time publishing
+- Date tracking for incremental updates
 """
 import asyncio
 import aiohttp
 import re
 from bs4 import BeautifulSoup
+from playwright.async_api import async_playwright
 from datetime import datetime, timedelta, date
 from typing import List, Dict, Optional, Any
 from pathlib import Path
@@ -20,215 +29,73 @@ from utils.date_tracker import DateTracker
 from publishers import ExternalDataPublisher, DataType
 
 
-class ZAIParser:
-    """Z.ai GLM-4.5-air parser for intelligent HTML parsing"""
-
-    def __init__(self, api_key: str):
-        self.api_key = api_key
-        self.base_url = "https://api.z.ai/api/coding/paas/v4/chat/completions"
-        self.model = "glm-4.5-air"
-
-    async def parse_calendar_html(
-        self,
-        html: str,
-        target_date: Optional[date] = None
-    ) -> List[Dict[str, Any]]:
-        """
-        Parse HTML with Z.ai GLM
-
-        Args:
-            html: HTML content to parse
-            target_date: Optional date to filter events
-
-        Returns:
-            List of parsed events
-        """
-        date_filter = target_date.strftime('%Y-%m-%d') if target_date else "any date"
-
-        prompt = f"""Extract economic calendar events from this HTML content.
-{f"Filter for date: {date_filter}" if target_date else "Extract all dates"}
-
-HTML Content (truncated to 15000 chars):
-{html[:15000]}
-
-Return JSON array with this EXACT structure:
-[
-  {{
-    "date": "YYYY-MM-DD",
-    "time": "HH:MM",
-    "currency": "USD",
-    "event": "Event Name",
-    "forecast": "value or null",
-    "previous": "value or null",
-    "actual": "value or null",
-    "impact": "high/medium/low or null"
-  }}
-]
-
-Rules:
-- Only include events for date {date_filter}
-- If value is empty/missing, use null
-- Keep original value format (%, K, M, B, etc)
-- Impact: high/medium/low based on market importance
-- Return ONLY valid JSON array, no markdown or explanation
-"""
-
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json"
-        }
-
-        payload = {
-            "model": self.model,
-            "messages": [
-                {
-                    "role": "user",
-                    "content": prompt
-                }
-            ],
-            "temperature": 0.1,  # Low temperature for consistent parsing
-            "max_tokens": 4000
-        }
-
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    self.base_url,
-                    headers=headers,
-                    json=payload,
-                    timeout=aiohttp.ClientTimeout(total=30)
-                ) as response:
-                    if response.status == 200:
-                        result = await response.json()
-
-                        # DEBUG: Log full result structure
-                        print(f"🔍 Z.ai result keys: {result.keys()}")
-                        print(f"🔍 Z.ai choices: {result.get('choices', [])}")
-
-                        content = result['choices'][0]['message']['content']
-
-                        # DEBUG: Log Z.ai response
-                        print(f"🔍 Z.ai response length: {len(content)}")
-                        print(f"🔍 Z.ai response (first 1000 chars): {content[:1000]}")
-                        print(f"🔍 Z.ai response (full): {content}")
-
-                        # Extract JSON from response
-                        events = self._extract_json_from_response(content)
-                        print(f"🔍 Extracted {len(events)} events from JSON")
-
-                        # Validate and clean
-                        validated = self._validate_events(events, target_date)
-                        print(f"🔍 Validated {len(validated)} events after filtering")
-
-                        return validated
-                    else:
-                        error_text = await response.text()
-                        print(f"❌ Z.ai API error: {response.status} - {error_text[:200]}")
-                        return []
-
-        except Exception as e:
-            import traceback
-            print(f"❌ Z.ai parsing error: {e}")
-            print(f"Traceback: {traceback.format_exc()}")
-            return []
-
-    def _extract_json_from_response(self, content: str) -> List[Dict]:
-        """Extract JSON array from response (handles markdown code blocks)"""
-        # Remove markdown code blocks if present
-        content = re.sub(r'```json\s*', '', content)
-        content = re.sub(r'```\s*', '', content)
-
-        try:
-            return json.loads(content)
-        except json.JSONDecodeError:
-            # Try to find JSON array in text
-            match = re.search(r'\[.*\]', content, re.DOTALL)
-            if match:
-                return json.loads(match.group(0))
-            return []
-
-    def _validate_events(
-        self,
-        events: List[Dict],
-        target_date: Optional[date]
-    ) -> List[Dict]:
-        """Validate and clean parsed events"""
-        validated = []
-
-        for event in events:
-            # Check required fields
-            if not all(k in event for k in ['date', 'time', 'currency', 'event']):
-                continue
-
-            # Date filter
-            if target_date:
-                try:
-                    event_date = datetime.strptime(event['date'], '%Y-%m-%d').date()
-                    if event_date != target_date:
-                        continue
-                except:
-                    continue
-
-            # Clean values
-            for key in ['forecast', 'previous', 'actual', 'impact']:
-                if key not in event or event[key] in ['null', '', 'None']:
-                    event[key] = None
-
-            validated.append(event)
-
-        return validated
-
-
 class MQL5HistoricalScraper:
     """
     MQL5 Economic Calendar Historical Scraper
 
     Features:
-    - aiohttp for HTTP requests (bypasses bot detection)
-    - Z.ai for intelligent HTML parsing
+    - Playwright for JavaScript rendering (handles dynamic content loading)
+    - BeautifulSoup for robust HTML parsing (NO AI needed!)
     - DateTracker for progress tracking
-    - Smart incremental scraping
+    - Historical backfill (10 years back)
+    - Smart incremental scraping with rate limiting
     """
 
     def __init__(
         self,
-        zai_api_key: str,
         db_connection_string: Optional[str] = None,
-        use_zai: bool = True,
         publisher: Optional[ExternalDataPublisher] = None
     ):
         """
         Initialize scraper
 
         Args:
-            zai_api_key: Z.ai API key
             db_connection_string: PostgreSQL connection string
-            use_zai: Whether to use Z.ai parser (fallback to regex if False)
             publisher: Optional NATS+Kafka publisher for real-time distribution
         """
         self.base_url = "https://www.mql5.com/en/economic-calendar"
-        self.zai_parser = ZAIParser(zai_api_key) if use_zai else None
         self.tracker = DateTracker(db_connection_string)
         self.publisher = publisher
+        self.playwright = None
+        self.browser = None
 
-        # HTTP headers (proven to work)
-        self.headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.9',
-            'Accept-Encoding': 'gzip, deflate',  # No brotli
-            'Connection': 'keep-alive',
-        }
+    async def init_browser(self):
+        """Initialize Playwright browser for JavaScript rendering with anti-detection"""
+        if not self.playwright:
+            self.playwright = await async_playwright().start()
+            # Launch with anti-detection args
+            self.browser = await self.playwright.chromium.launch(
+                headless=True,
+                args=[
+                    '--disable-blink-features=AutomationControlled',
+                    '--no-sandbox',
+                    '--disable-setuid-sandbox',
+                    '--disable-dev-shm-usage',
+                    '--disable-accelerated-2d-canvas',
+                    '--no-first-run',
+                    '--no-zygote',
+                    '--disable-gpu'
+                ]
+            )
+            print("✅ Playwright browser initialized (stealth mode)")
+
+    async def close_browser(self):
+        """Close Playwright browser"""
+        if self.browser:
+            await self.browser.close()
+        if self.playwright:
+            await self.playwright.stop()
+            print("✅ Playwright browser closed")
 
     async def fetch_html(self, target_date: Optional[date] = None) -> str:
         """
-        Fetch HTML from MQL5
+        Fetch HTML from MQL5 using Playwright (JavaScript rendering)
 
         Args:
             target_date: Optional date for URL filtering
 
         Returns:
-            HTML content
+            HTML content after JavaScript execution
         """
         # Build URL with date parameter
         url = self.base_url
@@ -238,35 +105,206 @@ class MQL5HistoricalScraper:
         print(f"   📡 Fetching: {url}")
 
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(
-                    url,
-                    headers=self.headers,
-                    timeout=aiohttp.ClientTimeout(total=30)
-                ) as response:
-                    if response.status == 200:
-                        html = await response.text()
-                        print(f"   ✅ Received {len(html)} bytes of HTML")
-                        print(f"   🔍 HTML preview (first 200 chars): {html[:200]}")
-                        return html
-                    else:
-                        print(f"❌ HTTP {response.status} for {url}")
-                        return ""
+            # Initialize browser if not already done
+            if not self.browser:
+                await self.init_browser()
+
+            # Create new page with anti-detection
+            page = await self.browser.new_page(
+                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                viewport={'width': 1920, 'height': 1080},
+                locale='en-US'
+            )
+
+            # Remove webdriver flag
+            await page.add_init_script("""
+                Object.defineProperty(navigator, 'webdriver', {
+                    get: () => undefined
+                });
+            """)
+
+            # Navigate and wait for content to load
+            await page.goto(url, wait_until='networkidle', timeout=30000)
+
+            # Wait for calendar container to appear (dynamic content)
+            try:
+                await page.wait_for_selector('.economic-calendar__content', timeout=10000)
+                print("   ✅ Calendar content loaded")
+            except:
+                print("   ⚠️  Calendar content selector not found")
+                # Try alternative selector
+                try:
+                    await page.wait_for_selector('table', timeout=5000)
+                    print("   ✅ Found table element")
+                except:
+                    print("   ⚠️  No table element found")
+
+            # Get rendered HTML
+            html = await page.content()
+            await page.close()
+
+            print(f"   ✅ Received {len(html)} bytes of rendered HTML")
+
+            # Debug: print first 500 chars if HTML is suspiciously small
+            if len(html) < 1000:
+                print(f"   🔍 HTML content: {html[:500]}")
+
+            return html
 
         except Exception as e:
             print(f"❌ Fetch error: {e}")
             return ""
 
-    def parse_html_regex(self, html: str) -> List[Dict[str, Any]]:
+    def parse_html_beautifulsoup(self, html: str, target_date: Optional[date] = None) -> List[Dict[str, Any]]:
         """
-        Fallback regex parser (if Z.ai not available)
+        BeautifulSoup HTML parser for MQL5 calendar structure
+
+        MQL5 uses: <div class="ec-table__item"> for each event
 
         Args:
             html: HTML content
+            target_date: Optional date filter
 
         Returns:
             List of parsed events
         """
+        soup = BeautifulSoup(html, 'lxml')
+        events = []
+
+        # Find all calendar event items (MQL5 structure)
+        rows = soup.find_all('div', class_='ec-table__item')
+
+        print(f"🔍 Found {len(rows)} economic events in HTML")
+
+        # Track current date from date titles
+        current_date = target_date.isoformat() if target_date else None
+
+        for row in rows:
+            try:
+                event = {}
+
+                # Check if previous sibling is a date title
+                prev_sibling = row.find_previous_sibling('div', class_='ec-table__title')
+                if prev_sibling:
+                    date_text = prev_sibling.get_text(strip=True)
+                    # Parse "13 October, Monday" → 2025-10-13
+                    try:
+                        parts = date_text.split(',')[0].strip()  # "13 October"
+                        year = datetime.now().year
+                        parsed_date = datetime.strptime(f"{parts} {year}", "%d %B %Y").date()
+                        current_date = parsed_date.isoformat()
+                    except:
+                        pass
+
+                if not current_date:
+                    continue
+
+                event['date'] = current_date
+
+                # Extract time
+                time_elem = row.find('div', class_='ec-table__col_time')
+                if time_elem:
+                    time_div = time_elem.find('div')
+                    event['time'] = time_div.get_text(strip=True) if time_div else 'All day'
+                else:
+                    event['time'] = 'All day'
+
+                # Extract currency
+                currency_elem = row.find('div', class_='ec-table__curency-name')
+                if currency_elem:
+                    event['currency'] = currency_elem.get_text(strip=True)
+                else:
+                    event['currency'] = 'ALL'
+
+                # Extract event name
+                event_elem = row.find('div', class_='ec-table__col_event')
+                if event_elem:
+                    link = event_elem.find('a')
+                    event['event'] = link.get_text(strip=True) if link else event_elem.get_text(strip=True)
+                else:
+                    continue  # Skip if no event name
+
+                # Extract forecast
+                forecast_elem = row.find('div', class_='ec-table__col_forecast')
+                if forecast_elem:
+                    forecast = forecast_elem.get_text(strip=True)
+                    event['forecast'] = forecast if forecast and forecast != '-' else None
+                else:
+                    event['forecast'] = None
+
+                # Extract previous
+                previous_elem = row.find('div', class_='ec-table__col_previous')
+                if previous_elem:
+                    prev_div = previous_elem.find('div')
+                    previous = prev_div.get_text(strip=True) if prev_div else previous_elem.get_text(strip=True)
+                    event['previous'] = previous if previous and previous != '-' else None
+                else:
+                    event['previous'] = None
+
+                # Extract actual
+                actual_elem = row.find('div', class_='ec-table__col_actual')
+                if actual_elem:
+                    actual_span = actual_elem.find('span')
+                    actual = actual_span.get_text(strip=True) if actual_span else actual_elem.get_text(strip=True)
+                    event['actual'] = actual if actual and actual != '-' else None
+                else:
+                    event['actual'] = None
+
+                # Extract impact level
+                impact_elem = row.find('span', class_=lambda x: x and 'ec-table__importance' in x)
+                if impact_elem:
+                    classes = impact_elem.get('class', [])
+                    for cls in classes:
+                        if '_low' in cls:
+                            event['impact'] = 'low'
+                            break
+                        elif '_medium' in cls:
+                            event['impact'] = 'medium'
+                            break
+                        elif '_high' in cls:
+                            event['impact'] = 'high'
+                            break
+                    else:
+                        title = impact_elem.get('title', '').lower()
+                        if 'high' in title:
+                            event['impact'] = 'high'
+                        elif 'medium' in title:
+                            event['impact'] = 'medium'
+                        else:
+                            event['impact'] = 'low'
+                else:
+                    event['impact'] = 'low'
+
+                # Date filter
+                if target_date:
+                    try:
+                        event_date = datetime.strptime(event['date'], '%Y-%m-%d').date()
+                        if event_date != target_date:
+                            continue
+                    except:
+                        continue
+
+                # Clean empty values
+                for key in ['forecast', 'previous', 'actual']:
+                    if event.get(key) in ['', '-', '—', 'N/A', None]:
+                        event[key] = None
+
+                events.append(event)
+
+            except Exception as e:
+                print(f"⚠️ Skipping row due to parse error: {e}")
+                continue
+
+        print(f"✅ Successfully parsed {len(events)} events")
+        return events
+
+    def parse_html_regex(self, html: str) -> List[Dict[str, Any]]:
+        """
+        DEPRECATED: Legacy regex parser (kept for fallback)
+        USE parse_html_beautifulsoup() instead!
+        """
+        print("⚠️ Using deprecated regex parser - consider using BeautifulSoup parser")
+
         soup = BeautifulSoup(html, 'lxml')
         text = soup.get_text()
 
@@ -307,7 +345,7 @@ class MQL5HistoricalScraper:
 
     async def scrape_date(self, target_date: date) -> List[Dict[str, Any]]:
         """
-        Scrape single date
+        Scrape single date using BeautifulSoup parser (NO AI!)
 
         Args:
             target_date: Date to scrape
@@ -324,15 +362,9 @@ class MQL5HistoricalScraper:
             print(f"   ❌ No HTML retrieved")
             return []
 
-        # Parse with Z.ai or regex
-        if self.zai_parser:
-            print(f"   🤖 Parsing with Z.ai...")
-            events = await self.zai_parser.parse_calendar_html(html, target_date)
-        else:
-            print(f"   📝 Parsing with regex...")
-            events = self.parse_html_regex(html)
-            # Filter for target date
-            events = [e for e in events if e['date'] == target_date.strftime('%Y-%m-%d')]
+        # Parse with BeautifulSoup (robust HTML parser - NO AI!)
+        print(f"   📝 Parsing with BeautifulSoup...")
+        events = self.parse_html_beautifulsoup(html, target_date)
 
         print(f"   ✅ Found {len(events)} events")
 

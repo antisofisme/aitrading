@@ -185,34 +185,39 @@ class ExternalDataWriter:
             data = item['data']
             metadata = item['metadata']
 
-            # Parse date string (YYYY-MM-DD) to datetime.date object
+            # Parse date + time to event_time (DateTime64)
             event_date_str = data.get('date', '')
-            if event_date_str:
-                try:
-                    from datetime import datetime as dt
-                    event_date = dt.strptime(event_date_str, '%Y-%m-%d').date()
-                except:
-                    event_date = datetime.utcnow().date()
-            else:
-                event_date = datetime.utcnow().date()
+            event_time_str = data.get('time', '00:00')
 
-            # Handle NULL values with defaults (convert None to '')
+            try:
+                # Combine date + time → datetime
+                from datetime import datetime as dt
+                event_datetime_str = f"{event_date_str} {event_time_str}"
+                event_time = dt.strptime(event_datetime_str, '%Y-%m-%d %H:%M')
+                # Make timezone-aware (UTC)
+                import pytz
+                event_time = pytz.UTC.localize(event_time)
+            except:
+                event_time = datetime.utcnow()
+
+            # Map impact: 'high'/'medium'/'low' or None → lowercase string
+            impact = (data.get('impact') or 'low').lower()
+
+            # Schema: event_time, currency, event_name, impact, forecast, previous, actual, scraped_at
             rows.append([
-                event_date,  # datetime.date object, not string
-                data.get('time') or '',
-                data.get('currency') or '',
-                data.get('event') or '',
-                data.get('forecast') or '',
-                data.get('previous') or '',
-                data.get('actual') or '',
-                data.get('impact') or '',  # Fixed: None → ''
-                metadata.get('source') or 'mql5',
-                item['collected_at']  # datetime object
+                event_time,  # DateTime64(3, 'UTC')
+                data.get('currency') or '',  # String
+                data.get('event') or '',  # event_name - String
+                impact,  # Enum8('low', 'medium', 'high')
+                data.get('forecast'),  # Nullable(String)
+                data.get('previous'),  # Nullable(String)
+                data.get('actual'),  # Nullable(String)
+                item['collected_at']  # scraped_at - DateTime64(3, 'UTC')
             ])
 
         self.client.insert('external_economic_calendar', rows,
-                          column_names=['date', 'time', 'currency', 'event', 'forecast',
-                                       'previous', 'actual', 'impact', 'source', 'collected_at'])
+                          column_names=['event_time', 'currency', 'event_name', 'impact',
+                                       'forecast', 'previous', 'actual', 'scraped_at'])
 
     async def _write_fred_economic(self, buffer: List[Dict]):
         """Write FRED economic indicators to ClickHouse"""
@@ -221,30 +226,47 @@ class ExternalDataWriter:
             data = item['data']
             metadata = item['metadata']
 
-            # Parse observation date (YYYY-MM-DD string → datetime.date)
+            # Parse observation date (YYYY-MM-DD string → DateTime64 with 00:00:00 time)
             observation_date_str = data.get('date', '')
             if observation_date_str:
                 try:
-                    # Parse date string to datetime.date object
-                    from datetime import datetime
-                    observation_date = datetime.strptime(observation_date_str, '%Y-%m-%d').date()
+                    from datetime import datetime as dt
+                    import pytz
+                    # Parse date and set time to midnight UTC
+                    release_time = dt.strptime(observation_date_str, '%Y-%m-%d')
+                    release_time = pytz.UTC.localize(release_time)
                 except:
-                    observation_date = datetime.utcnow().date()
+                    release_time = datetime.utcnow()
             else:
-                from datetime import datetime
-                observation_date = datetime.utcnow().date()
+                release_time = datetime.utcnow()
 
-            # Handle NULL values with defaults
+            # Schema: release_time, series_id, series_name, value, unit, scraped_at
+            series_id = data.get('series_id', '')
+
+            # Map series_id to series_name and unit
+            series_mapping = {
+                'GDP': ('Gross Domestic Product', 'Billions'),
+                'UNRATE': ('Unemployment Rate', 'Percent'),
+                'CPIAUCSL': ('Consumer Price Index', 'Index'),
+                'DFF': ('Federal Funds Rate', 'Percent'),
+                'DGS10': ('10-Year Treasury Rate', 'Percent'),
+                'DEXUSEU': ('USD/EUR Exchange Rate', 'Rate'),
+                'DEXJPUS': ('JPY/USD Exchange Rate', 'Rate')
+            }
+
+            series_name, unit = series_mapping.get(series_id, (series_id, 'Unknown'))
+
             rows.append([
-                data.get('series_id', ''),
-                float(data.get('value') or 0),
-                observation_date,  # datetime.date object, not string
-                metadata.get('source', 'fred'),
-                item['collected_at']  # datetime object
+                release_time,  # DateTime64(3, 'UTC')
+                series_id,  # String
+                series_name,  # String
+                float(data.get('value') or 0),  # Float64
+                unit,  # String
+                item['collected_at']  # scraped_at - DateTime64(3, 'UTC')
             ])
 
-        self.client.insert('external_fred_economic', rows,
-                          column_names=['series_id', 'value', 'observation_date', 'source', 'collected_at'])
+        self.client.insert('external_fred_indicators', rows,
+                          column_names=['release_time', 'series_id', 'series_name', 'value', 'unit', 'scraped_at'])
 
     async def _write_crypto_sentiment(self, buffer: List[Dict]):
         """Write crypto sentiment to ClickHouse"""
@@ -315,23 +337,34 @@ class ExternalDataWriter:
             data = item['data']
             metadata = item['metadata']
 
-            # Handle NULL values with defaults
+            # Schema: price_time, symbol, commodity_name, price, currency, change_pct, volume, scraped_at
+
+            # Map symbol to commodity_name
+            commodity_mapping = {
+                'GC=F': 'Gold',
+                'CL=F': 'Crude Oil',
+                'SI=F': 'Silver',
+                'HG=F': 'Copper',
+                'NG=F': 'Natural Gas'
+            }
+
+            symbol = data.get('symbol', '')
+            commodity_name = commodity_mapping.get(symbol, data.get('name', symbol))
+
             rows.append([
-                data.get('symbol', ''),
-                data.get('name', ''),
-                data.get('currency', 'USD'),
-                float(data.get('price') or 0),
-                float(data.get('previous_close') or 0),
-                float(data.get('change') or 0),
-                float(data.get('change_percent') or 0),
-                int(data.get('volume') or 0),
-                metadata.get('source', 'yahoo'),
-                item['collected_at']  # datetime object
+                item['collected_at'],  # price_time - DateTime64(3, 'UTC')
+                symbol,  # String
+                commodity_name,  # String
+                float(data.get('price') or 0),  # Decimal(18,5)
+                data.get('currency', 'USD'),  # String
+                float(data.get('change_percent') or 0),  # change_pct - Float64
+                int(data.get('volume') or 0),  # UInt64
+                item['collected_at']  # scraped_at - DateTime64(3, 'UTC')
             ])
 
         self.client.insert('external_commodity_prices', rows,
-                          column_names=['symbol', 'name', 'currency', 'price', 'previous_close',
-                                       'change', 'change_percent', 'volume', 'source', 'collected_at'])
+                          column_names=['price_time', 'symbol', 'commodity_name', 'price',
+                                       'currency', 'change_pct', 'volume', 'scraped_at'])
 
     async def _write_market_sessions(self, buffer: List[Dict]):
         """Write market sessions to ClickHouse"""

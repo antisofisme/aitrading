@@ -13,9 +13,10 @@ httpx==0.26.0
 asyncpg==0.29.0
 python-dateutil==2.8.2
 
-# Scraping (aiohttp + BeautifulSoup - NO Playwright/Selenium!)
+# Scraping (Playwright + BeautifulSoup for JavaScript rendering)
 beautifulsoup4==4.12.3
 lxml==5.1.0
+playwright==1.48.0
 
 # Data processing
 pandas==2.2.0
